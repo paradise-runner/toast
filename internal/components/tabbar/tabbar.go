@@ -11,6 +11,11 @@ import (
 	"github.com/yourusername/toast/internal/theme"
 )
 
+const (
+	exitButtonIcon  = " ✕ "
+	exitButtonWidth = 3 // display width: space + icon + space
+)
+
 // Tab represents a single open tab in the tab bar.
 type Tab struct {
 	BufferID int
@@ -20,17 +25,19 @@ type Tab struct {
 
 // Model is the tab bar component model.
 type Model struct {
-	theme  *theme.Manager
-	width  int
-	tabs   []Tab
-	active int
+	theme       *theme.Manager
+	width       int
+	tabs        []Tab
+	active      int
+	exitButtonX int
 }
 
 // New creates a new tab bar model with the given theme manager.
 func New(tm *theme.Manager) Model {
 	return Model{
-		theme:  tm,
-		active: -1,
+		theme:       tm,
+		active:      -1,
+		exitButtonX: -1,
 	}
 }
 
@@ -85,6 +92,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		if m.width >= exitButtonWidth {
+			m.exitButtonX = m.width - exitButtonWidth
+		} else {
+			m.exitButtonX = -1
+		}
 
 	case tea.MouseReleaseMsg:
 		return m.handleMouseRelease(msg)
@@ -98,6 +110,11 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (Model, tea.Cmd) {
 	// Only handle events on row 0 (the tab bar row).
 	if msg.Y != 0 {
 		return m, nil
+	}
+
+	// Exit button at the far right.
+	if msg.Button == tea.MouseLeft && m.exitButtonX >= 0 && msg.X >= m.exitButtonX && msg.X < m.exitButtonX+exitButtonWidth {
+		return m, func() tea.Msg { return messages.QuitRequestMsg{} }
 	}
 
 	tabIdx := m.tabIndexAtX(msg.X)
@@ -220,11 +237,23 @@ func (m Model) View() tea.View {
 		usedWidth += lipgloss.Width(rendered)
 	}
 
-	// Fill remaining width with inactive background.
+	// Fill remaining width with inactive background, then exit button at far right.
 	remaining := m.width - usedWidth
 	if remaining > 0 {
-		padding := strings.Repeat(" ", remaining)
-		sb.WriteString(inactiveStyle.Render(padding))
+		buttonSpace := exitButtonWidth
+		if remaining < buttonSpace {
+			buttonSpace = 0
+		}
+		padWidth := remaining - buttonSpace
+		if padWidth > 0 {
+			sb.WriteString(inactiveStyle.Render(strings.Repeat(" ", padWidth)))
+		}
+		if buttonSpace > 0 {
+			exitStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color(m.theme.UI("tab_active_bg"))).
+				Foreground(lipgloss.Color(m.theme.UI("tab_active_fg")))
+			sb.WriteString(exitStyle.Render(exitButtonIcon))
+		}
 	}
 
 	return tea.NewView(sb.String())

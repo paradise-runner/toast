@@ -236,3 +236,15 @@ type GoToLineMsg struct{ Line int }
 
 // GoToLineCancelMsg - emitted when the go-to-line overlay is dismissed without jumping.
 type GoToLineCancelMsg struct{}
+
+// QuitRequestMsg - emitted when the user requests to quit (e.g. exit button click).
+// The app layer intercepts this and checks for unsaved changes.
+type QuitRequestMsg struct{}
+
+// QuitConfirmedMsg - result of the quit confirmation dialog.
+// Cancelled=true means the user pressed Escape/Cancel.
+// If Cancelled=false: Save=true means save then quit; Save=false means discard and quit.
+type QuitConfirmedMsg struct {
+	Save      bool
+	Cancelled bool
+}

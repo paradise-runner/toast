@@ -13,6 +13,7 @@ import (
 	"github.com/yourusername/toast/internal/components/editor"
 	"github.com/yourusername/toast/internal/components/filetree"
 	"github.com/yourusername/toast/internal/components/gotoline"
+	"github.com/yourusername/toast/internal/components/quitdialog"
 	"github.com/yourusername/toast/internal/components/search"
 	"github.com/yourusername/toast/internal/components/statusbar"
 	"github.com/yourusername/toast/internal/components/tabbar"
@@ -65,6 +66,12 @@ type Model struct {
 
 	goToLineOpen bool
 	goToLine     gotoline.Model
+
+	quitDialogOpen bool
+	quitDialog     quitdialog.Model
+
+	// pendingQuit is set while a save-then-quit sequence is in progress.
+	pendingQuit bool
 
 	// File to open immediately on startup (empty = none).
 	initialFile string
@@ -296,6 +303,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Refresh git status after save
 		cmds = append(cmds, m.runGitStatus())
+		// If a save-then-quit was requested, now quit.
+		if m.pendingQuit {
+			m.pendingQuit = false
+			return m, tea.Batch(append(cmds, tea.Quit)...)
+		}
 
 	case messages.FileCreatedMsg:
 		cmds = append(cmds, m.runGitStatus())
@@ -404,6 +416,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebarVisible = !m.sidebarVisible
 		cmds = append(cmds, m.resizeComponents()...)
 
+	case messages.QuitRequestMsg:
+		cmd := m.requestQuit()
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.QuitConfirmedMsg:
+		m.quitDialogOpen = false
+		if msg.Cancelled {
+			break
+		}
+		if msg.Save {
+			// Save the active buffer, then quit once FileSavedMsg arrives.
+			m.pendingQuit = true
+			updated, saveCmd := m.editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+			m.editor = updated.(editor.Model)
+			if saveCmd != nil {
+				cmds = append(cmds, saveCmd)
+			} else {
+				// Nothing to save (empty path); quit immediately.
+				m.pendingQuit = false
+				return m, tea.Quit
+			}
+		} else {
+			return m, tea.Quit
+		}
+
 	case messages.ThemePickerOpenMsg:
 		m.themePicker = themepicker.New(m.theme, m.themeDir, m.theme.Name())
 		m.themePicker, _ = m.themePicker.Init()
@@ -446,6 +485,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes key messages, checking app-level bindings first then
 // forwarding to the focused component.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.quitDialogOpen {
+		// Ctrl+Q while dialog is open force-quits without saving.
+		if isQuit(msg) {
+			m.quitDialogOpen = false
+			return tea.Quit
+		}
+		updated, cmd := m.quitDialog.Update(msg)
+		m.quitDialog = updated
+		return cmd
+	}
+
 	if m.closeDialogOpen {
 		updated, cmd := m.closeDialog.Update(msg)
 		m.closeDialog = updated
@@ -467,7 +517,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	// App-level keys always checked first.
 	switch {
 	case isQuit(msg):
-		return tea.Quit
+		return m.requestQuit()
 
 	case isToggleSidebar(msg):
 		m.sidebarVisible = !m.sidebarVisible
@@ -527,6 +577,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 // requestCloseTab checks if the buffer is modified and either closes it
 // immediately or opens the confirmation dialog.
+// requestQuit checks for unsaved changes and either quits immediately or opens
+// the quit confirmation dialog.
+func (m *Model) requestQuit() tea.Cmd {
+	if !m.editor.IsModified() {
+		return tea.Quit
+	}
+	m.quitDialog = quitdialog.New(m.theme, m.editor.Path())
+	m.quitDialogOpen = true
+	return nil
+}
+
 func (m *Model) requestCloseTab(bufferID int, path string) tea.Cmd {
 	// Is this the currently displayed (dirty) buffer?
 	if m.editor.BufferID() == bufferID && m.editor.IsModified() {
@@ -580,6 +641,28 @@ func (m *Model) forceCloseTab(path string) tea.Cmd {
 
 // handleMouseClick routes mouse click events to the appropriate component based on position.
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
+	if m.quitDialogOpen {
+		ow, oh := m.quitDialog.Dimensions()
+		startX := (m.width - ow) / 2
+		startY := (m.height - oh) / 2
+		if startX < 0 {
+			startX = 0
+		}
+		if startY < 0 {
+			startY = 0
+		}
+		localX := msg.X - startX
+		localY := msg.Y - startY
+		if localX < 0 || localX >= ow || localY < 0 || localY >= oh {
+			// Click outside the dialog: cancel.
+			return func() tea.Msg { return messages.QuitConfirmedMsg{Cancelled: true} }
+		}
+		local := tea.MouseClickMsg{Button: msg.Button, X: localX, Y: localY}
+		updated, cmd := m.quitDialog.Update(local)
+		m.quitDialog = updated
+		return cmd
+	}
+
 	if m.themePickerOpen {
 		ow, oh := m.themePicker.Dimensions()
 		startX := (m.width - ow) / 2
@@ -1094,6 +1177,10 @@ func (m *Model) View() tea.View {
 	}
 	if m.goToLineOpen {
 		overlayStr := m.goToLine.Render()
+		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
+	}
+	if m.quitDialogOpen {
+		overlayStr := m.quitDialog.Render()
 		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
 	}
 	if rendered, ok := m.fileTree.DeleteDialogOverlay(m.width, m.height); ok {

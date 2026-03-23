@@ -1,7 +1,7 @@
 # TODO
 
 1. [x] Theme UI + Theme UI Button
-2. [ ] Button for exiting (#1)
+2. [x] Button for exiting (#1)
 3. [NOT DOING] Default generate 'System' theme from terminal theme
 4. [x] Dots next to file names on tabs to indicate if saving is necessary
 5. [x] Ability to close file tabs
