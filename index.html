@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>toast — in-terminal IDE</title>
+
+  <style>
+    :root {
+      --bg: #0b0d14;
+      --panel: #111425;
+      --panel-2: #0f1322;
+      --text: #e6e9ef;
+      --muted: #8b93a7;
+      --border: #23283d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 56px 20px;
+    }
+
+    /* HERO */
+
+    .hero {
+      text-align: center;
+      position: relative;
+    }
+
+    .logo-wrap {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 20px;
+    }
+
+    .logo {
+      width: 140px;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* subtle animated rainbow glow */
+    .logo-wrap::before {
+      content: "";
+      position: absolute;
+      inset: -20px;
+      background: linear-gradient(
+        120deg,
+        #ff4d4d,
+        #ff9f1c,
+        #ffe600,
+        #2ec4b6,
+        #3a86ff,
+        #9b5de5,
+        #ff4d4d
+      );
+      filter: blur(30px);
+      opacity: 0.25;
+      z-index: 1;
+      animation: glow 12s linear infinite;
+    }
+
+    @keyframes glow {
+      0% { transform: rotate(0deg) scale(1); }
+      50% { transform: rotate(180deg) scale(1.05); }
+      100% { transform: rotate(360deg) scale(1); }
+    }
+
+    h1 {
+      font-size: 2.6rem;
+      margin: 0;
+      letter-spacing: -1px;
+    }
+
+    .tagline {
+      color: var(--muted);
+      margin-top: 10px;
+      font-size: 1.05rem;
+    }
+
+    .buttons {
+      margin-top: 22px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      text-decoration: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      transition: 0.2s;
+    }
+
+    .btn:hover {
+      border-color: #3a86ff;
+      color: #3a86ff;
+      transform: translateY(-1px);
+    }
+
+    /* SCREENSHOT */
+
+    .screenshot {
+      margin-top: 50px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    }
+
+    .screenshot img {
+      width: 100%;
+      display: block;
+    }
+
+    /* FEATURES */
+
+    .features {
+      margin-top: 70px;
+    }
+
+    .features h2 {
+      font-size: 1.5rem;
+      margin-bottom: 18px;
+    }
+
+    .feature {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .feature-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .feature-desc {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    code {
+      color: #7aa2f7;
+    }
+
+    /* FOOTER */
+
+    .footer {
+      margin-top: 70px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+
+    <section class="hero">
+      <div class="logo-wrap">
+        <img src="toast-logo.png" alt="toast logo" class="logo" />
+      </div>
+
+      <h1>toast</h1>
+      <div class="tagline">
+        fast, terminal-native editing with modern IDE ergonomics
+      </div>
+
+      <div class="buttons">
+        <a class="btn" href="https://github.com/paradise-runner/toast">GitHub</a>
+        <a class="btn" href="https://github.com/paradise-runner/toast/releases">Download</a>
+      </div>
+    </section>
+
+    <!-- REAL SCREENSHOT -->
+    <div class="screenshot">
+      <img src="toast-example.png" alt="toast screenshot" />
+    </div>
+
+    <!-- DEV-FOCUSED FEATURES -->
+    <section class="features">
+      <h2>capabilities</h2>
+
+      <div class="feature">
+        <div class="feature-title">multi-buffer, multi-tab workflow</div>
+        <div class="feature-desc">
+          persistent buffers with dirty-state tracking and fast tab switching — no modal friction
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">tree-sitter powered parsing</div>
+        <div class="feature-desc">
+          incremental parsing for accurate highlighting across Go, Python, JS/TS, Rust and more
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">first-class LSP integration</div>
+        <div class="feature-desc">
+          completions, hover, diagnostics, and go-to-definition without leaving the terminal
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">ripgrep-backed search</div>
+        <div class="feature-desc">
+          project-wide search via <code>rg</code> with instant results and minimal overhead
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">git-aware file tree</div>
+        <div class="feature-desc">
+          status indicators, staging workflows, and file operations built directly into the sidebar
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">rope-based text engine</div>
+        <div class="feature-desc">
+          efficient large-file editing with predictable performance and full undo/redo history
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">theme + vscode compatibility</div>
+        <div class="feature-desc">
+          built-in dark/light themes and support for importing VSCode themes
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="feature-title">config-first design</div>
+        <div class="feature-desc">
+          everything configurable via <code>~/.config/toast/config.json</code>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      terminal-native • fast • composable
+    </div>
+
+  </div>
+</body>
+</html>
