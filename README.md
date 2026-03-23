@@ -22,8 +22,8 @@ A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your
 **Homebrew (macOS)**
 
 ```bash
-brew tap paradise-runner/tap
-brew install toast
+brew tap paradise-runner/homebrew-tap
+brew install paradise-runner/tap/toast
 ```
 
 **Download a release**
