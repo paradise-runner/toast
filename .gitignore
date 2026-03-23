@@ -1,0 +1,6 @@
+.worktrees/
+bin/
+*.test
+*.out
+.superpowers/
+.DS_Store

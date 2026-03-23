@@ -1,0 +1,21 @@
+# TODO
+
+1. [x] Theme UI + Theme UI Button
+2. [ ] Button for exiting
+3. [NOT DOING] Default generate 'System' theme from terminal theme
+4. [x] Dots next to file names on tabs to indicate if saving is necessary
+5. [x] Ability to close file tabs
+6. [x] toast <filename> opens toast in that directory and opens the file
+7. [x] Support for word skipping with OPTION+ARROW and line skipping with CMD+ARRROW
+8. [x] Create new files
+9. [x] Syntax Highlighting shows for new/altered text
+10. [x] I can't paste into files
+11. [x] auto save option
+12. [x] make git state in file tree clearer and look much nicer
+13. [x] OPTION+BACKSPACE deletes words
+14. [x] saving doesn't reset cursor position
+15. [x] guard against opening binary files and crashing the text editor
+16. [ ] Spread -> Markdown previewing in Toast
+17. [ ] Add in a script to migrate zed themes to toast themes
+18. [x] Add in a script to migrate vscode themes to toast themes
+

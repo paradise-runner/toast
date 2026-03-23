@@ -1,0 +1,36 @@
+{
+  "name": "Toast Light",
+  "variant": "light",
+  "ui": {
+    "background": "#eff1f5", "foreground": "#4c4f69", "cursor": "#dc8a78",
+    "selection": "#acb0be", "line_highlight": "#e6e9ef", "border": "#bcc0cc",
+    "tab_active_bg": "#eff1f5", "tab_active_fg": "#4c4f69",
+    "tab_inactive_bg": "#e6e9ef", "tab_inactive_fg": "#8c8fa1",
+    "sidebar_bg": "#e6e9ef", "sidebar_fg": "#4c4f69",
+    "sidebar_selected_bg": "#bcc0cc", "sidebar_selected_fg": "#4c4f69",
+    "statusbar_bg": "#e6e9ef", "statusbar_fg": "#6c6f85",
+    "breadcrumbs_fg": "#8c8fa1", "breadcrumbs_active_fg": "#4c4f69",
+    "gutter_fg": "#bcc0cc", "gutter_active_fg": "#4c4f69",
+    "diagnostic_error": "#d20f39", "diagnostic_warning": "#df8e1d",
+    "diagnostic_info": "#1e66f5", "diagnostic_hint": "#40a02b",
+    "completion_bg": "#e6e9ef", "completion_fg": "#4c4f69", "completion_selected": "#bcc0cc",
+    "hover_bg": "#e6e9ef", "hover_fg": "#4c4f69", "hover_border": "#acb0be",
+    "search_match_bg": "#df8e1d", "search_match_fg": "#eff1f5",
+    "search_current_bg": "#fe640b", "search_current_fg": "#eff1f5"
+  },
+  "syntax": {
+    "keyword": { "fg": "#8839ef", "bold": true },
+    "string": { "fg": "#40a02b" }, "number": { "fg": "#fe640b" },
+    "comment": { "fg": "#8c8fa1", "italic": true },
+    "function": { "fg": "#1e66f5" }, "type": { "fg": "#df8e1d" },
+    "variable": { "fg": "#4c4f69" }, "constant": { "fg": "#fe640b" },
+    "operator": { "fg": "#04a5e5" }, "punctuation": { "fg": "#6c6f85" },
+    "tag": { "fg": "#8839ef" }, "attribute": { "fg": "#df8e1d" },
+    "property": { "fg": "#1e66f5" }, "module": { "fg": "#d20f39" },
+    "builtin": { "fg": "#d20f39" }
+  },
+  "git": {
+    "added": "#40a02b", "modified": "#df8e1d", "deleted": "#d20f39",
+    "untracked": "#8c8fa1", "conflict": "#fe640b"
+  }
+}
