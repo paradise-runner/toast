@@ -18,12 +18,9 @@ jobs:
           - runner: macos-latest
             goarch: arm64
             asset: toast-darwin-arm64
-          - runner: macos-13
+          - runner: macos-14
             goarch: amd64
             asset: toast-darwin-amd64
-          - runner: ubuntu-latest
-            goarch: arm64
-            asset: toast-linux-arm64
           - runner: ubuntu-latest
             goarch: amd64
             asset: toast-linux-amd64
@@ -35,15 +32,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install ARM64 cross-compiler (Linux ARM64 only)
-        if: matrix.runner == 'ubuntu-latest' && matrix.goarch == 'arm64'
-        run: sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Build
         env:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
-          CC: ${{ matrix.runner == 'ubuntu-latest' && matrix.goarch == 'arm64' && 'aarch64-linux-gnu-gcc' || '' }}
         run: go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ${{ matrix.asset }} ./cmd/toast
 
       - name: Archive (zip)
