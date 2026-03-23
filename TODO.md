@@ -19,3 +19,7 @@
 17. [ ] Add in a script to migrate zed themes to toast themes (#3)
 18. [x] Add in a script to migrate vscode themes to toast themes
 19. [ ] Opening one tab, then another, and switching back to the first tab, the editor gets stuck on the second tab opened (#4)
+20. [ ] Scrolling is dependant on cursor position instead of smooth scrolling the editor (#5)
+21. [ ] Add harper for markdown spelling (#6)
+22. [ ] On small screens, the cursor gets lost as text goes beyond the editor bounds (#8)
+23. [ ] Add a 'Save' button (#7)
