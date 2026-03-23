@@ -23,3 +23,4 @@
 21. [ ] Add harper for markdown spelling (#6)
 22. [ ] On small screens, the cursor gets lost as text goes beyond the editor bounds (#8)
 23. [ ] Add a 'Save' button (#7)
+24. [x] fix folders not showing git changes

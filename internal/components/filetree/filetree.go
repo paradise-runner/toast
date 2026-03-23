@@ -28,6 +28,8 @@ type Model struct {
 	width   int
 	focused bool
 
+	gitStatuses map[string]messages.GitStatus
+
 	// ── Context menu & inline edit ────────────────────────────────────────────────
 	ctxMenu         *ContextMenu
 	deleteDialog    *DeleteConfirmDialog
@@ -204,6 +206,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case messages.GitStatusUpdatedMsg:
+		m.gitStatuses = msg.FileStatuses
 		m.applyGitStatus(msg.FileStatuses)
 	}
 
@@ -259,6 +262,11 @@ func (m Model) View() tea.View {
 
 		icon := m.gitIcon(node.GitStatus)
 		hasIcon := icon != " "
+		// Don't show git icon on the root folder itself
+		if node == m.root {
+			icon = " "
+			hasIcon = false
+		}
 		gitColor := ""
 		if hasIcon {
 			gitColor = m.gitColor(node.GitStatus)
@@ -364,6 +372,9 @@ func (m Model) activateNode(idx int) (Model, tea.Cmd) {
 				_ = node.LoadChildren(m.cfg.IgnoredPatterns)
 			}
 			node.Expanded = true
+			if m.gitStatuses != nil {
+				m.applyGitStatus(m.gitStatuses)
+			}
 		}
 		m.rebuildFlat()
 		return m, nil
@@ -436,6 +447,9 @@ func (m *Model) expandPath(path string) {
 		return false
 	}
 	expand(m.root)
+	if m.gitStatuses != nil {
+		m.applyGitStatus(m.gitStatuses)
+	}
 	m.rebuildFlat()
 }
 
@@ -612,6 +626,9 @@ func (m *Model) reloadDir(dirPath string) {
 		return false
 	}
 	reload(m.root)
+	if m.gitStatuses != nil {
+		m.applyGitStatus(m.gitStatuses)
+	}
 	m.rebuildFlat()
 }
 
@@ -645,12 +662,26 @@ func applyToNode(node *TreeNode, statuses map[string]messages.GitStatus) message
 		return node.GitStatus
 	}
 
-	// For directories, aggregate children statuses.
+	// For directories with loaded children, aggregate recursively.
+	if node.Children != nil {
+		var aggregated messages.GitStatus = messages.GitStatusClean
+		for _, child := range node.Children {
+			cs := applyToNode(child, statuses)
+			if cs != messages.GitStatusClean && aggregated == messages.GitStatusClean {
+				aggregated = cs
+			}
+		}
+		node.GitStatus = aggregated
+		return aggregated
+	}
+
+	// For unloaded directories, scan the status map for any path under this directory.
+	prefix := node.Path + string(filepath.Separator)
 	var aggregated messages.GitStatus = messages.GitStatusClean
-	for _, child := range node.Children {
-		cs := applyToNode(child, statuses)
-		if cs != messages.GitStatusClean && aggregated == messages.GitStatusClean {
-			aggregated = cs
+	for path, s := range statuses {
+		if s != messages.GitStatusClean && strings.HasPrefix(path, prefix) {
+			aggregated = s
+			break
 		}
 	}
 	node.GitStatus = aggregated
