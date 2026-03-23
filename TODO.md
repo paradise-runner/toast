@@ -24,3 +24,4 @@
 22. [ ] On small screens, the cursor gets lost as text goes beyond the editor bounds (#8)
 23. [ ] Add a 'Save' button (#7)
 24. [x] fix folders not showing git changes
+25. [ ] Does this need a settings dialog? (#9)
