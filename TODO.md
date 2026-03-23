@@ -1,7 +1,7 @@
 # TODO
 
 1. [x] Theme UI + Theme UI Button
-2. [ ] Button for exiting
+2. [ ] Button for exiting (#1)
 3. [NOT DOING] Default generate 'System' theme from terminal theme
 4. [x] Dots next to file names on tabs to indicate if saving is necessary
 5. [x] Ability to close file tabs
@@ -15,7 +15,7 @@
 13. [x] OPTION+BACKSPACE deletes words
 14. [x] saving doesn't reset cursor position
 15. [x] guard against opening binary files and crashing the text editor
-16. [ ] Spread -> Markdown previewing in Toast
-17. [ ] Add in a script to migrate zed themes to toast themes
+16. [ ] Markdown previewing in Toast (#2)
+17. [ ] Add in a script to migrate zed themes to toast themes (#3)
 18. [x] Add in a script to migrate vscode themes to toast themes
-
+19. [ ] Opening one tab, then another, and switching back to the first tab, the editor gets stuck on the second tab opened (#4)
