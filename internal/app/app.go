@@ -1138,10 +1138,13 @@ func (m *Model) View() tea.View {
 
 	// Editor or Search
 	var mainContentView string
+	var editorCursor *tea.Cursor
 	if m.searchOpen {
 		mainContentView = m.search.View().Content
 	} else {
-		mainContentView = m.editor.View().Content
+		editorView := m.editor.View()
+		mainContentView = editorView.Content
+		editorCursor = editorView.Cursor
 	}
 
 	// Right pane: breadcrumbs + editor/search
@@ -1160,6 +1163,16 @@ func (m *Model) View() tea.View {
 
 	// Full layout: tabbar / middle / statusbar
 	v.Content = lipgloss.JoinVertical(lipgloss.Left, tabBarView, middleSection, statusBarView)
+
+	// Propagate the editor cursor to the app view with screen offset applied.
+	if editorCursor != nil {
+		const tabBarHeight = 1
+		const breadcrumbHeight = 1
+		c := *editorCursor
+		c.X += sidebarW
+		c.Y += tabBarHeight + breadcrumbHeight
+		v.Cursor = &c
+	}
 	// Context menu overlay: apply after JoinHorizontal so lipgloss layout doesn't destroy it.
 	// menuY is content-relative (tab bar already subtracted at click time), so add tabBarHeight
 	// back to get full-screen row coordinates.

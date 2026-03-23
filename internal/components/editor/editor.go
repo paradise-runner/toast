@@ -58,6 +58,7 @@ type Model struct {
 	lastClickPos  cursorPos
 	clickCount    int
 
+
 	viewportTop  int
 	viewportLeft int
 	viewHeight   int
@@ -667,19 +668,9 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.Button {
 	case tea.MouseWheelUp:
-		m.viewportTop -= 3
-		if m.viewportTop < 0 {
-			m.viewportTop = 0
-		}
+		m.moveCursorUp(1)
 	case tea.MouseWheelDown:
-		maxTop := m.buf.LineCount() - m.viewHeight
-		if maxTop < 0 {
-			maxTop = 0
-		}
-		m.viewportTop += 3
-		if m.viewportTop > maxTop {
-			m.viewportTop = maxTop
-		}
+		m.moveCursorDown(1)
 	}
 	m.clampViewport()
 	return m, nil
@@ -1082,22 +1073,7 @@ func (m Model) View() tea.View {
 		gutterFg = lipgloss.Color(m.theme.UI("foreground"))
 	}
 	lineHighlight := lipgloss.Color(m.theme.UI("line_highlight"))
-	var cursorBg color.Color
-	if cursorBgStr := m.theme.UI("cursor"); cursorBgStr != "" {
-		cursorBg = lipgloss.Color(cursorBgStr)
-	} else {
-		cursorBg = fgColor
-	}
-	var cursorFg color.Color
-	if cursorFgStr := m.theme.UI("cursor_fg"); cursorFgStr != "" {
-		cursorFg = lipgloss.Color(cursorFgStr)
-	} else {
-		cursorFg = bgColor
-	}
-
 	gutterStyle := lipgloss.NewStyle().Background(bgColor).Foreground(gutterFg)
-	lineHighlightStyle := lipgloss.NewStyle().Background(lineHighlight)
-	cursorStyle := lipgloss.NewStyle().Background(cursorBg).Foreground(cursorFg)
 
 	lineCount := m.buf.LineCount()
 	var sb strings.Builder
@@ -1172,36 +1148,13 @@ func (m Model) View() tea.View {
 
 		var renderedContent string
 		if isCurrentLine && m.focused {
-			// Overlay the cursor character.
-			cursorCol := m.cursor.col - m.viewportLeft
-			if cursorCol < 0 {
-				cursorCol = 0
+			// Render current line with highlight background; the cursor is
+			// drawn by the terminal (see View return value below).
+			if len(lineContent) > contentWidth {
+				lineContent = lineContent[:contentWidth]
 			}
-			// Rebuild with cursor: we render before-cursor highlighted, cursor char, after-cursor highlighted.
-			var lsb strings.Builder
-			if cursorCol > 0 && cursorCol <= len(lineContent) {
-				lsb.WriteString(m.renderHighlightedLine(bufLine, lineContent[:cursorCol], lineHighlight, 0, lineSelRange, m.viewportLeft))
-			} else if cursorCol > len(lineContent) {
-				lsb.WriteString(m.renderHighlightedLine(bufLine, lineContent, lineHighlight, 0, lineSelRange, m.viewportLeft))
-			}
-			cursorChar := " "
-			afterCursor := ""
-			cursorCharSize := 1
-			if cursorCol >= 0 && cursorCol < len(lineContent) {
-				_, cursorCharSize = utf8.DecodeRuneInString(lineContent[cursorCol:])
-				cursorChar = lineContent[cursorCol : cursorCol+cursorCharSize]
-				afterCursor = lineContent[cursorCol+cursorCharSize:]
-			}
-			lsb.WriteString(cursorStyle.Render(cursorChar))
-			if len(afterCursor) > 0 {
-				afterCursorOffset := m.viewportLeft + cursorCol + cursorCharSize
-				lsb.WriteString(m.renderHighlightedLine(bufLine, afterCursor, lineHighlight, 0, lineSelRange, afterCursorOffset))
-			}
-			visLen := lipgloss.Width(lsb.String())
-			if visLen < contentWidth {
-				lsb.WriteString(lineHighlightStyle.Render(strings.Repeat(" ", contentWidth-visLen)))
-			}
-			renderedContent = lsb.String()
+			rendered := m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, m.viewportLeft)
+			renderedContent = rendered
 		} else {
 			// Normal line — apply syntax highlighting.
 			if len(lineContent) > contentWidth {
@@ -1217,7 +1170,17 @@ func (m Model) View() tea.View {
 		sb.WriteString(renderedContent)
 	}
 
-	return tea.NewView(sb.String())
+	v := tea.NewView(sb.String())
+	if m.focused {
+		cursorScreenX := m.gutterWidth + (m.cursor.col - m.viewportLeft)
+		cursorScreenY := m.cursor.line - m.viewportTop
+		v.Cursor = &tea.Cursor{
+			Position: tea.Position{X: cursorScreenX, Y: cursorScreenY},
+			Shape:    tea.CursorBlock,
+			Blink:    true,
+		}
+	}
+	return v
 }
 
 // renderHighlightedLine renders a line with syntax highlighting applied.
