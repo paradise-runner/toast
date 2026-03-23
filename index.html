@@ -11,49 +11,71 @@
       --panel: #111425;
       --panel-2: #0f1322;
       --text: #e6e9ef;
-      --muted: #8b93a7;
+      --muted: #6b7394;
       --border: #23283d;
+      --accent: #7aa2f7;
+      --green: #9ece6a;
+      --red: #f7768e;
+      --yellow: #e0af68;
+      --cyan: #7dcfff;
+      --magenta: #bb9af7;
+      --orange: #ff9e64;
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace;
+      font-family: "SF Mono", "Fira Code", "JetBrains Mono", Menlo, Consolas, monospace;
       background: var(--bg);
       color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* SCANLINE GRAIN */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+      z-index: 999;
     }
 
     .container {
-      max-width: 1000px;
+      max-width: 860px;
       margin: 0 auto;
-      padding: 56px 20px;
+      padding: 60px 24px 40px;
     }
 
     /* HERO */
 
     .hero {
       text-align: center;
-      position: relative;
+      padding-bottom: 48px;
     }
 
     .logo-wrap {
       position: relative;
       display: inline-block;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
 
     .logo {
-      width: 140px;
+      width: 120px;
       position: relative;
       z-index: 2;
     }
 
-    /* subtle animated rainbow glow */
     .logo-wrap::before {
       content: "";
       position: absolute;
-      inset: -20px;
+      inset: -24px;
       background: linear-gradient(
         120deg,
         #ff4d4d,
@@ -64,66 +86,150 @@
         #9b5de5,
         #ff4d4d
       );
-      filter: blur(30px);
-      opacity: 0.25;
+      filter: blur(36px);
+      opacity: 0.3;
       z-index: 1;
       animation: glow 12s linear infinite;
     }
 
     @keyframes glow {
-      0% { transform: rotate(0deg) scale(1); }
-      50% { transform: rotate(180deg) scale(1.05); }
+      0%   { transform: rotate(0deg) scale(1); }
+      50%  { transform: rotate(180deg) scale(1.08); }
       100% { transform: rotate(360deg) scale(1); }
     }
 
     h1 {
-      font-size: 2.6rem;
-      margin: 0;
+      font-size: 2.4rem;
+      font-weight: 700;
       letter-spacing: -1px;
+      margin-bottom: 8px;
     }
 
     .tagline {
       color: var(--muted);
-      margin-top: 10px;
-      font-size: 1.05rem;
+      font-size: 0.95rem;
     }
 
-    .buttons {
-      margin-top: 22px;
+    .tagline .prompt {
+      color: var(--green);
+    }
+
+    .tagline .flag {
+      color: var(--yellow);
+    }
+
+    /* INSTALL BLOCK */
+
+    .install {
+      margin-top: 28px;
       display: flex;
       justify-content: center;
-      gap: 12px;
-      flex-wrap: wrap;
     }
 
-    .btn {
-      text-decoration: none;
-      padding: 10px 16px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
+    .install-box {
       background: var(--panel);
-      color: var(--text);
-      transition: 0.2s;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 20px;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      position: relative;
     }
 
-    .btn:hover {
-      border-color: #3a86ff;
-      color: #3a86ff;
-      transform: translateY(-1px);
+    .install-box:hover {
+      border-color: var(--accent);
+    }
+
+    .install-box .prompt-char {
+      color: var(--green);
+      user-select: none;
+    }
+
+    .install-box code {
+      color: var(--text);
+    }
+
+    .install-box .copy-hint {
+      color: var(--muted);
+      font-size: 0.75rem;
+      user-select: none;
+      border-left: 1px solid var(--border);
+      padding-left: 12px;
+    }
+
+    /* LINKS ROW */
+
+    .links {
+      margin-top: 16px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      font-size: 0.85rem;
+    }
+
+    .links a {
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .links a:hover {
+      color: var(--accent);
+    }
+
+    .links a::before {
+      content: "~ ";
+      color: var(--border);
     }
 
     /* SCREENSHOT */
 
-    .screenshot {
-      margin-top: 50px;
-      border-radius: 14px;
+    .terminal-window {
+      margin-top: 52px;
+      border-radius: 10px;
       overflow: hidden;
       border: 1px solid var(--border);
       background: var(--panel-2);
-      box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+      box-shadow:
+        0 4px 6px rgba(0,0,0,0.3),
+        0 24px 64px rgba(0,0,0,0.5);
     }
 
-    .screenshot img {
+    .terminal-titlebar {
+      background: #181b2e;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red    { background: var(--red); }
+    .terminal-dot.yellow { background: var(--yellow); }
+    .terminal-dot.green  { background: var(--green); }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .terminal-spacer {
+      width: 52px;
+    }
+
+    .terminal-window img {
       width: 100%;
       display: block;
     }
@@ -131,40 +237,175 @@
     /* FEATURES */
 
     .features {
-      margin-top: 70px;
+      margin-top: 64px;
     }
 
     .features h2 {
-      font-size: 1.5rem;
-      margin-bottom: 18px;
-    }
-
-    .feature {
-      padding: 14px 0;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      padding-bottom: 8px;
       border-bottom: 1px solid var(--border);
     }
 
-    .feature-title {
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+    }
+
+    .feature {
+      padding: 16px 18px;
+      background: var(--panel);
+      border: 1px solid transparent;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .feature:hover {
+      border-color: var(--border);
+      background: var(--panel-2);
+    }
+
+    .feature:nth-child(1) { border-radius: 8px 0 0 0; }
+    .feature:nth-child(2) { border-radius: 0 8px 0 0; }
+    .feature:nth-child(7) { border-radius: 0 0 0 8px; }
+    .feature:nth-child(8) { border-radius: 0 0 8px 0; }
+
+    .feature-name {
+      font-size: 0.85rem;
       font-weight: 600;
       margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .feature-name .icon {
+      color: var(--accent);
+      font-size: 0.8rem;
+      width: 18px;
+      text-align: center;
     }
 
     .feature-desc {
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.8rem;
+      padding-left: 26px;
     }
 
     code {
-      color: #7aa2f7;
+      color: var(--accent);
+      font-size: inherit;
+    }
+
+    /* KEYBINDINGS */
+
+    .keybindings {
+      margin-top: 64px;
+    }
+
+    .keybindings h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .kb-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .kb-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--panel);
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+
+    .kb-action {
+      color: var(--muted);
+    }
+
+    kbd {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-family: inherit;
+      font-size: 0.75rem;
+      color: var(--text);
+      box-shadow: 0 1px 0 var(--border);
     }
 
     /* FOOTER */
 
     .footer {
-      margin-top: 70px;
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
       text-align: center;
+      font-size: 0.8rem;
       color: var(--muted);
-      font-size: 0.85rem;
+    }
+
+    .footer .rainbow {
+      display: inline-block;
+      background: linear-gradient(
+        90deg,
+        #ff4d4d,
+        #ff9f1c,
+        #ffe600,
+        #2ec4b6,
+        #3a86ff,
+        #9b5de5
+      );
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .footer a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      color: var(--accent);
+    }
+
+    /* RESPONSIVE */
+
+    @media (max-width: 640px) {
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature:nth-child(1) { border-radius: 8px 8px 0 0; }
+      .feature:nth-child(2) { border-radius: 0; }
+      .feature:nth-child(7) { border-radius: 0; }
+      .feature:nth-child(8) { border-radius: 0 0 8px 8px; }
+
+      .kb-grid {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 2rem;
+      }
+
+      .install-box {
+        font-size: 0.82rem;
+      }
     }
   </style>
 </head>
@@ -179,83 +420,122 @@
 
       <h1>toast</h1>
       <div class="tagline">
-        fast, terminal-native editing with modern IDE ergonomics
+        <span class="prompt">$</span> a terminal-native IDE <span class="flag">--fast</span> <span class="flag">--lightweight</span>
       </div>
 
-      <div class="buttons">
-        <a class="btn" href="https://github.com/paradise-runner/toast">GitHub</a>
-        <a class="btn" href="https://github.com/paradise-runner/toast/releases">Download</a>
+      <div class="install">
+        <div class="install-box" onclick="navigator.clipboard.writeText('brew tap paradise-runner/homebrew-tap && brew install paradise-runner/tap/toast')">
+          <span class="prompt-char">$</span>
+          <code>brew install paradise-runner/tap/toast</code>
+          <span class="copy-hint">click to copy</span>
+        </div>
+      </div>
+
+      <div class="links">
+        <a href="https://github.com/paradise-runner/toast">source</a>
+        <a href="https://github.com/paradise-runner/toast/releases">releases</a>
+        <a href="https://github.com/paradise-runner/toast#installation">install</a>
       </div>
     </section>
 
-    <!-- REAL SCREENSHOT -->
-    <div class="screenshot">
-      <img src="toast-example.png" alt="toast screenshot" />
-    </div>
+    <!-- SCREENSHOT -->
+    <img src="toast-example.png" alt="toast editor screenshot" style="margin-top: 52px; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.3), 0 24px 64px rgba(0,0,0,0.5); width: 100%; display: block;" />
 
-    <!-- DEV-FOCUSED FEATURES -->
+    <!-- FEATURES -->
     <section class="features">
-      <h2>capabilities</h2>
+      <h2>// capabilities</h2>
 
-      <div class="feature">
-        <div class="feature-title">multi-buffer, multi-tab workflow</div>
-        <div class="feature-desc">
-          persistent buffers with dirty-state tracking and fast tab switching — no modal friction
+      <div class="feature-grid">
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--cyan);">&#9638;</span> multi-tab buffers</div>
+          <div class="feature-desc">dirty-state tracking, fast switching, no modal friction</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--green);">&#9652;</span> tree-sitter parsing</div>
+          <div class="feature-desc">incremental highlighting for Go, Python, JS/TS, Rust &amp; more</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--magenta);">&#9672;</span> LSP integration</div>
+          <div class="feature-desc">completions, hover, diagnostics, go-to-definition</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--orange);">&#8981;</span> ripgrep search</div>
+          <div class="feature-desc">project-wide via <code>rg</code> with instant results</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--red);">&#8853;</span> git-aware tree</div>
+          <div class="feature-desc">status indicators, staging, file ops in the sidebar</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--yellow);">&#9881;</span> rope text engine</div>
+          <div class="feature-desc">large-file performance with full undo/redo history</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--accent);">&#9673;</span> theme system</div>
+          <div class="feature-desc">built-in dark/light + VSCode theme importing</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--green);">&#9655;</span> config-first</div>
+          <div class="feature-desc"><code>~/.config/toast/config.json</code> for everything</div>
         </div>
       </div>
+    </section>
 
-      <div class="feature">
-        <div class="feature-title">tree-sitter powered parsing</div>
-        <div class="feature-desc">
-          incremental parsing for accurate highlighting across Go, Python, JS/TS, Rust and more
+    <!-- KEYBINDINGS -->
+    <section class="keybindings">
+      <h2>// quick reference</h2>
+
+      <div class="kb-grid">
+        <div class="kb-item">
+          <span class="kb-action">open file</span>
+          <kbd>Enter</kbd>
         </div>
-      </div>
-
-      <div class="feature">
-        <div class="feature-title">first-class LSP integration</div>
-        <div class="feature-desc">
-          completions, hover, diagnostics, and go-to-definition without leaving the terminal
+        <div class="kb-item">
+          <span class="kb-action">save</span>
+          <kbd>Ctrl+S</kbd>
         </div>
-      </div>
-
-      <div class="feature">
-        <div class="feature-title">ripgrep-backed search</div>
-        <div class="feature-desc">
-          project-wide search via <code>rg</code> with instant results and minimal overhead
+        <div class="kb-item">
+          <span class="kb-action">search</span>
+          <kbd>Ctrl+F</kbd>
         </div>
-      </div>
-
-      <div class="feature">
-        <div class="feature-title">git-aware file tree</div>
-        <div class="feature-desc">
-          status indicators, staging workflows, and file operations built directly into the sidebar
+        <div class="kb-item">
+          <span class="kb-action">go to line</span>
+          <kbd>Ctrl+G</kbd>
         </div>
-      </div>
-
-      <div class="feature">
-        <div class="feature-title">rope-based text engine</div>
-        <div class="feature-desc">
-          efficient large-file editing with predictable performance and full undo/redo history
+        <div class="kb-item">
+          <span class="kb-action">next tab</span>
+          <kbd>Ctrl+Tab</kbd>
         </div>
-      </div>
-
-      <div class="feature">
-        <div class="feature-title">theme + vscode compatibility</div>
-        <div class="feature-desc">
-          built-in dark/light themes and support for importing VSCode themes
+        <div class="kb-item">
+          <span class="kb-action">close tab</span>
+          <kbd>Ctrl+W</kbd>
         </div>
-      </div>
-
-      <div class="feature">
-        <div class="feature-title">config-first design</div>
-        <div class="feature-desc">
-          everything configurable via <code>~/.config/toast/config.json</code>
+        <div class="kb-item">
+          <span class="kb-action">toggle tree</span>
+          <kbd>Ctrl+B</kbd>
+        </div>
+        <div class="kb-item">
+          <span class="kb-action">theme</span>
+          <kbd>Ctrl+K</kbd>
+        </div>
+        <div class="kb-item">
+          <span class="kb-action">quit</span>
+          <kbd>Ctrl+Q</kbd>
         </div>
       </div>
     </section>
 
     <div class="footer">
-      terminal-native • fast • composable
+      built with <span class="rainbow">Go + Bubbletea</span>
+      &nbsp;&middot;&nbsp;
+      <a href="https://github.com/paradise-runner/toast">paradise-runner/toast</a>
     </div>
 
   </div>
