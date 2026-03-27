@@ -26,3 +26,4 @@
 24. [x] fix folders not showing git changes
 25. [ ] Does this need a settings dialog? (#9)
 26. [ ] Resizable sidebar (#10)
+27. [ ] Mouse selection seems to be one char to the right? (#11)
