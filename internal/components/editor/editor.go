@@ -58,7 +58,6 @@ type Model struct {
 	lastClickPos  cursorPos
 	clickCount    int
 
-
 	viewportTop  int
 	viewportLeft int
 	viewHeight   int
@@ -1085,14 +1084,14 @@ func (m Model) View() tea.View {
 		lineNumStr := ""
 		diffBar := ""
 		if bufLine < lineCount {
-			lineNumStr = fmt.Sprintf("%*d", m.gutterWidth-2, bufLine+1) // right-align, leave space for diff bar + space
+			lineNumStr = fmt.Sprintf("%*d", m.gutterWidth-3, bufLine+1) // right-align, leave space for diff bar + space
 			var kind messages.GitLineKind
 			if bufLine < len(m.lineKinds) {
 				kind = m.lineKinds[bufLine]
 			}
 			diffBar = gitDiffBar(kind, m.theme)
 		} else {
-			lineNumStr = strings.Repeat(" ", m.gutterWidth-2)
+			lineNumStr = strings.Repeat(" ", m.gutterWidth-3)
 			diffBar = gitDiffBar(messages.GitLineUnchanged, m.theme)
 		}
 
@@ -1176,7 +1175,7 @@ func (m Model) View() tea.View {
 		cursorScreenY := m.cursor.line - m.viewportTop
 		v.Cursor = &tea.Cursor{
 			Position: tea.Position{X: cursorScreenX, Y: cursorScreenY},
-			Shape:    tea.CursorBlock,
+			Shape:    tea.CursorBar,
 			Blink:    true,
 		}
 	}
