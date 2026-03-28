@@ -1,6 +1,12 @@
+<div align="center">
+
+<h1>
+<img width="180" alt="prek" src="toast-logo.png" />
+
 # toast
 
-<img src="toast-logo.png" alt="toast logo" width="400" style="border-radius: 12px; display: block; margin: 20px 0;">
+</h1>
+</div>
 
 
 A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your terminal with a familiar editor feel — file tree, tabs, syntax highlighting, LSP support, and git status — without the overhead of a full GUI.
