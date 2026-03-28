@@ -911,6 +911,7 @@ func (m *Model) handleFileSelected(msg messages.FileSelectedMsg) tea.Cmd {
 		m.updateBreadcrumbs(messages.ActiveBufferChangedMsg{BufferID: bufID, Path: path})
 		m.updateStatusBar(messages.ActiveBufferChangedMsg{BufferID: bufID, Path: path})
 		// Re-open in editor to switch the displayed content
+		m.setFocus(FocusEditor)
 		cmd := m.editor.OpenFile(bufID, path)
 		return cmd
 	}

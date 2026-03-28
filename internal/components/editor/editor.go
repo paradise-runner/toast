@@ -39,10 +39,11 @@ type fileLoadedMsg struct {
 
 // Model is the bubbletea model for the editor component.
 type Model struct {
-	theme    *theme.Manager
-	cfg      config.Config
-	bufferID int
-	path     string
+	theme           *theme.Manager
+	cfg             config.Config
+	bufferID        int
+	pendingBufferID int
+	path            string
 	buf      *buffer.EditBuffer
 
 	cursor          cursorPos
@@ -146,6 +147,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case fileLoadedMsg:
+		if msg.bufferID != m.pendingBufferID {
+			return m, nil
+		}
 		m.binaryFile = msg.isBinary
 		m.bufferID = msg.bufferID
 		m.path = msg.path
@@ -203,6 +207,7 @@ func openFile(bufferID int, path string) tea.Cmd {
 // OpenFile is the exported wrapper for openFile, allowing the app layer to
 // trigger an asynchronous file load into the editor.
 func (m *Model) OpenFile(bufferID int, path string) tea.Cmd {
+	m.pendingBufferID = bufferID
 	return openFile(bufferID, path)
 }
 
