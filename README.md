@@ -1,7 +1,7 @@
 <div align="center">
 
 <h1>
-<img width="600" alt="prek" src="toast-logo.png" />
+<img width="200" alt="prek" src="toast-logo.png" />
 
 # toast
 
