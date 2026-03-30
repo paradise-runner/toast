@@ -1144,6 +1144,7 @@ func TestReparseSyntax_AfterUndo(t *testing.T) {
 
 func TestFileLoadedMsg_Binary_SetsBinaryFile(t *testing.T) {
 	m := newTestModel("hello\n")
+	m.pendingBufferID = 1
 	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "photo.png", isBinary: true})
 	result := updated.(Model)
 	if !result.binaryFile {
@@ -1153,6 +1154,7 @@ func TestFileLoadedMsg_Binary_SetsBinaryFile(t *testing.T) {
 
 func TestFileLoadedMsg_Binary_EmptyBuffer(t *testing.T) {
 	m := newTestModel("hello\n")
+	m.pendingBufferID = 1
 	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "photo.png", isBinary: true})
 	result := updated.(Model)
 	if result.buf.String() != "" {
@@ -1162,6 +1164,7 @@ func TestFileLoadedMsg_Binary_EmptyBuffer(t *testing.T) {
 
 func TestFileLoadedMsg_Binary_NilHighlighter(t *testing.T) {
 	m := newTestModel("hello\n")
+	m.pendingBufferID = 1
 	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "photo.png", isBinary: true})
 	result := updated.(Model)
 	if result.highlighter != nil {
@@ -1172,9 +1175,11 @@ func TestFileLoadedMsg_Binary_NilHighlighter(t *testing.T) {
 func TestFileLoadedMsg_BinaryThenText_ClearsBinaryFile(t *testing.T) {
 	m := newTestModel("")
 	// First: load a binary file
+	m.pendingBufferID = 1
 	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "photo.png", isBinary: true})
 	m = updated.(Model)
 	// Then: load a text file
+	m.pendingBufferID = 2
 	updated, _ = m.Update(fileLoadedMsg{bufferID: 2, path: "main.go", content: "package main\n"})
 	m = updated.(Model)
 	if m.binaryFile {
