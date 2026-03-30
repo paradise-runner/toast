@@ -227,6 +227,73 @@ func TestMoveCursorDown_WrapMode_PreservesPreferredCol(t *testing.T) {
 	}
 }
 
+// newWrapModelSpaces creates a wrap model with wrapWidth=8 for word-boundary tests.
+// viewWidth=12, gutterWidth=4 → wrapWidth=8
+func newWrapModelSpaces(content string) Model {
+	m := New(nil, config.Config{})
+	m.buf = buffer.NewEditBuffer(content)
+	m.wrapMode = true
+	m.viewWidth = 12
+	m.viewHeight = 10
+	m.gutterWidth = 4
+	return m
+}
+
+func TestVisualRowsForLine_WordBoundary(t *testing.T) {
+	// "hello world foo\n" with wrapWidth=8 → chunks=[0,6,12] → 3 visual rows
+	m := newWrapModelSpaces("hello world foo\n")
+	if got := m.visualRowsForLine(0); got != 3 {
+		t.Fatalf("visualRowsForLine = %d, want 3", got)
+	}
+}
+
+func TestBufPosFromVisualRow_WordBoundary(t *testing.T) {
+	// Line 0: "hello\n" (5 bytes, wrapWidth=8) → 1 chunk → 1 visual row
+	// Line 1: "hello world foo\n" → chunks=[0,6,12] → 3 visual rows
+	// Line 2: "x\n" → 1 visual row
+	m := newWrapModelSpaces("hello\nhello world foo\nx\n")
+
+	tests := []struct {
+		vr              int
+		wantLine, wantCol int
+	}{
+		{0, 0, 0},
+		{1, 1, 0},
+		{2, 1, 6},
+		{3, 1, 12},
+		{4, 2, 0},
+	}
+	for _, tt := range tests {
+		gotLine, gotCol := m.bufPosFromVisualRow(tt.vr)
+		if gotLine != tt.wantLine || gotCol != tt.wantCol {
+			t.Fatalf("bufPosFromVisualRow(%d) = (%d,%d), want (%d,%d)",
+				tt.vr, gotLine, gotCol, tt.wantLine, tt.wantCol)
+		}
+	}
+}
+
+func TestVisualRowOfCursor_WordBoundary(t *testing.T) {
+	m := newWrapModelSpaces("hello\nhello world foo\nx\n")
+
+	cases := []struct {
+		line, col int
+		wantVR    int
+	}{
+		{0, 0, 0},
+		{1, 0, 1},
+		{1, 6, 2},
+		{1, 12, 3},
+		{2, 0, 4},
+	}
+	for _, c := range cases {
+		m.cursor = cursorPos{line: c.line, col: c.col}
+		if got := m.visualRowOfCursor(); got != c.wantVR {
+			t.Fatalf("cursor {%d,%d}: visualRowOfCursor = %d, want %d",
+				c.line, c.col, got, c.wantVR)
+		}
+	}
+}
+
 func TestWordWrapChunks_ShortLine(t *testing.T) {
 	got := wordWrapChunks("hello", 8)
 	want := []int{0}

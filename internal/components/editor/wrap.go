@@ -16,20 +16,7 @@ func (m *Model) visualRowsForLine(bufLine int) int {
 	if !m.wrapMode {
 		return 1
 	}
-	raw := m.buf.LineAt(bufLine)
-	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
-		raw = raw[:len(raw)-1]
-	}
-	n := len(raw)
-	w := m.wrapWidth()
-	if n == 0 {
-		return 1
-	}
-	rows := (n + w - 1) / w
-	if rows < 1 {
-		rows = 1
-	}
-	return rows
+	return len(m.lineChunks(bufLine))
 }
 
 // visualRowFromTop returns the 0-based absolute visual row index of the first
@@ -47,7 +34,8 @@ func (m *Model) visualRowFromTop(bufLine int) int {
 func (m *Model) visualRowOfCursor() int {
 	row := m.visualRowFromTop(m.cursor.line)
 	if m.wrapMode {
-		row += m.cursor.col / m.wrapWidth()
+		chunks := m.lineChunks(m.cursor.line)
+		row += chunkContaining(chunks, m.cursor.col)
 	}
 	return row
 }
@@ -115,11 +103,12 @@ func (m *Model) bufPosFromVisualRow(targetVR int) (bufLine, bufCol int) {
 		rows := m.visualRowsForLine(l)
 		if vr+rows > targetVR {
 			chunkIndex := targetVR - vr
+			chunks := m.lineChunks(l)
 			bufLine = l
-			bufCol = chunkIndex * m.wrapWidth()
-			lineLen := m.lineContentLen(l)
-			if bufCol > lineLen {
-				bufCol = lineLen
+			if chunkIndex < len(chunks) {
+				bufCol = chunks[chunkIndex]
+			} else {
+				bufCol = m.lineContentLen(l)
 			}
 			return
 		}
