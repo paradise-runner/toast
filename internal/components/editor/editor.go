@@ -1140,18 +1140,37 @@ func (m Model) View() tea.View {
 	var sb strings.Builder
 
 	for screenRow := 0; screenRow < m.viewHeight; screenRow++ {
-		bufLine := m.viewportTop + screenRow
+		// In wrap mode, map screenRow → (bufLine, chunkIndex).
+		// In non-wrap mode, chunkIndex is always 0 and bufLine = viewportTop + screenRow.
+		var bufLine, chunkIndex int
+		if m.wrapMode {
+			topVR := m.visualRowFromTop(m.viewportTop)
+			bl, chunkStart := m.bufPosFromVisualRow(topVR + screenRow)
+			bufLine = bl
+			w := m.wrapWidth()
+			if w > 0 {
+				chunkIndex = chunkStart / w
+			}
+		} else {
+			bufLine = m.viewportTop + screenRow
+		}
 
 		// ── Gutter ──────────────────────────────────────────────────────────
 		lineNumStr := ""
 		diffBar := ""
 		if bufLine < lineCount {
-			lineNumStr = fmt.Sprintf("%*d", m.gutterWidth-3, bufLine+1) // right-align, leave space for diff bar + space
-			var kind messages.GitLineKind
-			if bufLine < len(m.lineKinds) {
-				kind = m.lineKinds[bufLine]
+			if !m.wrapMode || chunkIndex == 0 {
+				lineNumStr = fmt.Sprintf("%*d", m.gutterWidth-3, bufLine+1)
+				var kind messages.GitLineKind
+				if bufLine < len(m.lineKinds) {
+					kind = m.lineKinds[bufLine]
+				}
+				diffBar = gitDiffBar(kind, m.theme)
+			} else {
+				// Continuation row: blank line number.
+				lineNumStr = strings.Repeat(" ", m.gutterWidth-3)
+				diffBar = gitDiffBar(messages.GitLineUnchanged, m.theme)
 			}
-			diffBar = gitDiffBar(kind, m.theme)
 		} else {
 			lineNumStr = strings.Repeat(" ", m.gutterWidth-3)
 			diffBar = gitDiffBar(messages.GitLineUnchanged, m.theme)
@@ -1165,18 +1184,28 @@ func (m Model) View() tea.View {
 		var lineContent string
 		if bufLine < lineCount {
 			raw := m.buf.LineAt(bufLine)
-			// Strip trailing newline for display.
 			if len(raw) > 0 && raw[len(raw)-1] == '\n' {
 				raw = raw[:len(raw)-1]
 			}
-			lineContent = raw
-		}
-
-		// Apply viewport left offset (horizontal scroll, byte-based for simplicity).
-		if m.viewportLeft > 0 && len(lineContent) > m.viewportLeft {
-			lineContent = lineContent[m.viewportLeft:]
-		} else if m.viewportLeft > 0 {
-			lineContent = ""
+			if m.wrapMode {
+				w := m.wrapWidth()
+				chunkStart := chunkIndex * w
+				chunkEnd := chunkStart + w
+				if chunkStart > len(raw) {
+					chunkStart = len(raw)
+				}
+				if chunkEnd > len(raw) {
+					chunkEnd = len(raw)
+				}
+				lineContent = raw[chunkStart:chunkEnd]
+			} else {
+				lineContent = raw
+				if m.viewportLeft > 0 && len(lineContent) > m.viewportLeft {
+					lineContent = lineContent[m.viewportLeft:]
+				} else if m.viewportLeft > 0 {
+					lineContent = ""
+				}
+			}
 		}
 
 		// Content width available (subtract gutter).
@@ -1184,44 +1213,55 @@ func (m Model) View() tea.View {
 		if contentWidth < 0 {
 			contentWidth = 0
 		}
+		if !m.wrapMode && len(lineContent) > contentWidth {
+			lineContent = lineContent[:contentWidth]
+		}
 
-		// Compute selection range for this line (raw line-relative offsets, no viewportLeft adjustment).
+		// Compute selection range for this chunk.
+		// selRange offsets are relative to the start of lineContent (the chunk).
 		var lineSelRange *[2]int
 		if start, end, active := m.selectionRange(); active {
 			lineStart := m.buf.OffsetForLine(bufLine)
 			selStartOff := m.buf.OffsetForLine(start.line) + start.col
 			selEndOff := m.buf.OffsetForLine(end.line) + end.col
 			lineContentLen := m.lineContentLen(bufLine)
-			lineContentEnd := lineStart + lineContentLen
-			if lineContentEnd > selStartOff && lineStart < selEndOff {
-				rawStart := selStartOff - lineStart
+
+			chunkByteStart := 0
+			chunkByteEnd := lineContentLen
+			if m.wrapMode {
+				w := m.wrapWidth()
+				chunkByteStart = chunkIndex * w
+				chunkByteEnd = chunkByteStart + w
+				if chunkByteEnd > lineContentLen {
+					chunkByteEnd = lineContentLen
+				}
+			}
+
+			if lineStart+chunkByteEnd > selStartOff && lineStart+chunkByteStart < selEndOff {
+				rawStart := selStartOff - lineStart - chunkByteStart
 				if rawStart < 0 {
 					rawStart = 0
 				}
-				rawEnd := selEndOff - lineStart
-				if rawEnd > lineContentLen {
-					rawEnd = lineContentLen
+				rawEnd := selEndOff - lineStart - chunkByteStart
+				if rawEnd > chunkByteEnd-chunkByteStart {
+					rawEnd = chunkByteEnd - chunkByteStart
 				}
 				r := [2]int{rawStart, rawEnd}
 				lineSelRange = &r
 			}
 		}
 
+		// lineOffset is the raw line-relative byte index where lineContent starts.
+		lineOffset := m.viewportLeft
+		if m.wrapMode {
+			lineOffset = chunkIndex * m.wrapWidth()
+		}
+
 		var renderedContent string
 		if isCurrentLine && m.focused {
-			// Render current line with highlight background; the cursor is
-			// drawn by the terminal (see View return value below).
-			if len(lineContent) > contentWidth {
-				lineContent = lineContent[:contentWidth]
-			}
-			rendered := m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, m.viewportLeft)
-			renderedContent = rendered
+			renderedContent = m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, lineOffset)
 		} else {
-			// Normal line — apply syntax highlighting.
-			if len(lineContent) > contentWidth {
-				lineContent = lineContent[:contentWidth]
-			}
-			renderedContent = m.renderHighlightedLine(bufLine, lineContent, bgColor, contentWidth, lineSelRange, m.viewportLeft)
+			renderedContent = m.renderHighlightedLine(bufLine, lineContent, bgColor, contentWidth, lineSelRange, lineOffset)
 		}
 
 		if screenRow > 0 {
@@ -1233,8 +1273,17 @@ func (m Model) View() tea.View {
 
 	v := tea.NewView(sb.String())
 	if m.focused {
-		cursorScreenX := m.gutterWidth + (m.cursor.col - m.viewportLeft)
-		cursorScreenY := m.cursor.line - m.viewportTop
+		var cursorScreenX, cursorScreenY int
+		if m.wrapMode {
+			w := m.wrapWidth()
+			chunkStart := (m.cursor.col / w) * w
+			cursorScreenX = m.gutterWidth + (m.cursor.col - chunkStart)
+			topVR := m.visualRowFromTop(m.viewportTop)
+			cursorScreenY = m.visualRowOfCursor() - topVR
+		} else {
+			cursorScreenX = m.gutterWidth + (m.cursor.col - m.viewportLeft)
+			cursorScreenY = m.cursor.line - m.viewportTop
+		}
 		v.Cursor = &tea.Cursor{
 			Position: tea.Position{X: cursorScreenX, Y: cursorScreenY},
 			Shape:    tea.CursorBar,
