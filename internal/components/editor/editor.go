@@ -69,6 +69,7 @@ type Model struct {
 	lineKinds   []messages.GitLineKind
 	focused     bool
 	binaryFile  bool
+	wrapMode    bool
 	highlighter *syntax.Highlighter
 }
 
@@ -159,6 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.preferredCol = 0
 		m.viewportTop = 0
 		m.viewportLeft = 0
+		m.wrapMode = isMarkdownPath(msg.path)
 		if msg.isBinary {
 			m.buf = buffer.NewEditBuffer("")
 			m.highlighter = nil
@@ -1615,4 +1617,10 @@ func trimTrailingWhitespace(content string) string {
 		lines[i] = strings.TrimRight(l, " \t")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// isMarkdownPath returns true if path has a .md or .markdown extension.
+func isMarkdownPath(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".md" || ext == ".markdown"
 }

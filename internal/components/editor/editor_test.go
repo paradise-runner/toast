@@ -1324,3 +1324,34 @@ func TestLineCount_ReturnsBufferLineCount(t *testing.T) {
 		t.Fatalf("expected LineCount()=%d, got %d", m.buf.LineCount(), m.LineCount())
 	}
 }
+
+func TestWrapMode_SetOnMarkdownLoad(t *testing.T) {
+	m := newTestModel("")
+	if m.wrapMode {
+		t.Fatal("wrapMode should be false before any file load")
+	}
+
+	// Simulate a markdown file load.
+	mdMsg := fileLoadedMsg{bufferID: 0, path: "notes.md", content: "hello\n"}
+	model, _ := m.Update(mdMsg)
+	m = model.(Model)
+	if !m.wrapMode {
+		t.Fatal("wrapMode should be true after loading .md file")
+	}
+
+	// Simulate a Go file load.
+	goMsg := fileLoadedMsg{bufferID: 0, path: "main.go", content: "package main\n"}
+	model, _ = m.Update(goMsg)
+	m = model.(Model)
+	if m.wrapMode {
+		t.Fatal("wrapMode should be false after loading .go file")
+	}
+
+	// Simulate a .markdown extension.
+	mdMsg2 := fileLoadedMsg{bufferID: 0, path: "README.markdown", content: "# hi\n"}
+	model, _ = m.Update(mdMsg2)
+	m = model.(Model)
+	if !m.wrapMode {
+		t.Fatal("wrapMode should be true after loading .markdown file")
+	}
+}
