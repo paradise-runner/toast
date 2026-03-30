@@ -692,11 +692,12 @@ func (m *Model) moveCursorUp(n int) {
 			targetVR = 0
 		}
 		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
-		w := m.wrapWidth()
-		chunkEnd := chunkStart + w
+		chunks := m.lineChunks(bufLine)
+		chunkIdx := chunkContaining(chunks, chunkStart)
 		lineLen := m.lineContentLen(bufLine)
-		if chunkEnd > lineLen {
-			chunkEnd = lineLen
+		chunkEnd := lineLen
+		if chunkIdx+1 < len(chunks) {
+			chunkEnd = chunks[chunkIdx+1]
 		}
 		targetCol := chunkStart + m.preferredCol
 		if targetCol > chunkEnd {
@@ -731,11 +732,12 @@ func (m *Model) moveCursorDown(n int) {
 			targetVR = maxVR
 		}
 		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
-		w := m.wrapWidth()
-		chunkEnd := chunkStart + w
+		chunks := m.lineChunks(bufLine)
+		chunkIdx := chunkContaining(chunks, chunkStart)
 		lineLen := m.lineContentLen(bufLine)
-		if chunkEnd > lineLen {
-			chunkEnd = lineLen
+		chunkEnd := lineLen
+		if chunkIdx+1 < len(chunks) {
+			chunkEnd = chunks[chunkIdx+1]
 		}
 		targetCol := chunkStart + m.preferredCol
 		if targetCol > chunkEnd {
@@ -773,7 +775,8 @@ func (m *Model) moveCursorLeft() {
 		m.cursor.col = m.lineContentLen(m.cursor.line)
 	}
 	if m.wrapMode {
-		m.preferredCol = m.cursor.col % m.wrapWidth()
+		chunks := m.lineChunks(m.cursor.line)
+		m.preferredCol = m.cursor.col - chunks[chunkContaining(chunks, m.cursor.col)]
 	} else {
 		m.preferredCol = m.cursor.col
 	}
@@ -796,7 +799,8 @@ func (m *Model) moveCursorRight() {
 		}
 	}
 	if m.wrapMode {
-		m.preferredCol = m.cursor.col % m.wrapWidth()
+		chunks := m.lineChunks(m.cursor.line)
+		m.preferredCol = m.cursor.col - chunks[chunkContaining(chunks, m.cursor.col)]
 	} else {
 		m.preferredCol = m.cursor.col
 	}
@@ -1147,9 +1151,8 @@ func (m Model) View() tea.View {
 			topVR := m.visualRowFromTop(m.viewportTop)
 			bl, chunkStart := m.bufPosFromVisualRow(topVR + screenRow)
 			bufLine = bl
-			w := m.wrapWidth()
-			if w > 0 {
-				chunkIndex = chunkStart / w
+			if bufLine < lineCount {
+				chunkIndex = chunkContaining(m.lineChunks(bufLine), chunkStart)
 			}
 		} else {
 			bufLine = m.viewportTop + screenRow
@@ -1188,9 +1191,14 @@ func (m Model) View() tea.View {
 				raw = raw[:len(raw)-1]
 			}
 			if m.wrapMode {
-				w := m.wrapWidth()
-				chunkStart := chunkIndex * w
-				chunkEnd := chunkStart + w
+				chunks := m.lineChunks(bufLine)
+				chunkStart := chunks[chunkIndex]
+				var chunkEnd int
+				if chunkIndex+1 < len(chunks) {
+					chunkEnd = chunks[chunkIndex+1]
+				} else {
+					chunkEnd = len(raw)
+				}
 				if chunkStart > len(raw) {
 					chunkStart = len(raw)
 				}
@@ -1229,10 +1237,11 @@ func (m Model) View() tea.View {
 			chunkByteStart := 0
 			chunkByteEnd := lineContentLen
 			if m.wrapMode {
-				w := m.wrapWidth()
-				chunkByteStart = chunkIndex * w
-				chunkByteEnd = chunkByteStart + w
-				if chunkByteEnd > lineContentLen {
+				chunks := m.lineChunks(bufLine)
+				chunkByteStart = chunks[chunkIndex]
+				if chunkIndex+1 < len(chunks) {
+					chunkByteEnd = chunks[chunkIndex+1]
+				} else {
 					chunkByteEnd = lineContentLen
 				}
 			}
@@ -1253,8 +1262,8 @@ func (m Model) View() tea.View {
 
 		// lineOffset is the raw line-relative byte index where lineContent starts.
 		lineOffset := m.viewportLeft
-		if m.wrapMode {
-			lineOffset = chunkIndex * m.wrapWidth()
+		if m.wrapMode && bufLine < lineCount {
+			lineOffset = m.lineChunks(bufLine)[chunkIndex]
 		}
 
 		var renderedContent string
@@ -1275,9 +1284,9 @@ func (m Model) View() tea.View {
 	if m.focused {
 		var cursorScreenX, cursorScreenY int
 		if m.wrapMode {
-			w := m.wrapWidth()
-			chunkStart := (m.cursor.col / w) * w
-			cursorScreenX = m.gutterWidth + (m.cursor.col - chunkStart)
+			chunks := m.lineChunks(m.cursor.line)
+			chunkIdx := chunkContaining(chunks, m.cursor.col)
+			cursorScreenX = m.gutterWidth + (m.cursor.col - chunks[chunkIdx])
 			topVR := m.visualRowFromTop(m.viewportTop)
 			cursorScreenY = m.visualRowOfCursor() - topVR
 		} else {
