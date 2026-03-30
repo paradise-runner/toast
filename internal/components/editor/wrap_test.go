@@ -227,6 +227,78 @@ func TestMoveCursorDown_WrapMode_PreservesPreferredCol(t *testing.T) {
 	}
 }
 
+func TestWordWrapChunks_ShortLine(t *testing.T) {
+	got := wordWrapChunks("hello", 8)
+	want := []int{0}
+	if !slicesEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestWordWrapChunks_BreaksAtSpace(t *testing.T) {
+	// "hello world" (11 bytes), width=8
+	// [0,8) = "hello wo", last space at 5 → next chunk starts at 6
+	got := wordWrapChunks("hello world", 8)
+	want := []int{0, 6}
+	if !slicesEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestWordWrapChunks_MultipleBreaks(t *testing.T) {
+	// "hello world foo" (15 bytes), width=8
+	// Chunk 0: [0,8)="hello wo", last space at 5 → next=6
+	// Chunk 1: [6,14)="world fo", last space at 11 → next=12
+	// Chunk 2: [12,15) fits → done
+	got := wordWrapChunks("hello world foo", 8)
+	want := []int{0, 6, 12}
+	if !slicesEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestWordWrapChunks_NoSpaceFallback(t *testing.T) {
+	// "abcdefghij" (10 bytes), width=8, no space → char break at 8
+	got := wordWrapChunks("abcdefghij", 8)
+	want := []int{0, 8}
+	if !slicesEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestWordWrapChunks_EmptyLine(t *testing.T) {
+	got := wordWrapChunks("", 8)
+	want := []int{0}
+	if !slicesEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestChunkContaining(t *testing.T) {
+	chunks := []int{0, 6, 12}
+	cases := []struct{ col, want int }{
+		{0, 0}, {5, 0}, {6, 1}, {11, 1}, {12, 2}, {99, 2},
+	}
+	for _, c := range cases {
+		if got := chunkContaining(chunks, c.col); got != c.want {
+			t.Fatalf("chunkContaining(%v, %d) = %d, want %d", chunks, c.col, got, c.want)
+		}
+	}
+}
+
+// slicesEqual compares two int slices for equality.
+func slicesEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestClampViewport_WrapMode_ScrollDown(t *testing.T) {
 	// 3 lines each taking 1 visual row + line 1 is long (2 visual rows).
 	// Total visual rows: 1 + 2 + 1 = 4.
