@@ -138,6 +138,86 @@ func TestScreenToBuffer_WrapMode(t *testing.T) {
 	}
 }
 
+func TestMoveCursorDown_WordBoundary_WithinLine(t *testing.T) {
+	// "hello world foo\n" with wrapWidth=8 → chunks=[0,6,12]
+	// Cursor at col 0 (chunk 0). Down should go to col 6 (chunk 1 start).
+	m := newWrapModelSpaces("hello world foo\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 0}
+	m.preferredCol = 0
+	m.moveCursorDown(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0", m.cursor.line)
+	}
+	if m.cursor.col != 6 {
+		t.Fatalf("cursor.col = %d, want 6 (start of chunk 1)", m.cursor.col)
+	}
+}
+
+func TestMoveCursorDown_WordBoundary_ToNextLine(t *testing.T) {
+	// Cursor at col 12 (last chunk of line 0). Down should go to line 1, col 0.
+	m := newWrapModelSpaces("hello world foo\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 12}
+	m.preferredCol = 0
+	m.moveCursorDown(1)
+
+	if m.cursor.line != 1 {
+		t.Fatalf("cursor.line = %d, want 1", m.cursor.line)
+	}
+	if m.cursor.col != 0 {
+		t.Fatalf("cursor.col = %d, want 0", m.cursor.col)
+	}
+}
+
+func TestMoveCursorUp_WordBoundary_ToPrevChunk(t *testing.T) {
+	// Cursor at col 6 (chunk 1). Up should go to col 0 (chunk 0).
+	m := newWrapModelSpaces("hello world foo\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 6}
+	m.preferredCol = 0
+	m.moveCursorUp(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0", m.cursor.line)
+	}
+	if m.cursor.col != 0 {
+		t.Fatalf("cursor.col = %d, want 0", m.cursor.col)
+	}
+}
+
+func TestMoveCursorUp_WordBoundary_ToPrevLine(t *testing.T) {
+	// Line 0: "hello world foo\n" → chunks=[0,6,12] (3 visual rows).
+	// Cursor at line 1, col 0. Up should land on last chunk of line 0 (col 12).
+	m := newWrapModelSpaces("hello world foo\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 1, col: 0}
+	m.preferredCol = 0
+	m.moveCursorUp(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0", m.cursor.line)
+	}
+	if m.cursor.col != 12 {
+		t.Fatalf("cursor.col = %d, want 12 (start of last chunk)", m.cursor.col)
+	}
+}
+
+func TestPreferredCol_WordBoundary_LeftRight(t *testing.T) {
+	// "hello world foo\n", wrapWidth=8, chunks=[0,6,12].
+	// Cursor at col 9 (within chunk 1 which starts at 6). Visual col = 9-6 = 3.
+	// After moveCursorRight, col=10, preferredCol = 10-6 = 4.
+	m := newWrapModelSpaces("hello world foo\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 9}
+	m.moveCursorRight()
+
+	if m.preferredCol != 4 {
+		t.Fatalf("preferredCol = %d, want 4 (visual col within chunk)", m.preferredCol)
+	}
+}
+
 func TestMoveCursorDown_WrapMode_WithinLine(t *testing.T) {
 	// Line 0: 21 bytes → 2 visual rows (wrapWidth=20).
 	// Pressing down from col 0 should move to col 20 (start of second chunk),
