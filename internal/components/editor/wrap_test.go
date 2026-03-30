@@ -102,6 +102,42 @@ func TestVisualRowOfCursor(t *testing.T) {
 	}
 }
 
+func TestScreenToBuffer_WrapMode(t *testing.T) {
+	// Line 0: "hello\n" (5 bytes) → 1 visual row.
+	// Line 1: "123456789012345678901\n" (21 bytes) → 2 visual rows.
+	// Gutter width = 4, wrapWidth = 20.
+	//
+	// Screen row 0 → visual row 0 → bufLine=0, chunkStart=0
+	// Screen row 1 → visual row 1 → bufLine=1, chunkStart=0
+	// Screen row 2 → visual row 2 → bufLine=1, chunkStart=20
+	m := newWrapModel("hello\n123456789012345678901\nx\n")
+	m.viewportTop = 0
+
+	// Click at screen (gutterWidth + 3, 0) → line 0, col 3
+	line, col := m.screenToBuffer(m.gutterWidth+3, 0)
+	if line != 0 || col != 3 {
+		t.Fatalf("click row 0 col 3: got (%d,%d), want (0,3)", line, col)
+	}
+
+	// Click at screen (gutterWidth + 0, 1) → line 1, col 0
+	line, col = m.screenToBuffer(m.gutterWidth+0, 1)
+	if line != 1 || col != 0 {
+		t.Fatalf("click row 1 col 0: got (%d,%d), want (1,0)", line, col)
+	}
+
+	// Click at screen (gutterWidth + 0, 2) → line 1, chunkStart=20, col=20
+	line, col = m.screenToBuffer(m.gutterWidth+0, 2)
+	if line != 1 || col != 20 {
+		t.Fatalf("click row 2 col 0: got (%d,%d), want (1,20)", line, col)
+	}
+
+	// Click at screen (gutterWidth + 1, 2) → line 1, col 21 (clamped to lineLen=21)
+	line, col = m.screenToBuffer(m.gutterWidth+1, 2)
+	if line != 1 || col != 21 {
+		t.Fatalf("click row 2 col 1: got (%d,%d), want (1,21)", line, col)
+	}
+}
+
 func TestMoveCursorDown_WrapMode_WithinLine(t *testing.T) {
 	// Line 0: 21 bytes → 2 visual rows (wrapWidth=20).
 	// Pressing down from col 0 should move to col 20 (start of second chunk),

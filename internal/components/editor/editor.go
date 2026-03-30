@@ -1591,6 +1591,22 @@ func (m *Model) deleteSelection() string {
 
 // screenToBuffer translates a screen (X, Y) position to a buffer (line, col).
 func (m *Model) screenToBuffer(x, y int) (line, col int) {
+	if m.wrapMode {
+		topVR := m.visualRowFromTop(m.viewportTop)
+		targetVR := topVR + y
+		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
+		visualCol := x - m.gutterWidth
+		if visualCol < 0 {
+			visualCol = 0
+		}
+		bufCol := chunkStart + visualCol
+		lineLen := m.lineContentLen(bufLine)
+		if bufCol > lineLen {
+			bufCol = lineLen
+		}
+		return bufLine, bufCol
+	}
+
 	line = m.viewportTop + y
 	lineCount := m.buf.LineCount()
 	if line >= lineCount {
