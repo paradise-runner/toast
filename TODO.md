@@ -27,5 +27,5 @@
 25. [ ] Does this need a settings dialog? (#9)
 26. [ ] Resizable sidebar (#10)
 27. [x] Mouse selection seems to be one char to the right? (#11)
-28. [ ] Markdown line wrapping (#12)
+28. [x] Markdown line wrapping (#12)
 29. [ ] `toast some-non-existant-file` creates a file and opens the editor there (#13)
