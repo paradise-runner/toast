@@ -685,6 +685,27 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // ── Cursor movement ──────────────────────────────────────────────────────────
 
 func (m *Model) moveCursorUp(n int) {
+	if m.wrapMode {
+		currentVR := m.visualRowOfCursor()
+		targetVR := currentVR - n
+		if targetVR < 0 {
+			targetVR = 0
+		}
+		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
+		w := m.wrapWidth()
+		chunkEnd := chunkStart + w
+		lineLen := m.lineContentLen(bufLine)
+		if chunkEnd > lineLen {
+			chunkEnd = lineLen
+		}
+		targetCol := chunkStart + m.preferredCol
+		if targetCol > chunkEnd {
+			targetCol = chunkEnd
+		}
+		m.cursor.line = bufLine
+		m.cursor.col = targetCol
+		return
+	}
 	if m.cursor.line == 0 {
 		m.cursor.col = 0
 		m.preferredCol = 0
@@ -698,6 +719,32 @@ func (m *Model) moveCursorUp(n int) {
 }
 
 func (m *Model) moveCursorDown(n int) {
+	if m.wrapMode {
+		currentVR := m.visualRowOfCursor()
+		targetVR := currentVR + n
+		lineCount := m.buf.LineCount()
+		maxVR := m.visualRowFromTop(lineCount) - 1
+		if maxVR < 0 {
+			maxVR = 0
+		}
+		if targetVR > maxVR {
+			targetVR = maxVR
+		}
+		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
+		w := m.wrapWidth()
+		chunkEnd := chunkStart + w
+		lineLen := m.lineContentLen(bufLine)
+		if chunkEnd > lineLen {
+			chunkEnd = lineLen
+		}
+		targetCol := chunkStart + m.preferredCol
+		if targetCol > chunkEnd {
+			targetCol = chunkEnd
+		}
+		m.cursor.line = bufLine
+		m.cursor.col = targetCol
+		return
+	}
 	lastLine := m.buf.LineCount() - 1
 	if lastLine < 0 {
 		lastLine = 0
@@ -725,7 +772,11 @@ func (m *Model) moveCursorLeft() {
 		m.cursor.line--
 		m.cursor.col = m.lineContentLen(m.cursor.line)
 	}
-	m.preferredCol = m.cursor.col
+	if m.wrapMode {
+		m.preferredCol = m.cursor.col % m.wrapWidth()
+	} else {
+		m.preferredCol = m.cursor.col
+	}
 }
 
 func (m *Model) moveCursorRight() {
@@ -744,7 +795,11 @@ func (m *Model) moveCursorRight() {
 			m.cursor.col = 0
 		}
 	}
-	m.preferredCol = m.cursor.col
+	if m.wrapMode {
+		m.preferredCol = m.cursor.col % m.wrapWidth()
+	} else {
+		m.preferredCol = m.cursor.col
+	}
 }
 
 // moveCursorWordLeft moves left past non-word chars then past word chars.

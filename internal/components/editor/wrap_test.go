@@ -102,6 +102,95 @@ func TestVisualRowOfCursor(t *testing.T) {
 	}
 }
 
+func TestMoveCursorDown_WrapMode_WithinLine(t *testing.T) {
+	// Line 0: 21 bytes → 2 visual rows (wrapWidth=20).
+	// Pressing down from col 0 should move to col 20 (start of second chunk),
+	// still on line 0.
+	m := newWrapModel("123456789012345678901\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 0}
+	m.preferredCol = 0
+	m.moveCursorDown(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0 (should stay on same buffer line)", m.cursor.line)
+	}
+	if m.cursor.col != 20 {
+		t.Fatalf("cursor.col = %d, want 20 (start of second chunk)", m.cursor.col)
+	}
+}
+
+func TestMoveCursorDown_WrapMode_ToNextLine(t *testing.T) {
+	// Line 0: 21 bytes → 2 visual rows.
+	// Cursor at col 20 (second chunk). Down should go to line 1, col 0.
+	m := newWrapModel("123456789012345678901\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 20}
+	m.preferredCol = 0
+	m.moveCursorDown(1)
+
+	if m.cursor.line != 1 {
+		t.Fatalf("cursor.line = %d, want 1", m.cursor.line)
+	}
+	if m.cursor.col != 0 {
+		t.Fatalf("cursor.col = %d, want 0", m.cursor.col)
+	}
+}
+
+func TestMoveCursorUp_WrapMode_WithinLine(t *testing.T) {
+	// Line 0: 21 bytes → 2 visual rows.
+	// Cursor at col 20 (second chunk). Up should go to col 0 (first chunk).
+	m := newWrapModel("123456789012345678901\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 20}
+	m.preferredCol = 0
+	m.moveCursorUp(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0", m.cursor.line)
+	}
+	if m.cursor.col != 0 {
+		t.Fatalf("cursor.col = %d, want 0", m.cursor.col)
+	}
+}
+
+func TestMoveCursorUp_WrapMode_ToPrevLine(t *testing.T) {
+	// Line 0: 21 bytes → 2 visual rows.
+	// Line 1: "end\n" → 1 visual row.
+	// Cursor at line 1, col 0. Up should land on second chunk of line 0 (col 20).
+	m := newWrapModel("123456789012345678901\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 1, col: 0}
+	m.preferredCol = 0
+	m.moveCursorUp(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0", m.cursor.line)
+	}
+	if m.cursor.col != 20 {
+		t.Fatalf("cursor.col = %d, want 20 (start of last chunk of line 0)", m.cursor.col)
+	}
+}
+
+func TestMoveCursorDown_WrapMode_PreservesPreferredCol(t *testing.T) {
+	// Line 0: 21 bytes → 2 visual rows (wrapWidth=20).
+	// Line 1: "end\n" → 1 visual row (3 bytes).
+	// Cursor at line 0, col 5 (preferredCol in visual row = 5).
+	// Down moves into second chunk of line 0 → col should be min(20+5, 21) = 21.
+	m := newWrapModel("123456789012345678901\nend\n")
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 0, col: 5}
+	m.preferredCol = 5
+	m.moveCursorDown(1)
+
+	if m.cursor.line != 0 {
+		t.Fatalf("cursor.line = %d, want 0", m.cursor.line)
+	}
+	if m.cursor.col != 21 {
+		t.Fatalf("cursor.col = %d, want 21", m.cursor.col)
+	}
+}
+
 func TestClampViewport_WrapMode_ScrollDown(t *testing.T) {
 	// 3 lines each taking 1 visual row + line 1 is long (2 visual rows).
 	// Total visual rows: 1 + 2 + 1 = 4.
