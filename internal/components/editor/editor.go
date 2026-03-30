@@ -1149,10 +1149,17 @@ func (m Model) View() tea.View {
 		var bufLine, chunkIndex int
 		if m.wrapMode {
 			topVR := m.visualRowFromTop(m.viewportTop)
-			bl, chunkStart := m.bufPosFromVisualRow(topVR + screenRow)
-			bufLine = bl
-			if bufLine < lineCount {
-				chunkIndex = chunkContaining(m.lineChunks(bufLine), chunkStart)
+			targetVR := topVR + screenRow
+			totalVR := m.visualRowFromTop(lineCount)
+			if targetVR >= totalVR {
+				bufLine = lineCount // past end of buffer — renders as blank row
+				chunkIndex = 0
+			} else {
+				bl, chunkStart := m.bufPosFromVisualRow(targetVR)
+				bufLine = bl
+				if bufLine < lineCount {
+					chunkIndex = chunkContaining(m.lineChunks(bufLine), chunkStart)
+				}
 			}
 		} else {
 			bufLine = m.viewportTop + screenRow
