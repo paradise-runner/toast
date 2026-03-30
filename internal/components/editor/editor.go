@@ -1546,6 +1546,48 @@ func abs(n int) int {
 
 // clampViewport scrolls the viewport so the cursor is visible.
 func (m *Model) clampViewport() {
+	if m.wrapMode {
+		m.viewportLeft = 0
+		if m.viewHeight <= 0 {
+			return
+		}
+
+		cursorVR := m.visualRowOfCursor()
+		topVR := m.visualRowFromTop(m.viewportTop)
+
+		// Cursor above viewport: find the buffer line whose first visual row
+		// is <= cursorVR and set it as viewportTop.
+		if cursorVR < topVR {
+			vr := 0
+			for l := 0; l < m.buf.LineCount(); l++ {
+				rows := m.visualRowsForLine(l)
+				if vr+rows > cursorVR {
+					m.viewportTop = l
+					return
+				}
+				vr += rows
+			}
+			m.viewportTop = 0
+			return
+		}
+
+		// Cursor below viewport: advance viewportTop until cursor is visible.
+		// We want the first buffer line whose first visual row >= targetTopVR.
+		if cursorVR >= topVR+m.viewHeight {
+			targetTopVR := cursorVR - m.viewHeight + 1
+			vr := 0
+			for l := 0; l < m.buf.LineCount(); l++ {
+				if vr >= targetTopVR {
+					m.viewportTop = l
+					return
+				}
+				vr += m.visualRowsForLine(l)
+			}
+		}
+		return
+	}
+
+	// ── Non-wrap mode ────────────────────────────────────────────────────────
 	// Vertical.
 	if m.cursor.line < m.viewportTop {
 		m.viewportTop = m.cursor.line

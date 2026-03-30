@@ -102,6 +102,53 @@ func TestVisualRowOfCursor(t *testing.T) {
 	}
 }
 
+func TestClampViewport_WrapMode_ScrollDown(t *testing.T) {
+	// 3 lines each taking 1 visual row + line 1 is long (2 visual rows).
+	// Total visual rows: 1 + 2 + 1 = 4.
+	// viewHeight = 2, so cursor on visual row 3 must scroll viewportTop.
+	m := newWrapModel("hello\n123456789012345678901\nx\n")
+	m.viewHeight = 2
+	m.viewportTop = 0
+
+	// Cursor on visual row 3 (line 2, col 0).
+	m.cursor = cursorPos{line: 2, col: 0}
+	m.clampViewport()
+
+	// Cursor visual row must be within viewport.
+	topVR := m.visualRowFromTop(m.viewportTop)
+	cursorVR := m.visualRowOfCursor()
+	if cursorVR < topVR || cursorVR >= topVR+m.viewHeight {
+		t.Fatalf("cursor visual row %d not in viewport [%d, %d)", cursorVR, topVR, topVR+m.viewHeight)
+	}
+	if m.viewportTop < 1 {
+		t.Fatalf("clampViewport did not scroll down: viewportTop = %d", m.viewportTop)
+	}
+}
+
+func TestClampViewport_WrapMode_ScrollUp(t *testing.T) {
+	m := newWrapModel("hello\n123456789012345678901\nx\n")
+	m.viewHeight = 2
+	m.viewportTop = 2 // currently showing from line 2
+
+	// Cursor at line 0, col 0 → above viewport.
+	m.cursor = cursorPos{line: 0, col: 0}
+	m.clampViewport()
+
+	if m.viewportTop != 0 {
+		t.Fatalf("clampViewport did not scroll up: viewportTop = %d, want 0", m.viewportTop)
+	}
+}
+
+func TestClampViewport_WrapMode_ForcesViewportLeftZero(t *testing.T) {
+	m := newWrapModel("hello\n")
+	m.viewportLeft = 5
+	m.cursor = cursorPos{line: 0, col: 0}
+	m.clampViewport()
+	if m.viewportLeft != 0 {
+		t.Fatalf("clampViewport did not zero viewportLeft in wrap mode: got %d", m.viewportLeft)
+	}
+}
+
 func TestBufPosFromVisualRow(t *testing.T) {
 	// Same content as above.
 	m := newWrapModel("hello\n123456789012345678901\nx\n")
