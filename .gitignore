@@ -4,3 +4,4 @@ bin/
 *.out
 .superpowers/
 .DS_Store
+docs/superpowers/
