@@ -29,3 +29,4 @@
 27. [x] Mouse selection seems to be one char to the right? (#11)
 28. [x] Markdown line wrapping (#12)
 29. [ ] `toast some-non-existant-file` creates a file and opens the editor there (#13)
+30. [ ] switching tabs causes unsaved text to be lost

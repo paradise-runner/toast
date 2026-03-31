@@ -37,8 +37,10 @@ func NewManager(name, themeDir string) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) UI(key string) string  { return m.theme.UI[key] }
-func (m *Manager) Git(key string) string { return m.theme.Git[key] }
+func (m *Manager) UI(key string) string      { return m.theme.UI[key] }
+func (m *Manager) Git(key string) string     { return m.theme.Git[key] }
+func (m *Manager) Variant() string           { return m.theme.Variant }
+func (m *Manager) SyntaxFG(key string) string { return m.theme.Syntax[key].FG }
 
 func (m *Manager) SyntaxStyle(capture string) lipgloss.Style {
 	if s, ok := m.syntaxStyles[capture]; ok {

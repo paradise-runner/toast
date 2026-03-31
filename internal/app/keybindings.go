@@ -28,6 +28,9 @@ func isGoToLine(msg tea.KeyPressMsg) bool {
 	return msg.String() == "ctrl+g" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'l')
 }
 func isGoToDefinition(msg tea.KeyPressMsg) bool { return msg.String() == "f12" }
+func isMarkdownPreview(msg tea.KeyPressMsg) bool {
+	return msg.String() == "ctrl+shift+m"
+}
 func isShowHover(msg tea.KeyPressMsg) bool      { return msg.String() == "ctrl+shift+k" }
 func isTriggerCompletion(msg tea.KeyPressMsg) bool {
 	return msg.String() == "ctrl+space" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == ' ')

@@ -174,6 +174,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.highlighter != nil {
 			m.highlighter.Parse([]byte(msg.content))
 		}
+		// Notify app that file content is ready (e.g. for markdown preview).
+		bufID := msg.bufferID
+		path := msg.path
+		content := msg.content
+		return m, func() tea.Msg {
+			return messages.FileLoadedMsg{BufferID: bufID, Path: path, Content: content}
+		}
 
 	case messages.DiagnosticsUpdatedMsg:
 		if msg.Path == m.path {
@@ -215,6 +222,15 @@ func (m *Model) OpenFile(bufferID int, path string) tea.Cmd {
 
 // Path returns the path of the currently loaded file.
 func (m Model) Path() string { return m.path }
+
+// Content returns the full text content of the current buffer, or an empty
+// string when no buffer is loaded.
+func (m Model) Content() string {
+	if m.buf == nil {
+		return ""
+	}
+	return m.buf.String()
+}
 
 // BufferID returns the buffer ID of the currently loaded file.
 func (m Model) BufferID() int { return m.bufferID }

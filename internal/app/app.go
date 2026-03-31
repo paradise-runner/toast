@@ -13,6 +13,7 @@ import (
 	"github.com/yourusername/toast/internal/components/editor"
 	"github.com/yourusername/toast/internal/components/filetree"
 	"github.com/yourusername/toast/internal/components/gotoline"
+	"github.com/yourusername/toast/internal/components/preview"
 	"github.com/yourusername/toast/internal/components/quitdialog"
 	"github.com/yourusername/toast/internal/components/search"
 	"github.com/yourusername/toast/internal/components/statusbar"
@@ -87,6 +88,13 @@ type Model struct {
 	// Mapping of path -> bufferID for open files.
 	openBuffers map[string]int
 
+	// previewOpen is true when the markdown preview pane is displayed instead of the editor.
+	previewOpen bool
+
+	// previewByBuffer tracks which buffer IDs have preview mode enabled, so
+	// each markdown tab remembers its preview state across tab switches.
+	previewByBuffer map[int]bool
+
 	// Component models
 	fileTree   filetree.Model
 	tabBar     tabbar.Model
@@ -94,6 +102,7 @@ type Model struct {
 	statusBar  statusbar.Model
 	breadcrumb breadcrumbs.Model
 	search     search.Model
+	preview    preview.Model
 
 	// Services (initialized lazily via SetLSPSend)
 	lspMgr  *lsp.Manager
@@ -121,8 +130,9 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		sidebarVisible: cfg.Sidebar.Visible,
 		rootDir:        rootDir,
 		initialFile:    initialFile,
-		nextBufferID:   1,
-		openBuffers:    make(map[string]int),
+		nextBufferID:    1,
+		openBuffers:     make(map[string]int),
+		previewByBuffer: make(map[int]bool),
 		themeDir:       themeDir,
 		configPath:     configPath,
 		themePicker:    themepicker.New(tm, themeDir, cfg.Theme),
@@ -134,6 +144,7 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		statusBar:  statusbar.New(tm),
 		breadcrumb: breadcrumbs.New(tm, rootDir),
 		search:     search.New(tm, rootDir),
+		preview:    preview.New(tm),
 	}, nil
 }
 
@@ -242,6 +253,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for path, id := range m.openBuffers {
 			if id == msg.BufferID {
 				delete(m.openBuffers, path)
+				delete(m.previewByBuffer, id)
 				if m.watcher != nil {
 					_ = m.watcher.Unwatch(filepath.Dir(path))
 				}
@@ -412,6 +424,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case messages.MarkdownPreviewToggleMsg:
+		if isMarkdownPath(m.editor.Path()) {
+			m.togglePreview()
+		}
+
+	case messages.FileLoadedMsg:
+		// Restore per-buffer preview state when a file finishes loading.
+		wasOpen := m.previewByBuffer[msg.BufferID]
+		if isMarkdownPath(msg.Path) && wasOpen {
+			m.previewOpen = true
+			m.preview.SetContent(msg.Content)
+		} else {
+			m.previewOpen = false
+		}
+		m.breadcrumb.SetPreviewOpen(m.previewOpen)
+
 	case messages.SidebarToggleMsg:
 		m.sidebarVisible = !m.sidebarVisible
 		cmds = append(cmds, m.resizeComponents()...)
@@ -539,6 +567,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case isGoToLine(msg):
 		m.goToLine = m.goToLine.Open(m.editor.LineCount())
 		m.goToLineOpen = true
+		return nil
+
+	case isMarkdownPreview(msg):
+		if isMarkdownPath(m.editor.Path()) {
+			m.togglePreview()
+		}
 		return nil
 
 	case isNextTab(msg):
@@ -754,6 +788,13 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 
 	if y == tabBarHeight && !m.searchOpen {
 		m.setFocus(FocusEditor)
+		// Forward to breadcrumbs so the preview button can handle clicks.
+		crumbMsg := tea.MouseClickMsg{Button: msg.Button, Mod: msg.Mod, X: editorX, Y: 0}
+		updated, cmd := m.breadcrumb.Update(crumbMsg)
+		m.breadcrumb = updated.(breadcrumbs.Model)
+		if cmd != nil {
+			return cmd
+		}
 		return nil
 	}
 
@@ -968,6 +1009,19 @@ func (m *Model) setFocus(target FocusTarget) {
 func (m *Model) updateFocused(msg tea.Msg) tea.Cmd {
 	switch m.focus {
 	case FocusEditor:
+		// When preview is open, user-input events (keys, mouse) go to the
+		// preview for scrolling. All other messages — internal editor events,
+		// LSP results, git diffs, etc. — must still reach the editor so it
+		// stays up to date even while the preview is displayed.
+		if m.previewOpen {
+			switch msg.(type) {
+			case tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseMotionMsg,
+				tea.MouseReleaseMsg, tea.MouseWheelMsg:
+				var cmd tea.Cmd
+				m.preview, cmd = m.preview.Update(msg)
+				return cmd
+			}
+		}
 		updated, cmd := m.editor.Update(msg)
 		m.editor = updated.(editor.Model)
 		return cmd
@@ -1044,6 +1098,9 @@ func (m *Model) resizeComponents() []tea.Cmd {
 
 	// Search: editor width, editor height (shares space with editor)
 	m.search, _ = m.search.Update(tea.WindowSizeMsg{Width: editorWidth, Height: editorHeight})
+
+	// Preview: editor width, editor height (shares space with editor)
+	m.preview, _ = m.preview.Update(tea.WindowSizeMsg{Width: editorWidth, Height: editorHeight})
 
 	// Status bar: full width, 1 row
 	sbUpdated, _ := m.statusBar.Update(tea.WindowSizeMsg{Width: m.width, Height: 1})
@@ -1137,11 +1194,13 @@ func (m *Model) View() tea.View {
 	// Breadcrumbs
 	breadcrumbView := m.breadcrumb.View().Content
 
-	// Editor or Search
+	// Editor, Search, or Markdown Preview
 	var mainContentView string
 	var editorCursor *tea.Cursor
 	if m.searchOpen {
 		mainContentView = m.search.View().Content
+	} else if m.previewOpen {
+		mainContentView = m.preview.View().Content
 	} else {
 		editorView := m.editor.View()
 		mainContentView = editorView.Content
@@ -1201,4 +1260,23 @@ func (m *Model) View() tea.View {
 		v.Content = overlayCenter(v.Content, rendered, m.width, m.height)
 	}
 	return v
+}
+
+// isMarkdownPath returns true when path has a markdown file extension.
+func isMarkdownPath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".md") ||
+		strings.HasSuffix(lower, ".markdown") ||
+		strings.HasSuffix(lower, ".mdx")
+}
+
+// togglePreview opens or closes the markdown preview pane, loading the
+// current editor content when opening.
+func (m *Model) togglePreview() {
+	m.previewOpen = !m.previewOpen
+	m.previewByBuffer[m.editor.BufferID()] = m.previewOpen
+	if m.previewOpen {
+		m.preview.SetContent(m.editor.Content())
+	}
+	m.breadcrumb.SetPreviewOpen(m.previewOpen)
 }

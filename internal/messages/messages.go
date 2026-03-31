@@ -248,3 +248,14 @@ type QuitConfirmedMsg struct {
 	Save      bool
 	Cancelled bool
 }
+
+// MarkdownPreviewToggleMsg - toggle the markdown preview pane on/off.
+type MarkdownPreviewToggleMsg struct{}
+
+// FileLoadedMsg - emitted by the editor once an async file load is complete.
+// Content is the full file text (empty for binary files).
+type FileLoadedMsg struct {
+	BufferID int
+	Path     string
+	Content  string
+}
