@@ -10,11 +10,48 @@ func (m *Model) wrapWidth() int {
 	return w
 }
 
+// ensureWrapCache rebuilds visualRowCache if the buffer or wrap width has
+// changed since the last build. visualRowCache[i] holds the total number of
+// visual rows occupied by buffer lines 0..i-1 (a prefix-sum array), so
+// visualRowCache[0] == 0 and visualRowCache[lineCount] == total visual rows.
+//
+// After this call all callers can do O(1) lookups instead of O(n) scans.
+func (m *Model) ensureWrapCache() {
+	if !m.wrapMode {
+		m.visualRowCache = nil
+		return
+	}
+	lineCount := m.buf.LineCount()
+	gen := m.buf.Generation()
+	w := m.wrapWidth()
+	if m.visualRowCache != nil &&
+		len(m.visualRowCache) == lineCount+1 &&
+		m.wrapCacheGen == gen &&
+		m.wrapCacheWidth == w {
+		return // still valid
+	}
+	if cap(m.visualRowCache) >= lineCount+1 {
+		m.visualRowCache = m.visualRowCache[:lineCount+1]
+	} else {
+		m.visualRowCache = make([]int, lineCount+1)
+	}
+	m.visualRowCache[0] = 0
+	for l := 0; l < lineCount; l++ {
+		m.visualRowCache[l+1] = m.visualRowCache[l] + len(m.lineChunks(l))
+	}
+	m.wrapCacheGen = gen
+	m.wrapCacheWidth = w
+}
+
 // visualRowsForLine returns the number of screen rows that buffer line bufLine
 // occupies in wrap mode. Always returns at least 1. In non-wrap mode, always 1.
 func (m *Model) visualRowsForLine(bufLine int) int {
 	if !m.wrapMode {
 		return 1
+	}
+	m.ensureWrapCache()
+	if bufLine+1 < len(m.visualRowCache) {
+		return m.visualRowCache[bufLine+1] - m.visualRowCache[bufLine]
 	}
 	return len(m.lineChunks(bufLine))
 }
@@ -22,11 +59,17 @@ func (m *Model) visualRowsForLine(bufLine int) int {
 // visualRowFromTop returns the 0-based absolute visual row index of the first
 // visual row of bufLine, counting from the top of the buffer.
 func (m *Model) visualRowFromTop(bufLine int) int {
-	row := 0
-	for l := 0; l < bufLine; l++ {
-		row += m.visualRowsForLine(l)
+	if !m.wrapMode {
+		return bufLine
 	}
-	return row
+	m.ensureWrapCache()
+	if bufLine < len(m.visualRowCache) {
+		return m.visualRowCache[bufLine]
+	}
+	if len(m.visualRowCache) > 0 {
+		return m.visualRowCache[len(m.visualRowCache)-1]
+	}
+	return 0
 }
 
 // visualRowOfCursor returns the 0-based absolute visual row index for the
@@ -96,27 +139,36 @@ func (m *Model) lineChunks(bufLine int) []int {
 // pair. bufCol is the byte offset of the start of that visual chunk within the
 // buffer line. If targetVR is past the last visual row, the last buffer position
 // is returned.
+//
+// Uses a binary search on the visual row cache for O(log n) performance.
 func (m *Model) bufPosFromVisualRow(targetVR int) (bufLine, bufCol int) {
 	lineCount := m.buf.LineCount()
-	vr := 0
-	for l := 0; l < lineCount; l++ {
-		rows := m.visualRowsForLine(l)
-		if vr+rows > targetVR {
-			chunkIndex := targetVR - vr
-			chunks := m.lineChunks(l)
-			bufLine = l
-			if chunkIndex < len(chunks) {
-				bufCol = chunks[chunkIndex]
-			} else {
-				bufCol = m.lineContentLen(l)
-			}
-			return
-		}
-		vr += rows
+	if lineCount == 0 {
+		return 0, 0
 	}
-	// Past end of buffer.
-	if lineCount > 0 {
+	m.ensureWrapCache()
+
+	// Binary search: find the largest l such that visualRowCache[l] <= targetVR.
+	lo, hi := 0, lineCount
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if mid < len(m.visualRowCache) && m.visualRowCache[mid] <= targetVR {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	bufLine = lo
+	if bufLine >= lineCount {
 		bufLine = lineCount - 1
+		bufCol = m.lineContentLen(bufLine)
+		return
+	}
+	chunkIndex := targetVR - m.visualRowCache[bufLine]
+	chunks := m.lineChunks(bufLine)
+	if chunkIndex < len(chunks) {
+		bufCol = chunks[chunkIndex]
+	} else {
 		bufCol = m.lineContentLen(bufLine)
 	}
 	return

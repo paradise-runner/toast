@@ -11,6 +11,8 @@ import (
 	"github.com/yourusername/toast/internal/migrate"
 )
 
+var version = "v0.0.7"
+
 // findGitRoot walks up the directory tree from path looking for a .git entry
 // (directory or file, to support worktrees). It returns the directory containing
 // .git and true if found, or ("", false) if no git repo is found.
@@ -51,8 +53,26 @@ func runMigrateTheme(args []string) int {
 }
 
 func main() {
-	if len(os.Args) >= 2 && os.Args[1] == "migrate-theme" {
-		os.Exit(runMigrateTheme(os.Args[2:]))
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "-v", "--version":
+			fmt.Println(version)
+			return
+		case "--help", "-h":
+			fmt.Printf(`toast %s - a terminal editor
+
+Usage:
+  toast [path]           Open a file or directory (defaults to current directory)
+  toast migrate-theme vscode <path>  Convert a VSCode theme to toast format
+
+Options:
+  -v, --version  Print version and exit
+  -h, --help     Print this help and exit
+`, version)
+			return
+		case "migrate-theme":
+			os.Exit(runMigrateTheme(os.Args[2:]))
+		}
 	}
 
 	dir := "."

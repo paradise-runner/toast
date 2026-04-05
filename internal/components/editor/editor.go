@@ -71,6 +71,12 @@ type Model struct {
 	binaryFile  bool
 	wrapMode    bool
 	highlighter *syntax.Highlighter
+
+	// wrap-mode visual row cache: visualRowCache[i] = total visual rows for lines 0..i-1.
+	// Rebuilt lazily whenever buf.Generation() or wrapWidth() changes.
+	visualRowCache []int
+	wrapCacheGen   int
+	wrapCacheWidth int
 }
 
 // New creates a new editor Model with an empty buffer.
@@ -1159,15 +1165,21 @@ func (m Model) View() tea.View {
 	lineCount := m.buf.LineCount()
 	var sb strings.Builder
 
+	// Hoist wrap-mode viewport boundaries outside the per-row loop so we
+	// don't recompute O(n) values on every screen row.
+	var wrapTopVR, wrapTotalVR int
+	if m.wrapMode {
+		wrapTopVR = m.visualRowFromTop(m.viewportTop)
+		wrapTotalVR = m.visualRowFromTop(lineCount)
+	}
+
 	for screenRow := 0; screenRow < m.viewHeight; screenRow++ {
 		// In wrap mode, map screenRow → (bufLine, chunkIndex).
 		// In non-wrap mode, chunkIndex is always 0 and bufLine = viewportTop + screenRow.
 		var bufLine, chunkIndex int
 		if m.wrapMode {
-			topVR := m.visualRowFromTop(m.viewportTop)
-			targetVR := topVR + screenRow
-			totalVR := m.visualRowFromTop(lineCount)
-			if targetVR >= totalVR {
+			targetVR := wrapTopVR + screenRow
+			if targetVR >= wrapTotalVR {
 				bufLine = lineCount // past end of buffer — renders as blank row
 				chunkIndex = 0
 			} else {
@@ -1707,34 +1719,42 @@ func (m *Model) clampViewport() {
 		cursorVR := m.visualRowOfCursor()
 		topVR := m.visualRowFromTop(m.viewportTop)
 
-		// Cursor above viewport: find the buffer line whose first visual row
-		// is <= cursorVR and set it as viewportTop.
+		lineCount := m.buf.LineCount()
+		m.ensureWrapCache()
+
+		// Cursor above viewport: find the buffer line whose visual rows contain cursorVR.
 		if cursorVR < topVR {
-			vr := 0
-			for l := 0; l < m.buf.LineCount(); l++ {
-				rows := m.visualRowsForLine(l)
-				if vr+rows > cursorVR {
-					m.viewportTop = l
-					return
+			// Largest l such that visualRowCache[l] <= cursorVR.
+			lo, hi := 0, lineCount-1
+			for lo < hi {
+				mid := (lo + hi + 1) / 2
+				if mid < len(m.visualRowCache) && m.visualRowCache[mid] <= cursorVR {
+					lo = mid
+				} else {
+					hi = mid - 1
 				}
-				vr += rows
 			}
-			m.viewportTop = 0
+			m.viewportTop = lo
 			return
 		}
 
-		// Cursor below viewport: advance viewportTop until cursor is visible.
-		// We want the first buffer line whose first visual row >= targetTopVR.
+		// Cursor below viewport: find first buffer line whose first visual row >= targetTopVR.
 		if cursorVR >= topVR+m.viewHeight {
 			targetTopVR := cursorVR - m.viewHeight + 1
-			vr := 0
-			for l := 0; l < m.buf.LineCount(); l++ {
-				if vr >= targetTopVR {
-					m.viewportTop = l
-					return
+			// Smallest l such that visualRowCache[l] >= targetTopVR.
+			lo, hi := 0, lineCount
+			for lo < hi {
+				mid := (lo + hi) / 2
+				if mid < len(m.visualRowCache) && m.visualRowCache[mid] >= targetTopVR {
+					hi = mid
+				} else {
+					lo = mid + 1
 				}
-				vr += m.visualRowsForLine(l)
 			}
+			if lo >= lineCount {
+				lo = lineCount - 1
+			}
+			m.viewportTop = lo
 		}
 		return
 	}

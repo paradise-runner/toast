@@ -127,6 +127,11 @@ func (b *EditBuffer) Redo() {
 	b.gen++
 }
 
+// Generation returns a monotonically increasing counter that changes on every
+// Insert, Delete, Replace, Undo, or Redo. Callers can compare against a saved
+// value to cheaply detect whether the buffer content has changed.
+func (b *EditBuffer) Generation() int { return b.gen }
+
 // Modified reports whether the buffer has been changed since the last MarkSaved call.
 // The fast path (gen == savedGen) avoids a string allocation when no edits have occurred.
 // When gens differ, a content comparison catches the case where edits cancel each other out.
