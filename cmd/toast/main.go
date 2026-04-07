@@ -88,14 +88,28 @@ Options:
 
 		info, err := os.Stat(absArg)
 		if err == nil && !info.IsDir() {
-			// Argument is a file: find git root, fall back to parent dir
+			// Argument is an existing file: find git root, fall back to parent dir
 			initialFile = absArg
 			if root, ok := findGitRoot(absArg); ok {
 				dir = root
 			} else {
 				dir = filepath.Dir(absArg)
 			}
+		} else if err != nil {
+			// Argument doesn't exist — treat as a new file if its parent dir exists
+			if _, parentErr := os.Stat(filepath.Dir(absArg)); parentErr == nil {
+				initialFile = absArg
+				if root, ok := findGitRoot(absArg); ok {
+					dir = root
+				} else {
+					dir = filepath.Dir(absArg)
+				}
+			} else {
+				// Parent dir missing too — fall back to treating as a (missing) directory
+				dir = absArg
+			}
 		} else {
+			// Argument is an existing directory
 			dir = absArg
 		}
 	}
