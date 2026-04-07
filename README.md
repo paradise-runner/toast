@@ -1,3 +1,5 @@
+⚠️ This project is in _very early development_ so proceed with caution as you may encounter bugs. Thank you so much ❤️! ⚠️
+
 <div align="center">
 
 <h1>
@@ -128,6 +130,10 @@ toast migrate-theme vscode path/to/theme.json
 ```
 
 Then set `"theme": "<theme-name>"` in your config.
+
+## Feedback & Issues
+
+Found a bug or have a feature request? We'd love to hear from you! Please open an [issue on GitHub](https://github.com/paradise-runner/toast/issues) with as much detail as possible. Your feedback helps make Toast better.
 
 ## Development
 
