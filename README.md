@@ -12,9 +12,7 @@
 
 A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your terminal with a familiar editor feel — file tree, tabs, syntax highlighting, LSP support, and git status — without the overhead of a full GUI.
 
-⚠️ This project is in _very early development_, proceed with caution as you may encounter bugs. ⚠️ 
-
-Thank you so much ❤️! 
+> ⚠️ This project is in _very early development_, proceed with caution as you may encounter bugs. ⚠️ 
 
 <img src="toast-example.png" alt="toast logo" width="800" style="border-radius: 12px; display: block; margin: 20px 0;">
 
