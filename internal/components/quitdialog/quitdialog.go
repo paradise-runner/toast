@@ -1,6 +1,7 @@
 package quitdialog
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -33,13 +34,14 @@ const (
 
 // Model holds the state of the quit confirmation dialog.
 type Model struct {
-	theme *theme.Manager
-	path  string // currently active file path
+	theme        *theme.Manager
+	path         string // currently active file path
+	unsavedCount int    // total number of files with unsaved changes
 }
 
-// New creates a quit dialog for the given file path.
-func New(tm *theme.Manager, path string) Model {
-	return Model{theme: tm, path: path}
+// New creates a quit dialog for the given file path and unsaved file count.
+func New(tm *theme.Manager, path string, unsavedCount int) Model {
+	return Model{theme: tm, path: path, unsavedCount: unsavedCount}
 }
 
 // Dimensions returns the outer rendered width and height, used by the app
@@ -95,17 +97,22 @@ func (m Model) Render() string {
 	// innerW is the full content width (no Padding on the box; padding is manual).
 	innerW := dialogWidth
 
-	filename := filepath.Base(m.path)
-	if filename == "" {
-		filename = "untitled"
-	}
-	title := " Save \"" + filename + "\" before quitting?"
-	if lipgloss.Width(title) > innerW {
-		maxName := innerW - lipgloss.Width(" Save \"\" before quitting?")
-		if maxName > 0 && len(filename) > maxName {
-			filename = filename[:maxName-1] + "…"
+	var title string
+	if m.unsavedCount > 1 {
+		title = fmt.Sprintf(" Save %d files before quitting?", m.unsavedCount)
+	} else {
+		filename := filepath.Base(m.path)
+		if filename == "" {
+			filename = "untitled"
 		}
 		title = " Save \"" + filename + "\" before quitting?"
+		if lipgloss.Width(title) > innerW {
+			maxName := innerW - lipgloss.Width(" Save \"\" before quitting?")
+			if maxName > 0 && len(filename) > maxName {
+				filename = filename[:maxName-1] + "…"
+			}
+			title = " Save \"" + filename + "\" before quitting?"
+		}
 	}
 	if lipgloss.Width(title) < innerW {
 		title += strings.Repeat(" ", innerW-lipgloss.Width(title))

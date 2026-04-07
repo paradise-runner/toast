@@ -95,6 +95,19 @@ type Model struct {
 	// each markdown tab remembers its preview state across tab switches.
 	previewByBuffer map[int]bool
 
+	// bufferSnapshots stores the editor state for each open background buffer
+	// so that unsaved edits are preserved when switching between tabs.
+	bufferSnapshots map[int]editor.BufferSnapshot
+
+	// closedSnapshots stores the editing state of closed tabs that had
+	// unsaved changes. Keyed by file path. Preserved until quit so the user
+	// can be prompted to save them. Re-opening the file restores from here.
+	closedSnapshots map[string]editor.BufferSnapshot
+
+	// pendingQuitSaves counts how many async saves are still in-flight during
+	// a save-then-quit sequence. The app quits when this reaches zero.
+	pendingQuitSaves int
+
 	// Component models
 	fileTree   filetree.Model
 	tabBar     tabbar.Model
@@ -133,6 +146,8 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		nextBufferID:    1,
 		openBuffers:     make(map[string]int),
 		previewByBuffer: make(map[int]bool),
+		bufferSnapshots: make(map[int]editor.BufferSnapshot),
+		closedSnapshots: make(map[string]editor.BufferSnapshot),
 		themeDir:       themeDir,
 		configPath:     configPath,
 		themePicker:    themepicker.New(tm, themeDir, cfg.Theme),
@@ -230,23 +245,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.CloseTabConfirmedMsg:
+		// The close dialog is no longer shown on tab close; this case is kept
+		// for safety but should not be reached in normal operation.
 		m.closeDialogOpen = false
-		if msg.Cancelled {
-			break
-		}
-		if msg.Save {
-			updated, saveCmd := m.editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-			m.editor = updated.(editor.Model)
-			closeCmd := func() tea.Msg {
-				return messages.BufferClosedMsg{BufferID: msg.BufferID}
-			}
-			cmds = append(cmds, saveCmd, closeCmd)
-		} else {
-			bID := msg.BufferID
-			cmds = append(cmds, func() tea.Msg {
-				return messages.BufferClosedMsg{BufferID: bID}
-			})
-		}
 
 	case messages.BufferClosedMsg:
 		// Remove from openBuffers map and unwatch.
@@ -254,6 +255,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if id == msg.BufferID {
 				delete(m.openBuffers, path)
 				delete(m.previewByBuffer, id)
+				// Preserve unsaved changes so the user can be prompted at quit.
+				if snap, ok := m.bufferSnapshots[id]; ok {
+					if snap.Modified() {
+						m.closedSnapshots[path] = snap
+					}
+					delete(m.bufferSnapshots, id)
+				} else if m.editor.BufferID() == id && m.editor.IsModified() {
+					// Active buffer being closed — snapshot its current state.
+					snap := m.editor.Snapshot()
+					snap.Path = path
+					m.closedSnapshots[path] = snap
+				}
 				if m.watcher != nil {
 					_ = m.watcher.Unwatch(filepath.Dir(path))
 				}
@@ -313,12 +326,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.isSavingPath == msg.Path {
 			m.isSavingPath = ""
 		}
+		// Remove saved file from closedSnapshots if present.
+		delete(m.closedSnapshots, msg.Path)
 		// Refresh git status after save
 		cmds = append(cmds, m.runGitStatus())
-		// If a save-then-quit was requested, now quit.
+		// If a save-then-quit was requested, quit once all saves complete.
 		if m.pendingQuit {
-			m.pendingQuit = false
-			return m, tea.Batch(append(cmds, tea.Quit)...)
+			m.pendingQuitSaves--
+			if m.pendingQuitSaves <= 0 {
+				m.pendingQuit = false
+				return m, tea.Batch(append(cmds, tea.Quit)...)
+			}
 		}
 
 	case messages.FileCreatedMsg:
@@ -456,17 +474,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if msg.Save {
-			// Save the active buffer, then quit once FileSavedMsg arrives.
-			m.pendingQuit = true
-			updated, saveCmd := m.editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-			m.editor = updated.(editor.Model)
-			if saveCmd != nil {
-				cmds = append(cmds, saveCmd)
-			} else {
-				// Nothing to save (empty path); quit immediately.
-				m.pendingQuit = false
+			// Save every unsaved buffer (active editor + open snapshots + closed snapshots).
+			var saveCmds []tea.Cmd
+			if m.editor.IsModified() {
+				updated, saveCmd := m.editor.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+				m.editor = updated.(editor.Model)
+				if saveCmd != nil {
+					saveCmds = append(saveCmds, saveCmd)
+				}
+			}
+			for bufID, snap := range m.bufferSnapshots {
+				if snap.Modified() {
+					saveCmd := snap.SaveToDisk(bufID, snap.Path, m.cfg)
+					m.bufferSnapshots[bufID] = snap
+					if saveCmd != nil {
+						saveCmds = append(saveCmds, saveCmd)
+					}
+				}
+			}
+			for path, snap := range m.closedSnapshots {
+				if snap.Modified() {
+					saveCmd := snap.SaveToDisk(0, path, m.cfg)
+					m.closedSnapshots[path] = snap
+					if saveCmd != nil {
+						saveCmds = append(saveCmds, saveCmd)
+					}
+				}
+			}
+			if len(saveCmds) == 0 {
 				return m, tea.Quit
 			}
+			m.pendingQuit = true
+			m.pendingQuitSaves = len(saveCmds)
+			cmds = append(cmds, saveCmds...)
 		} else {
 			return m, tea.Quit
 		}
@@ -613,25 +653,45 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 // immediately or opens the confirmation dialog.
 // requestQuit checks for unsaved changes and either quits immediately or opens
 // the quit confirmation dialog.
+// unsavedFiles returns the count of files with unsaved changes and the path
+// of one representative file (for single-file dialog titles).
+func (m *Model) unsavedFiles() (count int, path string) {
+	if m.editor.IsModified() {
+		count++
+		path = m.editor.Path()
+	}
+	for _, snap := range m.bufferSnapshots {
+		if snap.Modified() {
+			count++
+			if path == "" {
+				path = snap.Path
+			}
+		}
+	}
+	for _, snap := range m.closedSnapshots {
+		if snap.Modified() {
+			count++
+			if path == "" {
+				path = snap.Path
+			}
+		}
+	}
+	return count, path
+}
+
 func (m *Model) requestQuit() tea.Cmd {
-	if !m.editor.IsModified() {
+	count, path := m.unsavedFiles()
+	if count == 0 {
 		return tea.Quit
 	}
-	m.quitDialog = quitdialog.New(m.theme, m.editor.Path())
+	m.quitDialog = quitdialog.New(m.theme, path, count)
 	m.quitDialogOpen = true
 	return nil
 }
 
 func (m *Model) requestCloseTab(bufferID int, path string) tea.Cmd {
-	// Is this the currently displayed (dirty) buffer?
-	if m.editor.BufferID() == bufferID && m.editor.IsModified() {
-		m.closeDialog = closedialog.New(m.theme, bufferID, path)
-		m.closeDialogOpen = true
-		m.closePendingID = bufferID
-		m.closePendingPath = path
-		return nil
-	}
-	// Clean buffer — close immediately.
+	// Always close immediately — unsaved changes are preserved in closedSnapshots
+	// and the user will be prompted at quit time.
 	return func() tea.Msg {
 		return messages.BufferClosedMsg{BufferID: bufferID}
 	}
@@ -945,14 +1005,32 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 func (m *Model) handleFileSelected(msg messages.FileSelectedMsg) tea.Cmd {
 	path := msg.Path
 
+	// Save the current buffer's state before switching away from it, but only
+	// if it is still open. When called from BufferClosedMsg the editor still
+	// holds the closed buffer; saving it here would duplicate the entry that
+	// BufferClosedMsg already moved to closedSnapshots.
+	if curID := m.editor.BufferID(); curID != 0 {
+		for _, id := range m.openBuffers {
+			if id == curID {
+				m.bufferSnapshots[curID] = m.editor.Snapshot()
+				break
+			}
+		}
+	}
+
 	// Check if file is already open
 	if bufID, ok := m.openBuffers[path]; ok {
 		// Switch to existing buffer
 		m.tabBar, _ = m.tabBar.Update(messages.ActiveBufferChangedMsg{BufferID: bufID, Path: path})
 		m.updateBreadcrumbs(messages.ActiveBufferChangedMsg{BufferID: bufID, Path: path})
 		m.updateStatusBar(messages.ActiveBufferChangedMsg{BufferID: bufID, Path: path})
-		// Re-open in editor to switch the displayed content
 		m.setFocus(FocusEditor)
+		// Restore saved buffer state if available, otherwise load from disk.
+		if snap, ok := m.bufferSnapshots[bufID]; ok {
+			delete(m.bufferSnapshots, bufID)
+			m.editor.RestoreSnapshot(snap, bufID, path)
+			return nil
+		}
 		cmd := m.editor.OpenFile(bufID, path)
 		return cmd
 	}
@@ -961,6 +1039,27 @@ func (m *Model) handleFileSelected(msg messages.FileSelectedMsg) tea.Cmd {
 	bufID := m.nextBufferID
 	m.nextBufferID++
 	m.openBuffers[path] = bufID
+
+	// If this file was previously closed with unsaved changes, restore from
+	// the preserved snapshot instead of loading the (older) on-disk content.
+	if snap, ok := m.closedSnapshots[path]; ok {
+		delete(m.closedSnapshots, path)
+		m.editor.RestoreSnapshot(snap, bufID, path)
+		openCmd := func() tea.Msg {
+			return messages.BufferOpenedMsg{BufferID: bufID, Path: path}
+		}
+		if m.watcher != nil {
+			_ = m.watcher.Watch(filepath.Dir(path))
+		}
+		if m.lspMgr != nil {
+			lang := lsp.LanguageForPath(path)
+			if lang != "" {
+				go m.lspMgr.EnsureServer(lang)
+			}
+		}
+		m.setFocus(FocusEditor)
+		return openCmd
+	}
 
 	// Open file in editor
 	cmd := m.editor.OpenFile(bufID, path)

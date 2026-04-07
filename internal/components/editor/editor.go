@@ -226,6 +226,107 @@ func (m *Model) OpenFile(bufferID int, path string) tea.Cmd {
 	return openFile(bufferID, path)
 }
 
+// BufferSnapshot captures the editing state of one buffer so it can be
+// restored when the user switches back to a tab without reading from disk.
+type BufferSnapshot struct {
+	Path            string
+	buf             *buffer.EditBuffer
+	cursor          cursorPos
+	selectionAnchor *cursorPos
+	viewportTop     int
+	viewportLeft    int
+	wrapMode        bool
+	binaryFile      bool
+	lineKinds       []messages.GitLineKind
+	diagnostics     []messages.Diagnostic
+	highlighter     *syntax.Highlighter
+	gutterWidth     int
+}
+
+// Modified reports whether the snapshot's buffer has unsaved changes.
+func (s BufferSnapshot) Modified() bool {
+	if s.buf == nil {
+		return false
+	}
+	return s.buf.Modified()
+}
+
+// SaveToDisk writes the snapshot's buffer content to disk and marks it saved.
+// It respects the same whitespace/newline settings as the editor's own save.
+func (s *BufferSnapshot) SaveToDisk(bufferID int, path string, cfg config.Config) tea.Cmd {
+	if s.buf == nil || path == "" {
+		return nil
+	}
+	content := s.buf.String()
+	if cfg.Editor.TrimTrailingWhitespaceOnSave {
+		content = trimTrailingWhitespace(content)
+	}
+	if cfg.Editor.InsertFinalNewlineOnSave {
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+	}
+	if content != s.buf.String() {
+		s.buf = buffer.NewEditBuffer(content)
+	}
+	s.buf.MarkSaved()
+	return tea.Batch(
+		func() tea.Msg { return messages.FileSavingMsg{BufferID: bufferID, Path: path} },
+		func() tea.Msg {
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				return messages.FileSaveFailedMsg{BufferID: bufferID, Path: path, Err: err}
+			}
+			return messages.FileSavedMsg{BufferID: bufferID, Path: path}
+		},
+	)
+}
+
+// Snapshot captures the current buffer editing state for later restoration.
+func (m Model) Snapshot() BufferSnapshot {
+	var anchor *cursorPos
+	if m.selectionAnchor != nil {
+		cp := *m.selectionAnchor
+		anchor = &cp
+	}
+	return BufferSnapshot{
+		Path:            m.path,
+		buf:             m.buf,
+		cursor:          m.cursor,
+		selectionAnchor: anchor,
+		viewportTop:     m.viewportTop,
+		viewportLeft:    m.viewportLeft,
+		wrapMode:        m.wrapMode,
+		binaryFile:      m.binaryFile,
+		lineKinds:       m.lineKinds,
+		diagnostics:     m.diagnostics,
+		highlighter:     m.highlighter,
+		gutterWidth:     m.gutterWidth,
+	}
+}
+
+// RestoreSnapshot replaces the current editor state with a previously saved
+// snapshot, updating bufferID and path to match the restored tab.
+func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) {
+	m.buf = snap.buf
+	m.cursor = snap.cursor
+	m.selectionAnchor = snap.selectionAnchor
+	m.viewportTop = snap.viewportTop
+	m.viewportLeft = snap.viewportLeft
+	m.wrapMode = snap.wrapMode
+	m.binaryFile = snap.binaryFile
+	m.lineKinds = snap.lineKinds
+	m.diagnostics = snap.diagnostics
+	m.highlighter = snap.highlighter
+	m.gutterWidth = snap.gutterWidth
+	m.bufferID = bufferID
+	m.pendingBufferID = bufferID
+	m.path = path
+	m.mouseDragging = false
+	m.visualRowCache = nil
+	m.wrapCacheGen = 0
+	m.wrapCacheWidth = 0
+}
+
 // Path returns the path of the currently loaded file.
 func (m Model) Path() string { return m.path }
 
