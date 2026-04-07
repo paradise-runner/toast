@@ -164,9 +164,7 @@ func (m *Model) buildStyle() ansi.StyleConfig {
 
 		Paragraph: ansi.StyleBlock{},
 
-		Text: ansi.StylePrimitive{
-			Color: ptr(fg),
-		},
+		Text: ansi.StylePrimitive{},
 		Strong: ansi.StylePrimitive{
 			Bold:  ptr(true),
 			Color: ptr(fg),
