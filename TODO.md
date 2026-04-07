@@ -15,7 +15,7 @@
 13. [x] OPTION+BACKSPACE deletes words
 14. [x] saving doesn't reset cursor position
 15. [x] guard against opening binary files and crashing the text editor
-16. [ ] Markdown previewing in Toast (#2)
+16. [x] Markdown previewing in Toast (#2)
 17. [ ] Add in a script to migrate zed themes to toast themes (#3)
 18. [x] Add in a script to migrate vscode themes to toast themes
 19. [x] Opening one tab, then another, and switching back to the first tab, the editor gets stuck on the second tab opened (#4)
@@ -29,5 +29,5 @@
 27. [x] Mouse selection seems to be one char to the right? (#11)
 28. [x] Markdown line wrapping (#12)
 29. [ ] `toast some-non-existant-file` creates a file and opens the editor there (#13)
-30. [ ] switching tabs causes unsaved text to be lost (#14)
+30. [x] switching tabs causes unsaved text to be lost (#14)
 31. [ ] Ignored files/folders should be greyed out in the explorer (#15)
