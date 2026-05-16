@@ -158,6 +158,28 @@ func TestView_LightTheme_LinesAreFullWidth(t *testing.T) {
 	}
 }
 
+func TestView_LongFileNamesDoNotOverflowWidth(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "terminal-empire-startscreen-with-a-very-long-name.png"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tm, err := theme.NewManager("toast-dark", "../../../internal/theme/builtin")
+	if err != nil {
+		t.Fatalf("failed to load theme: %v", err)
+	}
+	const width = 30
+	m := New(tm, config.Config{}, dir)
+	m, _ = m.Update(bubbletea.WindowSizeMsg{Width: width, Height: 3})
+
+	lines := strings.Split(m.View().Content, "\n")
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w != width {
+			t.Fatalf("line %d visual width = %d, want %d\nLine: %q", i, w, width, line)
+		}
+	}
+}
+
 func TestApplyGitStatus_IgnoredFileDoesNotDirtyParent(t *testing.T) {
 	dir := t.TempDir()
 	ignoredPath := filepath.Join(dir, "ignored.log")

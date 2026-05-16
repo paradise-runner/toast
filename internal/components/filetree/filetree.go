@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/yourusername/toast/internal/config"
 	"github.com/yourusername/toast/internal/messages"
@@ -273,7 +274,15 @@ func (m Model) View() tea.View {
 			gitColor = m.gitColor(node.GitStatus)
 		}
 
-		label := indent + prefix + node.Name
+		iconSlotWidth := 3
+		if m.width < iconSlotWidth {
+			iconSlotWidth = 0
+		}
+		labelWidth := m.width - iconSlotWidth
+		if labelWidth < 0 {
+			labelWidth = 0
+		}
+		label := ansi.Truncate(indent+prefix+node.Name, labelWidth, "")
 		ignored := node.GitStatus == messages.GitStatusIgnored
 
 		var line string
@@ -294,13 +303,18 @@ func (m Model) View() tea.View {
 				iconStyle = iconStyle.Foreground(lipgloss.Color(gitColor))
 			}
 			var iconStr string
-			if hasIcon {
+			if iconSlotWidth == 0 {
+				iconStr = ""
+			} else if hasIcon {
 				iconStr = selectedStyle.Render(" ") + iconStyle.Render(icon) + iconStyle.Render(" ")
 			} else {
 				iconStr = iconStyle.Render("   ")
 			}
 			// Pad line to full width for highlight
-			rendered := label + " " + icon + " "
+			rendered := label
+			if iconSlotWidth > 0 {
+				rendered += " " + icon + " "
+			}
 			padLen := m.width - lipgloss.Width(rendered)
 			if padLen < 0 {
 				padLen = 0
@@ -317,13 +331,18 @@ func (m Model) View() tea.View {
 				iconStyle = iconStyle.Foreground(lipgloss.Color(gitColor))
 			}
 			var iconStr string
-			if hasIcon {
+			if iconSlotWidth == 0 {
+				iconStr = ""
+			} else if hasIcon {
 				iconStr = baseStyle.Render(" ") + iconStyle.Render(icon) + baseStyle.Render(" ")
 			} else {
 				iconStr = baseStyle.Render("   ")
 			}
 			// Pad to full width so JoinHorizontal doesn't add unstyled spaces.
-			rendered := label + " " + icon + " "
+			rendered := label
+			if iconSlotWidth > 0 {
+				rendered += " " + icon + " "
+			}
 			padLen := m.width - lipgloss.Width(rendered)
 			if padLen < 0 {
 				padLen = 0
