@@ -131,6 +131,7 @@ func systemGit() map[string]string {
 		"deleted":   "1",
 		"untracked": "8",
 		"conflict":  "9",
+		"ignored":   "8",
 	}
 }
 

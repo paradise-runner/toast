@@ -129,6 +129,7 @@ const (
 	GitStatusDeleted
 	GitStatusUntracked
 	GitStatusConflict
+	GitStatusIgnored
 )
 
 // GitDiffUpdatedMsg - line-level diff for gutter

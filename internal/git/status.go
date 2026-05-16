@@ -16,6 +16,7 @@ const (
 	StatusDeleted
 	StatusUntracked
 	StatusConflict
+	StatusIgnored
 )
 
 type StatusResult struct {
@@ -25,7 +26,7 @@ type StatusResult struct {
 }
 
 func Run(rootDir string) (*StatusResult, error) {
-	cmd := exec.Command("git", "status", "--porcelain=v2", "--branch")
+	cmd := exec.Command("git", "status", "--porcelain=v2", "--branch", "--ignored")
 	cmd.Dir = rootDir
 	out, err := cmd.Output()
 	if err != nil {
@@ -61,6 +62,8 @@ func ParsePorcelainV2(output string) (*StatusResult, error) {
 			result.Files[fields[8]] = xyToStatus(fields[1])
 		case strings.HasPrefix(line, "? "):
 			result.Files[strings.TrimSuffix(strings.TrimPrefix(line, "? "), "/")] = StatusUntracked
+		case strings.HasPrefix(line, "! "):
+			result.Files[strings.TrimSuffix(strings.TrimPrefix(line, "! "), "/")] = StatusIgnored
 		case strings.HasPrefix(line, "u "):
 			fields := strings.Fields(line)
 			if len(fields) >= 9 {

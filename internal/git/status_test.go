@@ -33,3 +33,17 @@ func TestParsePorcelainV2ModifiedFile(t *testing.T) {
 		t.Errorf("got %v", result.Files["src/foo.go"])
 	}
 }
+
+func TestParsePorcelainV2IgnoredFile(t *testing.T) {
+	input := "# branch.head main\n! dist/app.js\n! tmp/\n"
+	result, err := git.ParsePorcelainV2(input)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if result.Files["dist/app.js"] != git.StatusIgnored {
+		t.Errorf("ignored file: got %v", result.Files["dist/app.js"])
+	}
+	if result.Files["tmp"] != git.StatusIgnored {
+		t.Errorf("ignored dir: got %v", result.Files["tmp"])
+	}
+}

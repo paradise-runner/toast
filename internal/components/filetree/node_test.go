@@ -8,7 +8,9 @@ import (
 
 	bubbletea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
 	"github.com/yourusername/toast/internal/config"
+	"github.com/yourusername/toast/internal/messages"
 	"github.com/yourusername/toast/internal/theme"
 )
 
@@ -153,6 +155,62 @@ func TestView_LightTheme_LinesAreFullWidth(t *testing.T) {
 		if w != width {
 			t.Errorf("FileTree line %d: visual width = %d, want %d\nLine: %q", i, w, width, line)
 		}
+	}
+}
+
+func TestApplyGitStatus_IgnoredFileDoesNotDirtyParent(t *testing.T) {
+	dir := t.TempDir()
+	ignoredPath := filepath.Join(dir, "ignored.log")
+	if err := os.WriteFile(ignoredPath, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := &TreeNode{
+		Path:  dir,
+		IsDir: true,
+		Children: []*TreeNode{
+			{Name: "ignored.log", Path: ignoredPath, IsDir: false},
+		},
+	}
+
+	statuses := map[string]messages.GitStatus{
+		ignoredPath: messages.GitStatusIgnored,
+	}
+	applyToNode(root, statuses)
+
+	if root.GitStatus != messages.GitStatusClean {
+		t.Fatalf("parent status = %v, want clean", root.GitStatus)
+	}
+	if root.Children[0].GitStatus != messages.GitStatusIgnored {
+		t.Fatalf("child status = %v, want ignored", root.Children[0].GitStatus)
+	}
+}
+
+func TestApplyGitStatus_IgnoredDirectoryIsFadedDirectly(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, "logs")
+	if err := os.Mkdir(logDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	root := &TreeNode{
+		Path:  dir,
+		IsDir: true,
+		Children: []*TreeNode{
+			{Name: "logs", Path: logDir, IsDir: true},
+		},
+	}
+
+	statuses := map[string]messages.GitStatus{
+		logDir: messages.GitStatusIgnored,
+	}
+	applyToNode(root, statuses)
+
+	if root.GitStatus != messages.GitStatusClean {
+		t.Fatalf("parent status = %v, want clean", root.GitStatus)
+	}
+	if root.Children[0].GitStatus != messages.GitStatusIgnored {
+		t.Fatalf("ignored dir status = %v, want ignored", root.Children[0].GitStatus)
 	}
 }
 

@@ -31,6 +31,6 @@
   },
   "git": {
     "added": "#40a02b", "modified": "#df8e1d", "deleted": "#d20f39",
-    "untracked": "#8c8fa1", "conflict": "#fe640b"
+    "untracked": "#8c8fa1", "conflict": "#fe640b", "ignored": "#acb0be"
   }
 }

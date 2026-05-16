@@ -239,6 +239,7 @@ func (m Model) View() tea.View {
 	if selectedFG != "" {
 		selectedStyle = selectedStyle.Foreground(lipgloss.Color(selectedFG))
 	}
+	ignoredFG := m.ignoredColor()
 
 	var sb strings.Builder
 	end := m.offset + m.height
@@ -273,9 +274,14 @@ func (m Model) View() tea.View {
 		}
 
 		label := indent + prefix + node.Name
+		ignored := node.GitStatus == messages.GitStatusIgnored
 
 		var line string
 		if i == m.cursor {
+			labelStyle := selectedStyle.Copy()
+			if ignored && ignoredFG != "" {
+				labelStyle = labelStyle.Foreground(lipgloss.Color(ignoredFG))
+			}
 			// Build icon with selected background
 			iconStyle := baseStyle.Copy()
 			if selectedBG != "" {
@@ -299,8 +305,12 @@ func (m Model) View() tea.View {
 			if padLen < 0 {
 				padLen = 0
 			}
-			line = selectedStyle.Render(label) + iconStr + selectedStyle.Render(strings.Repeat(" ", padLen))
+			line = labelStyle.Render(label) + iconStr + selectedStyle.Render(strings.Repeat(" ", padLen))
 		} else {
+			labelStyle := baseStyle.Copy()
+			if ignored && ignoredFG != "" {
+				labelStyle = labelStyle.Foreground(lipgloss.Color(ignoredFG))
+			}
 			// Build icon with base background
 			iconStyle := baseStyle.Copy()
 			if hasIcon && gitColor != "" {
@@ -318,7 +328,7 @@ func (m Model) View() tea.View {
 			if padLen < 0 {
 				padLen = 0
 			}
-			line = baseStyle.Render(label) + iconStr + baseStyle.Render(strings.Repeat(" ", padLen))
+			line = labelStyle.Render(label) + iconStr + baseStyle.Render(strings.Repeat(" ", padLen))
 		}
 
 		sb.WriteString(line)
@@ -662,12 +672,17 @@ func applyToNode(node *TreeNode, statuses map[string]messages.GitStatus) message
 		return node.GitStatus
 	}
 
+	if s, ok := statuses[node.Path]; ok && s == messages.GitStatusIgnored {
+		node.GitStatus = s
+		return s
+	}
+
 	// For directories with loaded children, aggregate recursively.
 	if node.Children != nil {
 		var aggregated messages.GitStatus = messages.GitStatusClean
 		for _, child := range node.Children {
 			cs := applyToNode(child, statuses)
-			if cs != messages.GitStatusClean && aggregated == messages.GitStatusClean {
+			if isDirtyGitStatus(cs) && aggregated == messages.GitStatusClean {
 				aggregated = cs
 			}
 		}
@@ -679,13 +694,17 @@ func applyToNode(node *TreeNode, statuses map[string]messages.GitStatus) message
 	prefix := node.Path + string(filepath.Separator)
 	var aggregated messages.GitStatus = messages.GitStatusClean
 	for path, s := range statuses {
-		if s != messages.GitStatusClean && strings.HasPrefix(path, prefix) {
+		if isDirtyGitStatus(s) && strings.HasPrefix(path, prefix) {
 			aggregated = s
 			break
 		}
 	}
 	node.GitStatus = aggregated
 	return aggregated
+}
+
+func isDirtyGitStatus(status messages.GitStatus) bool {
+	return status != messages.GitStatusClean && status != messages.GitStatusIgnored
 }
 
 // nodeDepth calculates the depth of a node relative to the root directory.
@@ -737,7 +756,23 @@ func (m *Model) gitColor(status messages.GitStatus) string {
 		return m.theme.Git("untracked")
 	case messages.GitStatusConflict:
 		return m.theme.Git("conflict")
+	case messages.GitStatusIgnored:
+		return m.theme.Git("ignored")
 	default:
 		return ""
 	}
+}
+
+func (m Model) ignoredColor() string {
+	for _, color := range []string{
+		m.theme.Git("ignored"),
+		m.theme.Git("untracked"),
+		m.theme.UI("gutter_fg"),
+		m.theme.UI("sidebar_fg"),
+	} {
+		if color != "" {
+			return color
+		}
+	}
+	return ""
 }

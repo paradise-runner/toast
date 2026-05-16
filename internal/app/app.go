@@ -1272,6 +1272,8 @@ func (m *Model) runGitStatus() tea.Cmd {
 				fileStatuses[absPath] = messages.GitStatusUntracked
 			case git.StatusConflict:
 				fileStatuses[absPath] = messages.GitStatusConflict
+			case git.StatusIgnored:
+				fileStatuses[absPath] = messages.GitStatusIgnored
 			default:
 				fileStatuses[absPath] = messages.GitStatusClean
 			}
