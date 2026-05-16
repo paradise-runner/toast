@@ -21,6 +21,21 @@ func newTestModel(content string) Model {
 	return m
 }
 
+func newThemedTestModel(t *testing.T, content string) Model {
+	t.Helper()
+	tm, err := theme.NewManager("toast-dark", "")
+	if err != nil {
+		t.Fatalf("theme setup: %v", err)
+	}
+	m := New(tm, config.Config{})
+	m.buf = buffer.NewEditBuffer(content)
+	m.path = "test.txt"
+	m.viewWidth = 40
+	m.viewHeight = 5
+	m.recomputeGutterWidth()
+	return m
+}
+
 // newTestModelWithPath builds a test model with a buffer ID and path set.
 // Used by Task 3 save tests.
 func newTestModelWithPath(content, path string, bufferID int) Model {
@@ -84,6 +99,33 @@ func TestSelectionRange_NoSelection(t *testing.T) {
 	_, _, active := m.selectionRange()
 	if active {
 		t.Fatal("expected no active selection")
+	}
+}
+
+func TestCursorScreenPositionUsesCellWidthForEmoji(t *testing.T) {
+	m := newThemedTestModel(t, "a🙂b\n")
+	m.cursor = cursorPos{line: 0, col: len("a🙂")}
+
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("expected cursor")
+	}
+
+	wantX := m.gutterWidth + 3
+	if v.Cursor.Position.X != wantX {
+		t.Fatalf("cursor X = %d, want %d", v.Cursor.Position.X, wantX)
+	}
+}
+
+func TestScreenToBufferUsesCellWidthForEmoji(t *testing.T) {
+	m := newTestModel("a🙂b\n")
+	m.viewWidth = 40
+	m.viewHeight = 5
+	m.recomputeGutterWidth()
+
+	_, col := m.screenToBuffer(m.gutterWidth+3, 0)
+	if col != len("a🙂") {
+		t.Fatalf("col at visual cell after emoji = %d, want %d", col, len("a🙂"))
 	}
 }
 

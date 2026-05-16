@@ -26,6 +26,19 @@ func TestWrapWidth(t *testing.T) {
 	}
 }
 
+func TestWordWrapChunksUsesCellWidthForEmoji(t *testing.T) {
+	got := wordWrapChunks("ab🙂cd", 4)
+	want := []int{0, len("ab🙂")}
+	if len(got) != len(want) {
+		t.Fatalf("chunks = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("chunks = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestVisualRowsForLine_Short(t *testing.T) {
 	// "hello" is 5 bytes → fits in 20 cols → 1 visual row
 	m := newWrapModel("hello\n")
@@ -334,7 +347,7 @@ func TestBufPosFromVisualRow_WordBoundary(t *testing.T) {
 	m := newWrapModelSpaces("hello\nhello world foo\nx\n")
 
 	tests := []struct {
-		vr              int
+		vr                int
 		wantLine, wantCol int
 	}{
 		{0, 0, 0},

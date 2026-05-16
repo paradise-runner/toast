@@ -90,23 +90,40 @@ func (m *Model) visualRowOfCursor() int {
 func wordWrapChunks(line string, width int) []int {
 	chunks := []int{0}
 	start := 0
-	for start+width < len(line) {
-		end := start + width
-		// Scan backward for last ASCII space within [start, end).
-		sp := -1
-		for i := end - 1; i >= start; i-- {
-			if line[i] == ' ' {
-				sp = i
+	for start < len(line) && visualWidth(line[start:]) > width {
+		end := start
+		lastSpaceEnd := -1
+		for i, r := range line[start:] {
+			next := start + i + len(string(r))
+			if visualWidth(line[start:next]) > width {
+				break
+			}
+			end = next
+			if r == ' ' {
+				lastSpaceEnd = next
+			}
+		}
+		if lastSpaceEnd > start {
+			chunks = append(chunks, lastSpaceEnd)
+			start = lastSpaceEnd
+			continue
+		}
+		if end > start {
+			chunks = append(chunks, end)
+			start = end
+			continue
+		}
+		for i := range line[start:] {
+			if i > 0 {
+				end = start + i
 				break
 			}
 		}
-		if sp >= 0 {
-			chunks = append(chunks, sp+1) // next chunk starts after the space
-			start = sp + 1
-		} else {
-			chunks = append(chunks, end) // character-boundary fallback
-			start = end
+		if end <= start {
+			end = len(line)
 		}
+		chunks = append(chunks, end)
+		start = end
 	}
 	return chunks
 }

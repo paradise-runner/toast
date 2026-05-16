@@ -44,7 +44,7 @@ type Model struct {
 	bufferID        int
 	pendingBufferID int
 	path            string
-	buf      *buffer.EditBuffer
+	buf             *buffer.EditBuffer
 
 	cursor          cursorPos
 	preferredCol    int        // remembered column for vertical moves
@@ -1422,11 +1422,11 @@ func (m Model) View() tea.View {
 		if m.wrapMode {
 			chunks := m.lineChunks(m.cursor.line)
 			chunkIdx := chunkContaining(chunks, m.cursor.col)
-			cursorScreenX = m.gutterWidth + (m.cursor.col - chunks[chunkIdx])
+			cursorScreenX = m.gutterWidth + m.visualWidthForLineRange(m.cursor.line, chunks[chunkIdx], m.cursor.col)
 			topVR := m.visualRowFromTop(m.viewportTop)
 			cursorScreenY = m.visualRowOfCursor() - topVR
 		} else {
-			cursorScreenX = m.gutterWidth + (m.cursor.col - m.viewportLeft)
+			cursorScreenX = m.gutterWidth + m.visualWidthForLineRange(m.cursor.line, m.viewportLeft, m.cursor.col)
 			cursorScreenY = m.cursor.line - m.viewportTop
 		}
 		v.Cursor = &tea.Cursor{
@@ -1645,6 +1645,63 @@ func (m *Model) lineContentLen(line int) int {
 	return len(raw)
 }
 
+func (m *Model) lineContent(line int) string {
+	raw := m.buf.LineAt(line)
+	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
+		return raw[:len(raw)-1]
+	}
+	return raw
+}
+
+func visualWidth(s string) int {
+	return lipgloss.Width(s)
+}
+
+func (m *Model) visualWidthForLineRange(line, start, end int) int {
+	content := m.lineContent(line)
+	start = clampByteCol(content, start)
+	end = clampByteCol(content, end)
+	if end < start {
+		end = start
+	}
+	return visualWidth(content[start:end])
+}
+
+func byteColForVisualCol(content string, start, visualCol int) int {
+	start = clampByteCol(content, start)
+	if visualCol <= 0 {
+		return start
+	}
+	prev := start
+	for i := start; i < len(content); {
+		_, size := utf8.DecodeRuneInString(content[i:])
+		next := i + size
+		width := visualWidth(content[start:next])
+		if width > visualCol {
+			return prev
+		}
+		if width == visualCol {
+			return next
+		}
+		prev = next
+		i = next
+	}
+	return len(content)
+}
+
+func clampByteCol(s string, col int) int {
+	if col <= 0 {
+		return 0
+	}
+	if col >= len(s) {
+		return len(s)
+	}
+	for col > 0 && !utf8.RuneStart(s[col]) {
+		col--
+	}
+	return col
+}
+
 // clampCol returns col clamped to [0, lineContentLen(line)], with respect to
 // preferredCol for vertical navigation.
 func (m *Model) clampCol(line, preferred int) int {
@@ -1744,11 +1801,7 @@ func (m *Model) screenToBuffer(x, y int) (line, col int) {
 		if visualCol < 0 {
 			visualCol = 0
 		}
-		bufCol := chunkStart + visualCol
-		lineLen := m.lineContentLen(bufLine)
-		if bufCol > lineLen {
-			bufCol = lineLen
-		}
+		bufCol := byteColForVisualCol(m.lineContent(bufLine), chunkStart, visualCol)
 		return bufLine, bufCol
 	}
 
@@ -1760,14 +1813,8 @@ func (m *Model) screenToBuffer(x, y int) (line, col int) {
 	if line < 0 {
 		line = 0
 	}
-	col = m.viewportLeft + (x - m.gutterWidth)
-	if col < 0 {
-		col = 0
-	}
-	lineLen := m.lineContentLen(line)
-	if col > lineLen {
-		col = lineLen
-	}
+	visualCol := x - m.gutterWidth
+	col = byteColForVisualCol(m.lineContent(line), m.viewportLeft, visualCol)
 	return line, col
 }
 
