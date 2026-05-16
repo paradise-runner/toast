@@ -10,7 +10,7 @@
 </div>
 
 
-A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your terminal with a familiar editor feel — file tree, tabs, syntax highlighting, LSP support, and git status — without the overhead of a full GUI.
+A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your terminal with a familiar editor feel: file tree, tabs, syntax highlighting, LSP support, project search, and git status, without the overhead of a full GUI.
 
 > ⚠️ This project is in _very early development_, proceed with caution as you may encounter bugs. ⚠️ 
 
@@ -22,10 +22,11 @@ A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your
 - **Multi-tab editing** with unsaved-changes indicators
 - **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, Markdown)
 - **LSP integration** — completions, hover docs, and go-to-definition out of the box
-- **File tree sidebar** with git status, create/rename/delete, and file watching
+- **File tree sidebar** with git status, create/delete actions, and file watching
 - **Project-wide search** powered by `rg` (ripgrep)
+- **Markdown preview** for `.md` and `.markdown` files
 - **Rope-backed buffer** with full undo/redo
-- **Theme system** — built-in dark and light themes, plus a VSCode theme importer
+- **Theme system** — built-in `system`, dark, and light themes, plus a VSCode theme importer
 - **Configurable** via `~/.config/toast/config.json`
 
 ## Installation
@@ -49,7 +50,7 @@ install -m755 toast-darwin-arm64 /usr/local/bin/toast
 
 **Build from source**
 
-Requires Go 1.25+.
+Requires Go 1.25.2+.
 
 ```bash
 git clone https://github.com/paradise-runner/toast
@@ -64,7 +65,12 @@ make build
 toast               # open current directory
 toast path/to/dir   # open a specific directory
 toast path/to/file  # open a file (auto-detects git root)
+toast new/file.go   # open a new file buffer if the parent directory exists
+toast --help
+toast --version
 ```
+
+`rg` is required for project search. Language servers such as `gopls`, `pyright-langserver`, `typescript-language-server`, and `rust-analyzer` are optional and enable LSP features when installed.
 
 ## Keybindings
 
@@ -72,18 +78,21 @@ toast path/to/file  # open a file (auto-detects git root)
 |-----|--------|
 | `Ctrl+Q` | Quit |
 | `Ctrl+S` / `Cmd+S` | Save |
-| `Ctrl+N` / `Cmd+N` | New file |
 | `Ctrl+W` / `Cmd+W` | Close tab |
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
 | `Ctrl+B` | Toggle sidebar |
+| `Ctrl+Shift+E` | Toggle focus between editor and file tree |
 | `Ctrl+Shift+F` | Search |
 | `Ctrl+G` / `Cmd+L` | Go to line |
+| `Ctrl+Shift+M` | Toggle Markdown preview |
 | `Ctrl+Z` / `Cmd+Z` | Undo |
-| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
-| `Ctrl+Space` | Trigger completion |
+| `Ctrl+Y` / `Ctrl+Shift+Z` / `Cmd+Y` / `Cmd+Shift+Z` | Redo |
+| `Ctrl+Space` / `Cmd+Space` | Trigger completion |
 | `Ctrl+Shift+K` | Show hover |
 | `F12` | Go to definition |
+
+File-tree create/delete actions and theme selection are currently driven from the UI: right-click in the sidebar for file operations, and use the `theme` button in the status bar to open the theme picker.
 
 ## Configuration
 
@@ -121,7 +130,7 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
 
 ### Themes
 
-Built-in themes: `toast-dark`, `toast-light`. Custom themes live in `~/.config/toast/themes/`.
+Built-in themes: `system`, `toast-dark`, `toast-light`. Custom themes live in `~/.config/toast/themes/`.
 
 **Import a VSCode theme:**
 
