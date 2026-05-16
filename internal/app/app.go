@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/yourusername/toast/internal/components/breadcrumbs"
 	"github.com/yourusername/toast/internal/components/closedialog"
 	"github.com/yourusername/toast/internal/components/editor"
@@ -136,22 +138,22 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 	}
 
 	return &Model{
-		cfg:            cfg,
-		theme:          tm,
-		focus:          FocusEditor,
-		sidebarWidth:   cfg.Sidebar.Width,
-		sidebarVisible: cfg.Sidebar.Visible,
-		rootDir:        rootDir,
-		initialFile:    initialFile,
+		cfg:             cfg,
+		theme:           tm,
+		focus:           FocusEditor,
+		sidebarWidth:    cfg.Sidebar.Width,
+		sidebarVisible:  cfg.Sidebar.Visible,
+		rootDir:         rootDir,
+		initialFile:     initialFile,
 		nextBufferID:    1,
 		openBuffers:     make(map[string]int),
 		previewByBuffer: make(map[int]bool),
 		bufferSnapshots: make(map[int]editor.BufferSnapshot),
 		closedSnapshots: make(map[string]editor.BufferSnapshot),
-		themeDir:       themeDir,
-		configPath:     configPath,
-		themePicker:    themepicker.New(tm, themeDir, cfg.Theme),
-		goToLine:       gotoline.NewWithTheme(tm),
+		themeDir:        themeDir,
+		configPath:      configPath,
+		themePicker:     themepicker.New(tm, themeDir, cfg.Theme),
+		goToLine:        gotoline.NewWithTheme(tm),
 
 		fileTree:   filetree.New(tm, cfg, rootDir),
 		tabBar:     tabbar.New(tm),
@@ -183,10 +185,25 @@ func (m *Model) ShutdownLSP() {
 	}
 }
 
+func (m *Model) requestSystemThemeColors() tea.Cmd {
+	if !m.theme.IsSystem() {
+		return nil
+	}
+	return tea.Batch(
+		tea.RequestBackgroundColor,
+		tea.RequestForegroundColor,
+		tea.RequestCursorColor,
+		tea.Raw(theme.SystemPaletteQuery()),
+	)
+}
+
 // Init satisfies tea.Model.
 func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.runGitStatus())
+	if cmd := m.requestSystemThemeColors(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if m.initialFile != "" {
 		path := m.initialFile
 		cmds = append(cmds, func() tea.Msg {
@@ -207,6 +224,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		cmds = append(cmds, m.resizeComponents()...)
+
+	case tea.BackgroundColorMsg:
+		m.theme.ApplySystemBackground(msg.Color, msg.IsDark())
+
+	case tea.ForegroundColorMsg:
+		m.theme.ApplySystemForeground(msg.Color)
+
+	case tea.CursorColorMsg:
+		m.theme.ApplySystemCursor(msg.Color)
+
+	case uv.UnknownOscEvent:
+		if index, c, ok := theme.ParseSystemPaletteResponse(string(msg)); ok {
+			m.theme.ApplySystemPaletteColor(index, c)
+		}
 
 	case tea.KeyPressMsg:
 		cmd := m.handleKey(msg)
@@ -530,11 +561,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ThemePickerClosedMsg:
 		m.themePickerOpen = false
 		_ = m.theme.Reload(msg.ThemeName, m.themeDir)
+		if cmd := m.requestSystemThemeColors(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		m.cfg.Theme = msg.ThemeName
 		_ = config.Save(m.cfg, m.configPath)
 
 	case messages.ThemeChangedMsg:
 		_ = m.theme.Reload(msg.ThemeName, m.themeDir)
+		if cmd := m.requestSystemThemeColors(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	default:
 		// Forward unknown messages to focused component

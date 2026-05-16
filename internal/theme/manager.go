@@ -2,8 +2,10 @@ package theme
 
 import (
 	"embed"
+	"image/color"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"charm.land/lipgloss/v2"
 )
@@ -15,6 +17,11 @@ type Manager struct {
 	name         string
 	theme        *Theme
 	syntaxStyles map[string]lipgloss.Style
+	systemColors map[int]string
+	systemBG     string
+	systemFG     string
+	systemCursor string
+	systemDark   bool
 }
 
 func NewManager(name, themeDir string) (*Manager, error) {
@@ -37,10 +44,11 @@ func NewManager(name, themeDir string) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) UI(key string) string      { return m.theme.UI[key] }
-func (m *Manager) Git(key string) string     { return m.theme.Git[key] }
-func (m *Manager) Variant() string           { return m.theme.Variant }
+func (m *Manager) UI(key string) string       { return m.theme.UI[key] }
+func (m *Manager) Git(key string) string      { return m.theme.Git[key] }
+func (m *Manager) Variant() string            { return m.theme.Variant }
 func (m *Manager) SyntaxFG(key string) string { return m.theme.Syntax[key].FG }
+func (m *Manager) IsSystem() bool             { return m.name == systemThemeName }
 
 func (m *Manager) SyntaxStyle(capture string) lipgloss.Style {
 	if s, ok := m.syntaxStyles[capture]; ok {
@@ -60,8 +68,57 @@ func (m *Manager) Reload(name, themeDir string) error {
 	}
 	m.name = name
 	m.theme = t
+	m.systemColors = nil
+	m.systemBG = ""
+	m.systemFG = ""
+	m.systemCursor = ""
+	m.systemDark = true
 	m.buildSyntaxStyles()
 	return nil
+}
+
+// ApplySystemBackground updates the synthetic system theme with the terminal's
+// actual default background and switches light/dark mappings to match it.
+func (m *Manager) ApplySystemBackground(c color.Color, isDark bool) {
+	if !m.IsSystem() {
+		return
+	}
+	m.systemBG = colorHex(c)
+	m.systemDark = isDark
+	m.rebuildSystemTheme()
+}
+
+func (m *Manager) applySystemPaletteColors() {
+	for index, replacement := range m.systemColors {
+		old := strconv.Itoa(index)
+		replaceColors(m.theme.UI, old, replacement)
+		replaceColors(m.theme.Git, old, replacement)
+		for key, style := range m.theme.Syntax {
+			if style.FG == old {
+				style.FG = replacement
+			}
+			if style.BG == old {
+				style.BG = replacement
+			}
+			m.theme.Syntax[key] = style
+		}
+	}
+}
+
+func (m *Manager) ApplySystemForeground(c color.Color) {
+	if !m.IsSystem() {
+		return
+	}
+	m.systemFG = colorHex(c)
+	m.rebuildSystemTheme()
+}
+
+func (m *Manager) ApplySystemCursor(c color.Color) {
+	if !m.IsSystem() {
+		return
+	}
+	m.systemCursor = colorHex(c)
+	m.rebuildSystemTheme()
 }
 
 // Name returns the load identifier of the active theme (e.g. "toast-dark"),
@@ -76,7 +133,8 @@ func ListBuiltin() []string {
 	if err != nil {
 		return nil
 	}
-	names := make([]string, 0, len(entries))
+	names := make([]string, 0, len(entries)+1)
+	names = append(names, systemThemeName)
 	for _, e := range entries {
 		n := e.Name()
 		if filepath.Ext(n) == ".json" {
@@ -107,6 +165,9 @@ func (m *Manager) buildSyntaxStyles() {
 }
 
 func loadTheme(name, themeDir string) (*Theme, error) {
+	if name == systemThemeName {
+		return newSystemTheme(true), nil
+	}
 	if themeDir != "" {
 		data, err := os.ReadFile(filepath.Join(themeDir, name+".json"))
 		if err == nil {
