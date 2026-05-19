@@ -152,13 +152,17 @@ make build             # compile
 make run               # go run ./cmd/toast .
 make test              # go test ./...
 make test-integration  # run opt-in Ghostty/tmux terminal integration tests
+make test-integration-update  # refresh golden screenshots
 ```
 
 ### Integration Tests
 
 The integration test suite launches Toast inside a temporary Ghostty window
 attached to an isolated tmux server, drives it with `tmux send-keys`, and writes
-pane captures plus PNG screenshots to a temporary artifact directory.
+pane captures plus PNG screenshots to a temporary artifact directory. The
+captured screenshots are compared against checked-in golden images in
+`integration/testdata/ghostty` so the test can catch visual regressions over
+time.
 
 Requirements:
 
@@ -178,6 +182,12 @@ Run the integration tests with:
 
 ```bash
 make test-integration
+```
+
+Refresh the golden screenshots after an intentional visual change with:
+
+```bash
+make test-integration-update
 ```
 
 By default, artifacts are written to a temporary directory and the path is

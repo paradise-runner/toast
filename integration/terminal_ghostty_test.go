@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
 	"image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,9 +16,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yourusername/toast/internal/config"
 )
 
-const terminalIntegrationEnv = "TOAST_RUN_TERMINAL_INTEGRATION"
+const (
+	terminalIntegrationEnv = "TOAST_RUN_TERMINAL_INTEGRATION"
+	updateGoldensEnv       = "TOAST_UPDATE_GOLDENS"
+	goldenDirName          = "ghostty"
+	fixtureWorkspaceDir    = "/private/tmp/toast-fixture"
+	screenshotInset        = 8
+)
 
 func TestGhosttyTmuxTerminalSmoke(t *testing.T) {
 	if os.Getenv(terminalIntegrationEnv) != "1" {
@@ -47,35 +59,32 @@ func TestGhosttyTmuxTerminalSmoke(t *testing.T) {
 	run(t, repoRoot, "go", "build", "-o", binaryPath, "./cmd/toast")
 
 	homeDir := filepath.Join(artifacts, "home")
-	fixtureDir := filepath.Join(artifacts, "fixture")
-	if err := os.MkdirAll(filepath.Join(homeDir, ".config", "toast"), 0o755); err != nil {
-		t.Fatalf("creating isolated home: %v", err)
-	}
-	if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
-		t.Fatalf("creating fixture dir: %v", err)
-	}
+	fixtureDir := fixtureWorkspaceDir
+	writeToastConfig(t, homeDir)
+	writeGhosttyConfig(t, artifacts)
+	resetFixtureDir(t, fixtureDir)
 
-	id := uniqueID()
-	needle := "toastneedle" + id
-	editMarker := "typed" + id
-	filePath := filepath.Join(fixtureDir, "sample-"+id+".md")
+	needle := "toastneedle"
+	editMarker := "typed "
+	filePath := filepath.Join(fixtureDir, "sample.md")
 	fileContent := "# Toast Integration\n\n" + needle + "\n"
 	if err := os.WriteFile(filePath, []byte(fileContent), 0o644); err != nil {
 		t.Fatalf("writing fixture file: %v", err)
 	}
 
-	socketName := "toastit" + id
+	socketName := "toastit" + uniqueID()
 	sessionName := "toastit"
 	targetPane := sessionName + ":0.0"
 	tmux := tmuxRunner{path: tmuxPath, socketName: socketName}
-	tmux.must(t, "new-session", "-d", "-s", sessionName, "-x", "100", "-y", "34", "-c", fixtureDir, "/bin/sh")
+	tmux.must(t, "new-session", "-d", "-s", sessionName, "-x", "100", "-y", "34", "-c", fixtureDir, "/bin/zsh", "-i")
 	tmux.must(t, "set-option", "-t", sessionName, "status", "off")
 	t.Cleanup(func() {
 		_ = tmux.run("kill-server")
 	})
 
-	title := "toast integration " + id
-	launchGhostty(t, openPath, ghosttyApp, tmuxPath, socketName, sessionName, title, fixtureDir)
+	title := "toast integration " + uniqueID()
+	ghosttyConfigPath := filepath.Join(artifacts, "ghostty.config")
+	launchGhostty(t, openPath, ghosttyApp, ghosttyConfigPath, tmuxPath, socketName, sessionName, title, fixtureDir)
 	waitForTmuxClient(t, tmux, sessionName, 15*time.Second)
 
 	command := fmt.Sprintf("HOME=%s %s %s", shellQuote(homeDir), shellQuote(binaryPath), shellQuote(filePath))
@@ -84,7 +93,9 @@ func TestGhosttyTmuxTerminalSmoke(t *testing.T) {
 
 	openPane := paneCapture(t, tmux, targetPane)
 	writeArtifact(t, filepath.Join(artifacts, "01-opened-pane.txt"), []byte(openPane))
-	captureScreenshot(t, screencapturePath, windowFinderPath, osascriptPath, title, filepath.Join(artifacts, "01-opened.png"))
+	openScreenshotPath := filepath.Join(artifacts, "01-opened.png")
+	captureScreenshot(t, screencapturePath, windowFinderPath, osascriptPath, title, openScreenshotPath)
+	assertGoldenScreenshot(t, repoRoot, artifacts, "01-opened", openScreenshotPath)
 
 	tmux.must(t, "send-keys", "-t", targetPane, editMarker)
 	tmux.must(t, "send-keys", "-t", targetPane, "C-s")
@@ -97,7 +108,9 @@ func TestGhosttyTmuxTerminalSmoke(t *testing.T) {
 
 	findPane := paneCapture(t, tmux, targetPane)
 	writeArtifact(t, filepath.Join(artifacts, "02-find-pane.txt"), []byte(findPane))
-	captureScreenshot(t, screencapturePath, windowFinderPath, osascriptPath, title, filepath.Join(artifacts, "02-find.png"))
+	findScreenshotPath := filepath.Join(artifacts, "02-find.png")
+	captureScreenshot(t, screencapturePath, windowFinderPath, osascriptPath, title, findScreenshotPath)
+	assertGoldenScreenshot(t, repoRoot, artifacts, "02-find", findScreenshotPath)
 
 	tmux.must(t, "send-keys", "-t", targetPane, "Escape")
 	tmux.must(t, "send-keys", "-t", targetPane, "C-q")
@@ -142,7 +155,7 @@ func (r tmuxRunner) output(t *testing.T, args ...string) string {
 	return string(out)
 }
 
-func launchGhostty(t *testing.T, openPath, ghosttyApp, tmuxPath, socketName, sessionName, title, workingDir string) {
+func launchGhostty(t *testing.T, openPath, ghosttyApp, ghosttyConfigPath, tmuxPath, socketName, sessionName, title, workingDir string) {
 	t.Helper()
 	initialCommand := strings.Join([]string{
 		shellQuote(tmuxPath),
@@ -154,18 +167,13 @@ func launchGhostty(t *testing.T, openPath, ghosttyApp, tmuxPath, socketName, ses
 	args := []string{
 		"-na", ghosttyApp,
 		"--args",
+		"--config-default-files=false",
+		"--config-file=" + ghosttyConfigPath,
 		"--title=" + title,
 		"--working-directory=" + workingDir,
 		"--initial-command=" + initialCommand,
 		"--window-width=100",
 		"--window-height=34",
-		"--window-save-state=never",
-		"--window-inherit-working-directory=false",
-		"--tab-inherit-working-directory=false",
-		"--window-inherit-font-size=false",
-		"--confirm-close-surface=false",
-		"--quit-after-last-window-closed=true",
-		"--shell-integration=none",
 		"--macos-applescript=true",
 	}
 
@@ -381,6 +389,166 @@ func validatePNG(t *testing.T, path string) {
 	}
 }
 
+func assertGoldenScreenshot(t *testing.T, repoRoot, artifacts, name, actualPath string) {
+	t.Helper()
+	goldenDir := filepath.Join(repoRoot, "integration", "testdata", goldenDirName)
+	goldenPath := filepath.Join(goldenDir, name+".png")
+	if os.Getenv(updateGoldensEnv) == "1" {
+		if err := os.MkdirAll(goldenDir, 0o755); err != nil {
+			t.Fatalf("creating golden dir %s: %v", goldenDir, err)
+		}
+		copyFile(t, actualPath, goldenPath)
+		t.Logf("updated golden screenshot: %s", goldenPath)
+		return
+	}
+
+	expected, err := decodePNG(goldenPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Fatalf("golden screenshot missing: %s (rerun with %s=1 to create it)", goldenPath, updateGoldensEnv)
+		}
+		t.Fatalf("reading golden screenshot %s: %v", goldenPath, err)
+	}
+	actual, err := decodePNG(actualPath)
+	if err != nil {
+		t.Fatalf("reading actual screenshot %s: %v", actualPath, err)
+	}
+
+	expectedRawBounds := expected.Bounds()
+	actualRawBounds := actual.Bounds()
+	expected, actual = normalizeForComparison(t, name, expected, actual)
+
+	expectedBounds := expected.Bounds()
+	diffPixels, diffImage := diffImages(expected, actual)
+	if diffPixels == 0 {
+		return
+	}
+
+	diffPath := filepath.Join(artifacts, name+".diff.png")
+	writePNG(t, diffPath, diffImage)
+	totalPixels := expectedBounds.Dx() * expectedBounds.Dy()
+	t.Fatalf("golden screenshot mismatch for %s: %d/%d pixels differ after normalization; expected_raw=%v actual_raw=%v actual=%s diff=%s", name, diffPixels, totalPixels, expectedRawBounds, actualRawBounds, actualPath, diffPath)
+}
+
+func decodePNG(path string) (*image.NRGBA, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	src, err := png.Decode(file)
+	if err != nil {
+		return nil, err
+	}
+
+	bounds := src.Bounds()
+	dst := image.NewNRGBA(bounds)
+	draw.Draw(dst, bounds, src, bounds.Min, draw.Src)
+	return dst, nil
+}
+
+func normalizeForComparison(t *testing.T, name string, expected, actual *image.NRGBA) (*image.NRGBA, *image.NRGBA) {
+	t.Helper()
+	expected = insetCrop(t, name, "expected", expected, screenshotInset)
+	actual = insetCrop(t, name, "actual", actual, screenshotInset)
+
+	width := minInt(expected.Bounds().Dx(), actual.Bounds().Dx())
+	height := minInt(expected.Bounds().Dy(), actual.Bounds().Dy())
+	if width < 1 || height < 1 {
+		t.Fatalf("normalized screenshot for %s is too small: expected=%v actual=%v", name, expected.Bounds(), actual.Bounds())
+	}
+	return cropToSize(expected, width, height), cropToSize(actual, width, height)
+}
+
+func insetCrop(t *testing.T, name, label string, img *image.NRGBA, inset int) *image.NRGBA {
+	t.Helper()
+	bounds := img.Bounds()
+	if bounds.Dx() <= inset*2 || bounds.Dy() <= inset*2 {
+		t.Fatalf("%s screenshot for %s is too small to crop by %d pixels: %v", label, name, inset, bounds)
+	}
+	rect := image.Rect(bounds.Min.X+inset, bounds.Min.Y+inset, bounds.Max.X-inset, bounds.Max.Y-inset)
+	return cropImage(img, rect)
+}
+
+func cropToSize(img *image.NRGBA, width, height int) *image.NRGBA {
+	bounds := img.Bounds()
+	rect := image.Rect(bounds.Min.X, bounds.Min.Y, bounds.Min.X+width, bounds.Min.Y+height)
+	return cropImage(img, rect)
+}
+
+func cropImage(img *image.NRGBA, rect image.Rectangle) *image.NRGBA {
+	dst := image.NewNRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
+	draw.Draw(dst, dst.Bounds(), img, rect.Min, draw.Src)
+	return dst
+}
+
+func diffImages(expected, actual *image.NRGBA) (int, *image.NRGBA) {
+	bounds := expected.Bounds()
+	diff := image.NewNRGBA(bounds)
+	diffPixels := 0
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			expectedPixel := expected.NRGBAAt(x, y)
+			actualPixel := actual.NRGBAAt(x, y)
+			if expectedPixel == actualPixel {
+				diff.SetNRGBA(x, y, dimPixel(expectedPixel))
+				continue
+			}
+			diffPixels++
+			diff.SetNRGBA(x, y, color.NRGBA{R: 255, G: 0, B: 255, A: 255})
+		}
+	}
+	return diffPixels, diff
+}
+
+func dimPixel(pixel color.NRGBA) color.NRGBA {
+	return color.NRGBA{
+		R: pixel.R / 3,
+		G: pixel.G / 3,
+		B: pixel.B / 3,
+		A: 255,
+	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func writePNG(t *testing.T, path string, img image.Image) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("creating png %s: %v", path, err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("writing png %s: %v", path, err)
+	}
+}
+
+func copyFile(t *testing.T, srcPath, dstPath string) {
+	t.Helper()
+	src, err := os.Open(srcPath)
+	if err != nil {
+		t.Fatalf("opening %s: %v", srcPath, err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		t.Fatalf("creating %s: %v", dstPath, err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		t.Fatalf("copying %s to %s: %v", srcPath, dstPath, err)
+	}
+}
+
 func requireCommand(t *testing.T, name string) string {
 	t.Helper()
 	path, err := exec.LookPath(name)
@@ -424,6 +592,76 @@ func artifactDir(t *testing.T) string {
 		t.Fatalf("creating artifact dir: %v", err)
 	}
 	return dir
+}
+
+func resetFixtureDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("resetting fixture dir %s: %v", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating fixture dir %s: %v", dir, err)
+	}
+}
+
+func writeGhosttyConfig(t *testing.T, artifacts string) {
+	t.Helper()
+	configPath := filepath.Join(artifacts, "ghostty.config")
+	content := strings.Join([]string{
+		"font-family = Menlo",
+		"font-size = 13",
+		"cursor-style = block",
+		"cursor-style-blink = false",
+		"background-opacity = 1",
+		"window-decoration = auto",
+		"window-padding-x = 2",
+		"window-padding-y = 2",
+		"window-position-x = 80",
+		"window-position-y = 80",
+		"window-save-state = never",
+		"window-inherit-working-directory = false",
+		"tab-inherit-working-directory = false",
+		"window-inherit-font-size = false",
+		"confirm-close-surface = false",
+		"quit-after-last-window-closed = true",
+		"shell-integration = none",
+		"macos-titlebar-style = hidden",
+		"macos-window-shadow = false",
+		"",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing ghostty config %s: %v", configPath, err)
+	}
+}
+
+func writeToastConfig(t *testing.T, homeDir string) {
+	t.Helper()
+	cfg := config.Config{
+		Theme: "toast-dark",
+		Editor: config.EditorConfig{
+			TabWidth:                     4,
+			WordWrap:                     false,
+			ShowWhitespace:               false,
+			AutoIndent:                   true,
+			TrimTrailingWhitespaceOnSave: true,
+			InsertFinalNewlineOnSave:     true,
+		},
+		Sidebar: config.SidebarConfig{
+			Visible:       true,
+			Width:         30,
+			ConfirmDelete: true,
+		},
+		LSP: map[string]config.LSPCmd{},
+		Search: config.SearchConfig{
+			Command: "rg",
+			Args:    []string{"--json"},
+		},
+		IgnoredPatterns: []string{".git", "node_modules", "__pycache__", ".DS_Store"},
+	}
+	configPath := filepath.Join(homeDir, ".config", "toast", "config.json")
+	if err := config.Save(cfg, configPath); err != nil {
+		t.Fatalf("writing toast config %s: %v", configPath, err)
+	}
 }
 
 func writeArtifact(t *testing.T, path string, data []byte) {
