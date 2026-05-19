@@ -148,7 +148,38 @@ Found a bug or have a feature request? We'd love to hear from you! Please open a
 ## Development
 
 ```bash
-make build    # compile
-make run      # go run ./cmd/toast .
-make test     # go test ./...
+make build             # compile
+make run               # go run ./cmd/toast .
+make test              # go test ./...
+make test-integration  # run opt-in Ghostty/tmux terminal integration tests
 ```
+
+### Integration Tests
+
+The integration test suite launches Toast inside a temporary Ghostty window
+attached to an isolated tmux server, drives it with `tmux send-keys`, and writes
+pane captures plus PNG screenshots to a temporary artifact directory.
+
+Requirements:
+
+- macOS
+- Ghostty installed at `/Applications/Ghostty.app` or set `TOAST_GHOSTTY_APP`
+  to the app path
+- `tmux`
+- `screencapture`
+
+Before running the screenshot tests, enable Ghostty in:
+
+```text
+System Settings > Privacy & Security > Screen & System Audio Recording
+```
+
+Run the integration tests with:
+
+```bash
+make test-integration
+```
+
+By default, artifacts are written to a temporary directory and the path is
+printed in the verbose test output. Set `TOAST_TERMINAL_ARTIFACT_DIR` to keep
+artifacts in a specific directory.
