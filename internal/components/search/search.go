@@ -60,6 +60,13 @@ type searchBatchMsg struct {
 	done    messages.SearchDoneMsg
 }
 
+const (
+	searchTitle       = "Search"
+	searchCloseLabel  = "x"
+	searchHeaderRows  = 3
+	searchSummaryRows = 1
+)
+
 // textInput is a minimal single-line text input for v2 bubbletea.
 type textInput struct {
 	value  string
@@ -67,6 +74,17 @@ type textInput struct {
 }
 
 func (t *textInput) Value() string { return t.value }
+
+func (t *textInput) setCursorFromX(x int) {
+	if x < 0 {
+		x = 0
+	}
+	runes := []rune(t.value)
+	if x > len(runes) {
+		x = len(runes)
+	}
+	t.cursor = x
+}
 
 func (t *textInput) handleKey(msg tea.KeyPressMsg) {
 	switch msg.String() {
@@ -273,25 +291,37 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
-	case tea.MouseReleaseMsg:
+	case tea.MouseClickMsg:
 		if !m.active {
 			break
 		}
-		// Reserve top 3 rows for the input area; results start at row 3.
-		const headerRows = 3
 		if msg.Button == tea.MouseLeft {
-			row := msg.Y - headerRows
-			if row >= 0 {
-				idx := m.offset + row
-				if idx >= 0 && idx < len(m.results) {
-					m.cursor = idx
-					m.clampScroll()
-					r := m.results[m.cursor]
-					cmds = append(cmds, func() tea.Msg {
-						return messages.FileSelectedMsg{Path: r.Path}
-					})
-				}
+			if m.hitCloseButton(msg.X, msg.Y) {
+				m.active = false
+				cmds = append(cmds, func() tea.Msg { return messages.SearchCloseMsg{} })
+				break
 			}
+			if msg.Y == 1 {
+				m.query.setCursorFromX(msg.X)
+				break
+			}
+			if idx, ok := m.resultIndexAtY(msg.Y); ok {
+				m.cursor = idx
+				m.clampScroll()
+				r := m.results[m.cursor]
+				cmds = append(cmds, func() tea.Msg {
+					return messages.FileSelectedMsg{Path: r.Path}
+				})
+			}
+		}
+
+	case tea.MouseMotionMsg:
+		if !m.active {
+			break
+		}
+		if idx, ok := m.resultIndexAtY(msg.Y); ok {
+			m.cursor = idx
+			m.clampScroll()
 		}
 	}
 
@@ -345,17 +375,17 @@ func (m Model) View() tea.View {
 	var sb strings.Builder
 
 	// Header: title + input.
-	title := baseStyle.Copy().Bold(true).Render("Search")
-	sb.WriteString(title + "\n")
+	title := searchTitle
+	if closeX, ok := m.closeButtonX(); ok {
+		title += strings.Repeat(" ", closeX-len(title)) + searchCloseLabel
+	}
+	sb.WriteString(baseStyle.Copy().Bold(true).Width(m.width).Render(title) + "\n")
 	inputLine := baseStyle.Width(m.width).Render(m.query.View("Search..."))
 	sb.WriteString(inputLine + "\n")
 	sb.WriteString(baseStyle.Width(m.width).Render(strings.Repeat("─", m.width)) + "\n")
 
 	// Results area: height minus 3 header rows and 1 summary row.
-	listHeight := m.height - 4
-	if listHeight < 0 {
-		listHeight = 0
-	}
+	listHeight := m.listHeight()
 
 	end := m.offset + listHeight
 	if end > len(m.results) {
@@ -431,7 +461,7 @@ func (m Model) debounceSearch(query string) tea.Cmd {
 // clampScroll keeps the cursor visible within the results list.
 func (m *Model) clampScroll() {
 	// Reserve 3 header + 1 summary = 4 fixed rows; list occupies the rest.
-	listHeight := m.height - 4
+	listHeight := m.listHeight()
 	if listHeight <= 0 {
 		listHeight = 1
 	}
@@ -441,6 +471,39 @@ func (m *Model) clampScroll() {
 	if m.cursor >= m.offset+listHeight {
 		m.offset = m.cursor - listHeight + 1
 	}
+}
+
+func (m Model) listHeight() int {
+	listHeight := m.height - searchHeaderRows - searchSummaryRows
+	if listHeight < 0 {
+		return 0
+	}
+	return listHeight
+}
+
+func (m Model) closeButtonX() (int, bool) {
+	minWidth := len(searchTitle) + 1 + len(searchCloseLabel)
+	if m.width < minWidth {
+		return 0, false
+	}
+	return m.width - len(searchCloseLabel), true
+}
+
+func (m Model) hitCloseButton(x, y int) bool {
+	closeX, ok := m.closeButtonX()
+	return ok && y == 0 && x >= closeX && x < m.width
+}
+
+func (m Model) resultIndexAtY(y int) (int, bool) {
+	row := y - searchHeaderRows
+	if row < 0 || row >= m.listHeight() {
+		return 0, false
+	}
+	idx := m.offset + row
+	if idx < 0 || idx >= len(m.results) {
+		return 0, false
+	}
+	return idx, true
 }
 
 // runRipgrep executes ripgrep and streams results back as individual messages.

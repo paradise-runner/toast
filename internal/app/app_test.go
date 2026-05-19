@@ -2,12 +2,33 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/yourusername/toast/internal/messages"
 )
+
+func collectAppCmdMessages(t *testing.T, cmd tea.Cmd) []tea.Msg {
+	t.Helper()
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if msg == nil {
+		return nil
+	}
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var msgs []tea.Msg
+		for _, batchCmd := range batch {
+			msgs = append(msgs, collectAppCmdMessages(t, batchCmd)...)
+		}
+		return msgs
+	}
+	return []tea.Msg{msg}
+}
 
 // TestApp_FileSavingMsg_SetsSavingPath verifies that receiving FileSavingMsg sets isSavingPath.
 func TestApp_FileSavingMsg_SetsSavingPath(t *testing.T) {
@@ -70,5 +91,49 @@ func TestApp_EscapeClosesFindReplaceImmediately(t *testing.T) {
 	}
 	if m.findReplace.IsOpen() {
 		t.Fatal("expected find/replace component to close")
+	}
+}
+
+func TestApp_FileSelectedClosesSearch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	m := newTestApp(t, dir)
+	m.openSearch()
+
+	_, _ = m.Update(messages.FileSelectedMsg{Path: path})
+
+	if m.searchOpen {
+		t.Fatal("expected search to close after selecting a file")
+	}
+	if m.focus != FocusEditor {
+		t.Fatalf("focus = %v, want FocusEditor", m.focus)
+	}
+}
+
+func TestApp_SearchCloseButtonClickClosesSearch(t *testing.T) {
+	m := newTestApp(t, t.TempDir())
+	m.sidebarVisible = false
+	m.resizeComponents()
+	m.openSearch()
+
+	cmd := m.handleMouseClick(tea.MouseClickMsg{
+		Button: tea.MouseLeft,
+		X:      m.width - 1,
+		Y:      2,
+	})
+	msgs := collectAppCmdMessages(t, cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if _, ok := msgs[0].(messages.SearchCloseMsg); !ok {
+		t.Fatalf("expected SearchCloseMsg, got %T", msgs[0])
+	}
+
+	_, _ = m.Update(msgs[0])
+	if m.searchOpen {
+		t.Fatal("expected search to close after close-button message")
 	}
 }

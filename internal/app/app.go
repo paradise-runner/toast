@@ -268,10 +268,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case tea.MouseWheelMsg:
+		cmd := m.handleMouseWheel(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.FileSelectedMsg:
+		closeSearch := m.searchOpen
 		cmd := m.handleFileSelected(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		if closeSearch {
+			m.closeSearch()
 		}
 
 	case messages.CloseTabRequestMsg:
@@ -445,14 +455,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.SearchOpenMsg:
-		m.searchOpen = true
-		m.setFocus(FocusSearch)
-		m.search, _ = m.search.Update(msg)
+		m.openSearch()
 
 	case messages.SearchCloseMsg:
-		m.searchOpen = false
-		m.setFocus(FocusEditor)
-		m.search, _ = m.search.Update(msg)
+		m.closeSearch()
 
 	case messages.FindReplaceOpenMsg:
 		m.openFindReplace("")
@@ -688,9 +694,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 
 	case isSearch(msg):
-		m.searchOpen = true
-		m.setFocus(FocusSearch)
-		m.search, _ = m.search.Update(messages.SearchOpenMsg{})
+		m.openSearch()
 		return nil
 
 	case isFindReplace(msg):
@@ -718,9 +722,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case isEscape(msg):
 		if m.searchOpen {
-			m.searchOpen = false
-			m.setFocus(FocusEditor)
-			m.search, _ = m.search.Update(messages.SearchCloseMsg{})
+			m.closeSearch()
 			return nil
 		}
 		if m.focus == FocusFileTree {
@@ -1009,14 +1011,132 @@ func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 	if msg.Button == tea.MouseLeft {
 		m.sidebarDragging = false
 	}
+	tabBarHeight := 1
+	statusBarHeight := 1
+	breadcrumbHeight := 1
+
+	sidebarW := 0
+	if m.sidebarVisible {
+		sidebarW = m.sidebarWidth
+	}
+
+	x := msg.Mouse().X
+	y := msg.Mouse().Y
+
 	// Route tab bar row to tab bar (close button × and middle-click).
-	if msg.Y == 0 {
+	if y == 0 {
 		var cmd tea.Cmd
 		m.tabBar, cmd = m.tabBar.Update(msg)
 		return cmd
 	}
+
+	if y >= m.height-statusBarHeight {
+		return nil
+	}
+
+	contentY := y - tabBarHeight
+
+	if m.searchOpen {
+		editorX := x - sidebarW
+		if editorX < 0 {
+			editorX = 0
+		}
+		adjustedY := contentY - breadcrumbHeight
+		if adjustedY < 0 {
+			adjustedY = 0
+		}
+		adjustedMsg := tea.MouseReleaseMsg{
+			Button: msg.Button,
+			Mod:    msg.Mod,
+			X:      editorX,
+			Y:      adjustedY,
+		}
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(adjustedMsg)
+		return cmd
+	}
+
 	// Forward release to editor so it can reset its drag state.
-	updated, cmd := m.editor.Update(msg)
+	editorX := x - sidebarW
+	if editorX < 0 {
+		editorX = 0
+	}
+	adjustedY := contentY - breadcrumbHeight
+	if adjustedY < 0 {
+		adjustedY = 0
+	}
+	adjustedMsg := tea.MouseReleaseMsg{
+		Button: msg.Button,
+		Mod:    msg.Mod,
+		X:      editorX,
+		Y:      adjustedY,
+	}
+	updated, cmd := m.editor.Update(adjustedMsg)
+	m.editor = updated.(editor.Model)
+	return cmd
+}
+
+// handleMouseWheel routes scroll-wheel events to the component under the pointer.
+func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
+	if m.themePickerOpen || m.closeDialogOpen {
+		return nil
+	}
+	tabBarHeight := 1
+	statusBarHeight := 1
+	breadcrumbHeight := 1
+
+	sidebarW := 0
+	if m.sidebarVisible {
+		sidebarW = m.sidebarWidth
+	}
+
+	x := msg.Mouse().X
+	y := msg.Mouse().Y
+
+	if y == 0 || y >= m.height-statusBarHeight {
+		return nil
+	}
+
+	contentY := y - tabBarHeight
+
+	if m.sidebarVisible && x < sidebarW {
+		adjustedMsg := tea.MouseWheelMsg{
+			Button: msg.Button,
+			Mod:    msg.Mod,
+			X:      x,
+			Y:      contentY,
+		}
+		var cmd tea.Cmd
+		m.fileTree, cmd = m.fileTree.Update(adjustedMsg)
+		return cmd
+	}
+
+	editorX := x - sidebarW
+	if editorX < 0 {
+		editorX = 0
+	}
+	adjustedY := contentY - breadcrumbHeight
+	if adjustedY < 0 {
+		adjustedY = 0
+	}
+	adjustedMsg := tea.MouseWheelMsg{
+		Button: msg.Button,
+		Mod:    msg.Mod,
+		X:      editorX,
+		Y:      adjustedY,
+	}
+
+	if m.searchOpen {
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(adjustedMsg)
+		return cmd
+	}
+	if m.previewOpen {
+		var cmd tea.Cmd
+		m.preview, cmd = m.preview.Update(adjustedMsg)
+		return cmd
+	}
+	updated, cmd := m.editor.Update(adjustedMsg)
 	m.editor = updated.(editor.Model)
 	return cmd
 }
@@ -1217,13 +1337,24 @@ func (m *Model) setFocus(target FocusTarget) {
 	}
 }
 
+func (m *Model) openSearch() {
+	m.searchOpen = true
+	m.setFocus(FocusSearch)
+	m.search, _ = m.search.Update(messages.SearchOpenMsg{})
+}
+
+func (m *Model) closeSearch() {
+	m.searchOpen = false
+	m.setFocus(FocusEditor)
+	m.search, _ = m.search.Update(messages.SearchCloseMsg{})
+}
+
 func (m *Model) openFindReplace(seed string) {
 	if strings.Contains(seed, "\n") {
 		seed = ""
 	}
 	if m.searchOpen {
-		m.searchOpen = false
-		m.search, _ = m.search.Update(messages.SearchCloseMsg{})
+		m.closeSearch()
 	}
 	m.findReplaceOpen = true
 	m.setFocus(FocusEditor)
