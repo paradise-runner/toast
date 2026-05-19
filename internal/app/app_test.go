@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/yourusername/toast/internal/messages"
 )
 
@@ -49,5 +51,24 @@ func TestApp_FileChangedOnDisk_SkippedWhileSaving(t *testing.T) {
 	// isSavingPath should still be set — FileChangedOnDiskMsg does not clear it
 	if m.isSavingPath != "/some/file.go" {
 		t.Fatalf("isSavingPath should be unchanged, got %q", m.isSavingPath)
+	}
+}
+
+func TestApp_EscapeClosesFindReplaceImmediately(t *testing.T) {
+	m := newTestApp(t, t.TempDir())
+	m.openFindReplace("foo")
+	if !m.findReplaceOpen {
+		t.Fatal("expected find/replace overlay to be open")
+	}
+
+	cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if cmd != nil {
+		t.Fatal("expected escape close to be handled synchronously")
+	}
+	if m.findReplaceOpen {
+		t.Fatal("expected find/replace overlay to close")
+	}
+	if m.findReplace.IsOpen() {
+		t.Fatal("expected find/replace component to close")
 	}
 }

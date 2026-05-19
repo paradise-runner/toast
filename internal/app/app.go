@@ -14,6 +14,7 @@ import (
 	"github.com/yourusername/toast/internal/components/closedialog"
 	"github.com/yourusername/toast/internal/components/editor"
 	"github.com/yourusername/toast/internal/components/filetree"
+	"github.com/yourusername/toast/internal/components/findreplace"
 	"github.com/yourusername/toast/internal/components/gotoline"
 	"github.com/yourusername/toast/internal/components/preview"
 	"github.com/yourusername/toast/internal/components/quitdialog"
@@ -69,6 +70,9 @@ type Model struct {
 
 	goToLineOpen bool
 	goToLine     gotoline.Model
+
+	findReplaceOpen bool
+	findReplace     findreplace.Model
 
 	quitDialogOpen bool
 	quitDialog     quitdialog.Model
@@ -154,6 +158,7 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		configPath:      configPath,
 		themePicker:     themepicker.New(tm, themeDir, cfg.Theme),
 		goToLine:        gotoline.NewWithTheme(tm),
+		findReplace:     findreplace.New(tm),
 
 		fileTree:   filetree.New(tm, cfg, rootDir),
 		tabBar:     tabbar.New(tm),
@@ -449,6 +454,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setFocus(FocusEditor)
 		m.search, _ = m.search.Update(msg)
 
+	case messages.FindReplaceOpenMsg:
+		m.openFindReplace("")
+
+	case messages.FindReplaceCloseMsg:
+		m.closeFindReplace()
+
+	case messages.FindReplaceQueryChangedMsg:
+		if cmd := m.updateEditor(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		m.syncFindReplaceStatus()
+
+	case messages.FindReplaceNavigateMsg:
+		if cmd := m.updateEditor(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		m.syncFindReplaceStatus()
+
+	case messages.FindReplaceReplaceCurrentMsg:
+		if cmd := m.updateEditor(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		m.syncFindReplaceStatus()
+
+	case messages.FindReplaceReplaceAllMsg:
+		if cmd := m.updateEditor(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		m.syncFindReplaceStatus()
+
 	case messages.LSPServerStatusMsg:
 		m.updateStatusBar(msg)
 
@@ -619,6 +654,23 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 
+	if m.findReplaceOpen {
+		if isEscape(msg) {
+			m.closeFindReplace()
+			return nil
+		}
+		if isFindReplace(msg) {
+			m.openFindReplace("")
+			return nil
+		}
+		updated, cmd := m.findReplace.Update(msg)
+		m.findReplace = updated
+		if !m.findReplace.IsOpen() {
+			m.findReplaceOpen = false
+		}
+		return cmd
+	}
+
 	// App-level keys always checked first.
 	switch {
 	case isQuit(msg):
@@ -641,6 +693,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.search, _ = m.search.Update(messages.SearchOpenMsg{})
 		return nil
 
+	case isFindReplace(msg):
+		m.openFindReplace(m.editor.SelectedText())
+		return nil
+
 	case isGoToLine(msg):
 		m.goToLine = m.goToLine.Open(m.editor.LineCount())
 		m.goToLineOpen = true
@@ -660,7 +716,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		cmd := m.tabBar.PrevTab()
 		return cmd
 
-	case msg.String() == "escape":
+	case isEscape(msg):
 		if m.searchOpen {
 			m.searchOpen = false
 			m.setFocus(FocusEditor)
@@ -815,6 +871,26 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		updated, cmd := m.themePicker.Update(local)
 		m.themePicker = updated
 		return cmd
+	}
+
+	if m.findReplaceOpen {
+		ow, oh := m.findReplace.Dimensions()
+		startX := (m.width - ow) / 2
+		startY := (m.height - oh) / 2
+		if startX < 0 {
+			startX = 0
+		}
+		if startY < 0 {
+			startY = 0
+		}
+		localX := msg.X - startX
+		localY := msg.Y - startY
+		if localX >= 0 && localX < ow && localY >= 0 && localY < oh {
+			local := tea.MouseClickMsg{Button: msg.Button, Mod: msg.Mod, X: localX, Y: localY}
+			updated, cmd := m.findReplace.Update(local)
+			m.findReplace = updated
+			return cmd
+		}
 	}
 
 	// If delete dialog is open in the filetree, forward all left-clicks to it.
@@ -1141,6 +1217,38 @@ func (m *Model) setFocus(target FocusTarget) {
 	}
 }
 
+func (m *Model) openFindReplace(seed string) {
+	if strings.Contains(seed, "\n") {
+		seed = ""
+	}
+	if m.searchOpen {
+		m.searchOpen = false
+		m.search, _ = m.search.Update(messages.SearchCloseMsg{})
+	}
+	m.findReplaceOpen = true
+	m.setFocus(FocusEditor)
+	m.findReplace = m.findReplace.Open(seed)
+	if m.findReplace.Query() != "" {
+		_ = m.updateEditor(messages.FindReplaceQueryChangedMsg{
+			Query:     m.findReplace.Query(),
+			MatchCase: m.findReplace.MatchCase(),
+			WholeWord: m.findReplace.WholeWord(),
+		})
+	}
+	m.syncFindReplaceStatus()
+}
+
+func (m *Model) closeFindReplace() {
+	m.findReplaceOpen = false
+	m.findReplace, _ = m.findReplace.Update(messages.FindReplaceCloseMsg{})
+	_ = m.updateEditor(messages.FindReplaceCloseMsg{})
+}
+
+func (m *Model) syncFindReplaceStatus() {
+	current, total := m.editor.FindStatus()
+	m.findReplace.SetMatchStatus(current, total)
+}
+
 // updateFocused sends a message to whichever component currently has focus.
 func (m *Model) updateFocused(msg tea.Msg) tea.Cmd {
 	switch m.focus {
@@ -1234,6 +1342,9 @@ func (m *Model) resizeComponents() []tea.Cmd {
 
 	// Search: editor width, editor height (shares space with editor)
 	m.search, _ = m.search.Update(tea.WindowSizeMsg{Width: editorWidth, Height: editorHeight})
+
+	// Find/replace overlay: sized to the editor pane.
+	m.findReplace, _ = m.findReplace.Update(tea.WindowSizeMsg{Width: editorWidth, Height: editorHeight})
 
 	// Preview: editor width, editor height (shares space with editor)
 	m.preview, _ = m.preview.Update(tea.WindowSizeMsg{Width: editorWidth, Height: editorHeight})
@@ -1388,6 +1499,10 @@ func (m *Model) View() tea.View {
 	}
 	if m.goToLineOpen {
 		overlayStr := m.goToLine.Render()
+		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
+	}
+	if m.findReplaceOpen {
+		overlayStr := m.findReplace.Render()
 		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
 	}
 	if m.quitDialogOpen {

@@ -50,6 +50,12 @@ type Model struct {
 	preferredCol    int        // remembered column for vertical moves
 	selectionAnchor *cursorPos // nil = no active selection
 
+	findQuery     string
+	findMatchCase bool
+	findWholeWord bool
+	findMatches   []findMatch
+	findCurrent   int
+
 	// Mouse drag tracking
 	mouseDragging   bool
 	mouseDragAnchor cursorPos
@@ -82,10 +88,11 @@ type Model struct {
 // New creates a new editor Model with an empty buffer.
 func New(tm *theme.Manager, cfg config.Config) Model {
 	return Model{
-		theme:   tm,
-		cfg:     cfg,
-		buf:     buffer.NewEditBuffer(""),
-		focused: true,
+		theme:       tm,
+		cfg:         cfg,
+		buf:         buffer.NewEditBuffer(""),
+		focused:     true,
+		findCurrent: -1,
 	}
 }
 
@@ -166,6 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.preferredCol = 0
 		m.viewportTop = 0
 		m.viewportLeft = 0
+		m.clearFindState()
 		m.wrapMode = isMarkdownPath(msg.path)
 		if msg.isBinary {
 			m.buf = buffer.NewEditBuffer("")
@@ -200,6 +208,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.GoToLineMsg:
 		return m.handleGoToLine(msg)
+
+	case messages.FindReplaceCloseMsg:
+		m.clearFindState()
+
+	case messages.FindReplaceQueryChangedMsg:
+		m.applyFindQuery(msg.Query, findOptions{
+			matchCase: msg.MatchCase,
+			wholeWord: msg.WholeWord,
+		})
+
+	case messages.FindReplaceNavigateMsg:
+		m.navigateFind(msg.Forward)
+
+	case messages.FindReplaceReplaceCurrentMsg:
+		preModified := false
+		if m.buf != nil {
+			preModified = m.buf.Modified()
+		}
+		changed := m.replaceCurrentFind(msg.Query, msg.Replacement, findOptions{
+			matchCase: msg.MatchCase,
+			wholeWord: msg.WholeWord,
+		})
+		if changed && m.buf != nil && m.buf.Modified() != preModified {
+			return m, m.emitModified()
+		}
+
+	case messages.FindReplaceReplaceAllMsg:
+		preModified := false
+		if m.buf != nil {
+			preModified = m.buf.Modified()
+		}
+		changed := m.replaceAllFind(msg.Query, msg.Replacement, findOptions{
+			matchCase: msg.MatchCase,
+			wholeWord: msg.WholeWord,
+		})
+		if changed && m.buf != nil && m.buf.Modified() != preModified {
+			return m, m.emitModified()
+		}
 	}
 
 	return m, nil
@@ -233,6 +279,11 @@ type BufferSnapshot struct {
 	buf             *buffer.EditBuffer
 	cursor          cursorPos
 	selectionAnchor *cursorPos
+	findQuery       string
+	findMatchCase   bool
+	findWholeWord   bool
+	findMatches     []findMatch
+	findCurrent     int
 	viewportTop     int
 	viewportLeft    int
 	wrapMode        bool
@@ -293,6 +344,11 @@ func (m Model) Snapshot() BufferSnapshot {
 		buf:             m.buf,
 		cursor:          m.cursor,
 		selectionAnchor: anchor,
+		findQuery:       m.findQuery,
+		findMatchCase:   m.findMatchCase,
+		findWholeWord:   m.findWholeWord,
+		findMatches:     append([]findMatch(nil), m.findMatches...),
+		findCurrent:     m.findCurrent,
 		viewportTop:     m.viewportTop,
 		viewportLeft:    m.viewportLeft,
 		wrapMode:        m.wrapMode,
@@ -310,6 +366,11 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.buf = snap.buf
 	m.cursor = snap.cursor
 	m.selectionAnchor = snap.selectionAnchor
+	m.findQuery = snap.findQuery
+	m.findMatchCase = snap.findMatchCase
+	m.findWholeWord = snap.findWholeWord
+	m.findMatches = append([]findMatch(nil), snap.findMatches...)
+	m.findCurrent = snap.findCurrent
 	m.viewportTop = snap.viewportTop
 	m.viewportLeft = snap.viewportLeft
 	m.wrapMode = snap.wrapMode
@@ -337,6 +398,14 @@ func (m Model) Content() string {
 		return ""
 	}
 	return m.buf.String()
+}
+
+// SelectedText returns the active selection, if any.
+func (m Model) SelectedText() string {
+	if m.buf == nil {
+		return ""
+	}
+	return m.selectedText()
 }
 
 // BufferID returns the buffer ID of the currently loaded file.
@@ -1401,12 +1470,13 @@ func (m Model) View() tea.View {
 		if m.wrapMode && bufLine < lineCount {
 			lineOffset = m.lineChunks(bufLine)[chunkIndex]
 		}
+		findRanges := m.findRangesForLineRange(bufLine, lineOffset, lineOffset+len(lineContent))
 
 		var renderedContent string
 		if isCurrentLine && m.focused {
-			renderedContent = m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, lineOffset)
+			renderedContent = m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, lineOffset, findRanges)
 		} else {
-			renderedContent = m.renderHighlightedLine(bufLine, lineContent, bgColor, contentWidth, lineSelRange, lineOffset)
+			renderedContent = m.renderHighlightedLine(bufLine, lineContent, bgColor, contentWidth, lineSelRange, lineOffset, findRanges)
 		}
 
 		if screenRow > 0 {
@@ -1443,12 +1513,31 @@ func (m Model) View() tea.View {
 // selRange, if non-nil, is a [start, end) pair of raw line-relative byte offsets
 // (before lineOffset adjustment) indicating the selected region.
 // lineOffset is the raw line-relative byte index where `text` starts (normally m.viewportLeft).
-func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, padWidth int, selRange *[2]int, lineOffset int) string {
+func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, padWidth int, selRange *[2]int, lineOffset int, findRanges []lineFindMatch) string {
 	// Determine selection background.
 	var selBg color.Color = lipgloss.Color("#45475a") // default
 	if m.theme != nil {
 		if s := m.theme.UI("selection"); s != "" {
 			selBg = lipgloss.Color(s)
+		}
+	}
+
+	matchBg := selBg
+	currentBg := selBg
+	var matchFg color.Color
+	var currentFg color.Color
+	if m.theme != nil {
+		if s := m.theme.UI("search_match_bg"); s != "" {
+			matchBg = lipgloss.Color(s)
+		}
+		if s := m.theme.UI("search_current_bg"); s != "" {
+			currentBg = lipgloss.Color(s)
+		}
+		if s := m.theme.UI("search_match_fg"); s != "" {
+			matchFg = lipgloss.Color(s)
+		}
+		if s := m.theme.UI("search_current_fg"); s != "" {
+			currentFg = lipgloss.Color(s)
 		}
 	}
 
@@ -1463,10 +1552,30 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 
 	// bgAt returns the background for a raw line-relative byte position.
 	bgAt := func(rawPos int) color.Color {
+		for _, r := range findRanges {
+			if rawPos >= r.start && rawPos < r.end {
+				if r.current {
+					return currentBg
+				}
+				return matchBg
+			}
+		}
 		if selRange != nil && rawPos >= selRange[0] && rawPos < selRange[1] {
 			return selBg
 		}
 		return bg
+	}
+
+	fgAt := func(rawPos int) color.Color {
+		for _, r := range findRanges {
+			if rawPos >= r.start && rawPos < r.end {
+				if r.current {
+					return currentFg
+				}
+				return matchFg
+			}
+		}
+		return nil
 	}
 
 	// renderSegment renders textSlice (a substring of `text`) where segStart is
@@ -1479,6 +1588,7 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 		type chunk struct {
 			s  string
 			bg color.Color
+			fg color.Color
 		}
 		var chunks []chunk
 		pos := segStart
@@ -1494,17 +1604,28 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 					nextBoundary = selRange[1]
 				}
 			}
+			for _, r := range findRanges {
+				if r.start > pos && r.start < nextBoundary {
+					nextBoundary = r.start
+				}
+				if r.end > pos && r.end < nextBoundary {
+					nextBoundary = r.end
+				}
+			}
 			chunkLen := nextBoundary - pos
 			if chunkLen <= 0 || chunkLen > len(remaining) {
 				chunkLen = len(remaining)
 			}
-			chunks = append(chunks, chunk{s: remaining[:chunkLen], bg: bgAt(pos)})
+			chunks = append(chunks, chunk{s: remaining[:chunkLen], bg: bgAt(pos), fg: fgAt(pos)})
 			remaining = remaining[chunkLen:]
 			pos += chunkLen
 		}
 		var out strings.Builder
 		for _, c := range chunks {
 			style := fgStyle.Background(c.bg)
+			if c.fg != nil {
+				style = style.Foreground(c.fg)
+			}
 			out.WriteString(style.Render(c.s))
 		}
 		return out.String()

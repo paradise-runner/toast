@@ -1372,6 +1372,116 @@ func TestLineCount_ReturnsBufferLineCount(t *testing.T) {
 	}
 }
 
+func TestFindReplaceOptions(t *testing.T) {
+	m := newTestModel("foo Foo food bar_foo foo\n")
+
+	tests := []struct {
+		name      string
+		matchCase bool
+		wholeWord bool
+		want      int
+	}{
+		{name: "case insensitive partial", want: 5},
+		{name: "case sensitive partial", matchCase: true, want: 4},
+		{name: "case insensitive whole word", wholeWord: true, want: 3},
+		{name: "case sensitive whole word", matchCase: true, wholeWord: true, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updated, _ := m.Update(messages.FindReplaceQueryChangedMsg{
+				Query:     "foo",
+				MatchCase: tt.matchCase,
+				WholeWord: tt.wholeWord,
+			})
+			gotModel := updated.(Model)
+			_, total := gotModel.FindStatus()
+			if total != tt.want {
+				t.Fatalf("matches = %d, want %d", total, tt.want)
+			}
+		})
+	}
+}
+
+func TestFindReplaceNavigateMovesViewport(t *testing.T) {
+	m := newTestModel("match\nline1\nline2\nmatch\n")
+	m.viewHeight = 2
+	m.viewWidth = 40
+	m.recomputeGutterWidth()
+
+	updated, _ := m.Update(messages.FindReplaceQueryChangedMsg{Query: "match"})
+	m = updated.(Model)
+	updated, _ = m.Update(messages.FindReplaceNavigateMsg{Forward: true})
+	m = updated.(Model)
+
+	if m.cursor.line != 3 {
+		t.Fatalf("cursor line = %d, want 3", m.cursor.line)
+	}
+	if m.viewportTop < 2 {
+		t.Fatalf("viewportTop = %d, want at least 2", m.viewportTop)
+	}
+	if got := m.selectedText(); got != "match" {
+		t.Fatalf("selectedText = %q, want %q", got, "match")
+	}
+}
+
+func TestFindReplaceReplaceCurrent(t *testing.T) {
+	m := newTestModel("foo Foo food foo\n")
+	m.bufferID = 7
+
+	updated, _ := m.Update(messages.FindReplaceQueryChangedMsg{Query: "foo", WholeWord: true})
+	m = updated.(Model)
+	updated, cmd := m.Update(messages.FindReplaceReplaceCurrentMsg{
+		Query:       "foo",
+		Replacement: "bar",
+		WholeWord:   true,
+	})
+	m = updated.(Model)
+
+	if m.buf.String() != "bar Foo food foo\n" {
+		t.Fatalf("buffer = %q", m.buf.String())
+	}
+	if got := m.selectedText(); got != "Foo" {
+		t.Fatalf("selectedText = %q, want %q", got, "Foo")
+	}
+	if cmd == nil {
+		t.Fatal("expected BufferModifiedMsg command")
+	}
+	msg := cmd()
+	bm, ok := msg.(messages.BufferModifiedMsg)
+	if !ok {
+		t.Fatalf("expected BufferModifiedMsg, got %T", msg)
+	}
+	if bm.BufferID != 7 || !bm.Modified {
+		t.Fatalf("BufferModifiedMsg = %+v, want buffer 7 modified", bm)
+	}
+}
+
+func TestFindReplaceReplaceAll(t *testing.T) {
+	m := newTestModel("foo Foo food foo\n")
+	m.bufferID = 8
+
+	updated, _ := m.Update(messages.FindReplaceQueryChangedMsg{Query: "foo", WholeWord: true})
+	m = updated.(Model)
+	updated, cmd := m.Update(messages.FindReplaceReplaceAllMsg{
+		Query:       "foo",
+		Replacement: "bar",
+		WholeWord:   true,
+	})
+	m = updated.(Model)
+
+	if m.buf.String() != "bar bar food bar\n" {
+		t.Fatalf("buffer = %q", m.buf.String())
+	}
+	_, total := m.FindStatus()
+	if total != 0 {
+		t.Fatalf("matches after replace all = %d, want 0", total)
+	}
+	if cmd == nil {
+		t.Fatal("expected BufferModifiedMsg command")
+	}
+}
+
 func TestWrapMode_SetOnMarkdownLoad(t *testing.T) {
 	m := newTestModel("")
 	if m.wrapMode {

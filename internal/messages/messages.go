@@ -168,6 +168,38 @@ type SearchDoneMsg struct {
 	TotalMatches, TotalFiles int
 }
 
+// FindReplaceOpenMsg - open the in-file find/replace overlay.
+type FindReplaceOpenMsg struct{}
+
+// FindReplaceCloseMsg - close the in-file find/replace overlay.
+type FindReplaceCloseMsg struct{}
+
+// FindReplaceQueryChangedMsg - find query/options changed.
+type FindReplaceQueryChangedMsg struct {
+	Query     string
+	MatchCase bool
+	WholeWord bool
+}
+
+// FindReplaceNavigateMsg - move to the previous/next in-file match.
+type FindReplaceNavigateMsg struct{ Forward bool }
+
+// FindReplaceReplaceCurrentMsg - replace the current in-file match.
+type FindReplaceReplaceCurrentMsg struct {
+	Query       string
+	Replacement string
+	MatchCase   bool
+	WholeWord   bool
+}
+
+// FindReplaceReplaceAllMsg - replace every in-file match.
+type FindReplaceReplaceAllMsg struct {
+	Query       string
+	Replacement string
+	MatchCase   bool
+	WholeWord   bool
+}
+
 // SidebarToggleMsg - toggle sidebar visibility
 type SidebarToggleMsg struct{}
 
