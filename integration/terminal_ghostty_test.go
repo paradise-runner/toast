@@ -26,94 +26,118 @@ const (
 	goldenDirName          = "ghostty"
 	fixtureWorkspaceDir    = "/private/tmp/toast-fixture"
 	screenshotInset        = 8
+	// tmux send-keys bypasses Ghostty's real keyboard handling, so we inject
+	// Kitty CSI-u sequences directly for Ctrl+Shift+<letter> shortcuts.
+	kittyCtrlShiftMod = 6
 )
 
+type terminalHarness struct {
+	repoRoot          string
+	artifacts         string
+	binaryPath        string
+	homeDir           string
+	fixtureDir        string
+	screencapturePath string
+	windowFinderPath  string
+	osascriptPath     string
+	title             string
+	targetPane        string
+	tmux              tmuxRunner
+}
+
+func TestGhosttyTmuxOpenFileFromFileTree(t *testing.T) {
+	h := newTerminalHarness(t)
+
+	filePath := filepath.Join(h.fixtureDir, "alpha.txt")
+	fileContent := "opened from tree\n"
+	if err := os.WriteFile(filePath, []byte(fileContent), 0o644); err != nil {
+		t.Fatalf("writing fixture file: %v", err)
+	}
+
+	h.launchToast(t, h.fixtureDir)
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, filepath.Base(h.fixtureDir), filepath.Base(filePath))
+
+	h.tmux.sendCtrlShiftLetter(t, h.targetPane, 'e')
+	h.tmux.sendKeys(t, h.targetPane, "Down", "Enter")
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, filepath.Base(filePath), strings.TrimSpace(fileContent))
+
+	treePane := paneCapture(t, h.tmux, h.targetPane)
+	writeArtifact(t, filepath.Join(h.artifacts, "tree-open-pane.txt"), []byte(treePane))
+	treeScreenshotPath := filepath.Join(h.artifacts, "03-tree-open.png")
+	captureScreenshot(t, h.screencapturePath, h.windowFinderPath, h.osascriptPath, h.title, treeScreenshotPath)
+	assertGoldenScreenshot(t, h.repoRoot, h.artifacts, "03-tree-open", treeScreenshotPath)
+
+	h.quit(t)
+}
+
+func TestGhosttyTmuxProjectSearchOpensResult(t *testing.T) {
+	h := newTerminalHarness(t)
+
+	needle := "journeysearchneedle"
+	matchPath := filepath.Join(h.fixtureDir, "match.txt")
+	matchContent := "alpha\n" + needle + "\nomega\n"
+	if err := os.WriteFile(matchPath, []byte(matchContent), 0o644); err != nil {
+		t.Fatalf("writing search fixture file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(h.fixtureDir, "other.txt"), []byte("no match here\n"), 0o644); err != nil {
+		t.Fatalf("writing non-match fixture file: %v", err)
+	}
+
+	h.launchToast(t, h.fixtureDir)
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, filepath.Base(h.fixtureDir), filepath.Base(matchPath))
+
+	h.tmux.sendCtrlShiftLetter(t, h.targetPane, 'f')
+	waitForPane(t, h.tmux, h.targetPane, 5*time.Second, "Search", "Search...")
+
+	h.tmux.sendLiteral(t, h.targetPane, needle)
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, "Search", "match.txt:2", needle)
+
+	searchPane := paneCapture(t, h.tmux, h.targetPane)
+	writeArtifact(t, filepath.Join(h.artifacts, "search-result-pane.txt"), []byte(searchPane))
+	searchScreenshotPath := filepath.Join(h.artifacts, "04-search-result.png")
+	captureScreenshot(t, h.screencapturePath, h.windowFinderPath, h.osascriptPath, h.title, searchScreenshotPath)
+	assertGoldenScreenshot(t, h.repoRoot, h.artifacts, "04-search-result", searchScreenshotPath)
+
+	h.tmux.sendKeys(t, h.targetPane, "Enter")
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, filepath.Base(matchPath), needle)
+
+	h.quit(t)
+}
+
 func TestGhosttyTmuxTerminalSmoke(t *testing.T) {
-	if os.Getenv(terminalIntegrationEnv) != "1" {
-		t.Skipf("set %s=1 to run the Ghostty/tmux integration test", terminalIntegrationEnv)
-	}
-	if runtime.GOOS != "darwin" {
-		t.Skip("Ghostty screenshot integration is currently macOS-only")
-	}
-
-	openPath := requireCommand(t, "open")
-	tmuxPath := requireCommand(t, "tmux")
-	screencapturePath := requireCommand(t, "screencapture")
-	osascriptPath, _ := exec.LookPath("osascript")
-	clangPath, _ := exec.LookPath("clang")
-
-	ghosttyApp := os.Getenv("TOAST_GHOSTTY_APP")
-	if ghosttyApp == "" {
-		ghosttyApp = "/Applications/Ghostty.app"
-	}
-	if _, err := os.Stat(ghosttyApp); err != nil {
-		t.Skipf("Ghostty app not found at %s; set TOAST_GHOSTTY_APP to override", ghosttyApp)
-	}
-
-	repoRoot := repoRoot(t)
-	artifacts := artifactDir(t)
-	t.Logf("terminal integration artifacts: %s", artifacts)
-	windowFinderPath := buildWindowFinder(t, artifacts, clangPath)
-
-	binaryPath := filepath.Join(artifacts, "toast-it")
-	run(t, repoRoot, "go", "build", "-o", binaryPath, "./cmd/toast")
-
-	homeDir := filepath.Join(artifacts, "home")
-	fixtureDir := fixtureWorkspaceDir
-	writeToastConfig(t, homeDir)
-	writeGhosttyConfig(t, artifacts)
-	resetFixtureDir(t, fixtureDir)
-
+	h := newTerminalHarness(t)
 	needle := "toastneedle"
 	editMarker := "typed "
-	filePath := filepath.Join(fixtureDir, "sample.md")
+	filePath := filepath.Join(h.fixtureDir, "sample.md")
 	fileContent := "# Toast Integration\n\n" + needle + "\n"
 	if err := os.WriteFile(filePath, []byte(fileContent), 0o644); err != nil {
 		t.Fatalf("writing fixture file: %v", err)
 	}
 
-	socketName := "toastit" + uniqueID()
-	sessionName := "toastit"
-	targetPane := sessionName + ":0.0"
-	tmux := tmuxRunner{path: tmuxPath, socketName: socketName}
-	tmux.must(t, "new-session", "-d", "-s", sessionName, "-x", "100", "-y", "34", "-c", fixtureDir, "/bin/zsh", "-i")
-	tmux.must(t, "set-option", "-t", sessionName, "status", "off")
-	t.Cleanup(func() {
-		_ = tmux.run("kill-server")
-	})
+	h.launchToast(t, filePath)
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, filepath.Base(filePath), needle)
 
-	title := "toast integration " + uniqueID()
-	ghosttyConfigPath := filepath.Join(artifacts, "ghostty.config")
-	launchGhostty(t, openPath, ghosttyApp, ghosttyConfigPath, tmuxPath, socketName, sessionName, title, fixtureDir)
-	waitForTmuxClient(t, tmux, sessionName, 15*time.Second)
+	openPane := paneCapture(t, h.tmux, h.targetPane)
+	writeArtifact(t, filepath.Join(h.artifacts, "01-opened-pane.txt"), []byte(openPane))
+	openScreenshotPath := filepath.Join(h.artifacts, "01-opened.png")
+	captureScreenshot(t, h.screencapturePath, h.windowFinderPath, h.osascriptPath, h.title, openScreenshotPath)
+	assertGoldenScreenshot(t, h.repoRoot, h.artifacts, "01-opened", openScreenshotPath)
 
-	command := fmt.Sprintf("HOME=%s %s %s", shellQuote(homeDir), shellQuote(binaryPath), shellQuote(filePath))
-	tmux.must(t, "send-keys", "-t", targetPane, command, "Enter")
-	waitForPane(t, tmux, targetPane, 15*time.Second, filepath.Base(filePath), needle)
-
-	openPane := paneCapture(t, tmux, targetPane)
-	writeArtifact(t, filepath.Join(artifacts, "01-opened-pane.txt"), []byte(openPane))
-	openScreenshotPath := filepath.Join(artifacts, "01-opened.png")
-	captureScreenshot(t, screencapturePath, windowFinderPath, osascriptPath, title, openScreenshotPath)
-	assertGoldenScreenshot(t, repoRoot, artifacts, "01-opened", openScreenshotPath)
-
-	tmux.must(t, "send-keys", "-t", targetPane, editMarker)
-	tmux.must(t, "send-keys", "-t", targetPane, "C-s")
+	h.tmux.sendKeys(t, h.targetPane, editMarker, "C-s")
 	waitForFile(t, filePath, editMarker, 5*time.Second)
 
-	tmux.must(t, "send-keys", "-t", targetPane, "C-f")
-	waitForPane(t, tmux, targetPane, 5*time.Second, "Find / Replace in File", "Find")
-	tmux.must(t, "send-keys", "-t", targetPane, needle)
-	waitForPane(t, tmux, targetPane, 5*time.Second, "Find / Replace in File", needle, "1/1")
+	h.tmux.sendKeys(t, h.targetPane, "C-f")
+	waitForPane(t, h.tmux, h.targetPane, 5*time.Second, "Find / Replace in File", "Find")
+	h.tmux.sendKeys(t, h.targetPane, needle)
+	waitForPane(t, h.tmux, h.targetPane, 5*time.Second, "Find / Replace in File", needle, "1/1")
 
-	findPane := paneCapture(t, tmux, targetPane)
-	writeArtifact(t, filepath.Join(artifacts, "02-find-pane.txt"), []byte(findPane))
-	findScreenshotPath := filepath.Join(artifacts, "02-find.png")
-	captureScreenshot(t, screencapturePath, windowFinderPath, osascriptPath, title, findScreenshotPath)
-	assertGoldenScreenshot(t, repoRoot, artifacts, "02-find", findScreenshotPath)
+	findPane := paneCapture(t, h.tmux, h.targetPane)
+	writeArtifact(t, filepath.Join(h.artifacts, "02-find-pane.txt"), []byte(findPane))
+	findScreenshotPath := filepath.Join(h.artifacts, "02-find.png")
+	captureScreenshot(t, h.screencapturePath, h.windowFinderPath, h.osascriptPath, h.title, findScreenshotPath)
+	assertGoldenScreenshot(t, h.repoRoot, h.artifacts, "02-find", findScreenshotPath)
 
-	tmux.must(t, "send-keys", "-t", targetPane, "Escape")
-	tmux.must(t, "send-keys", "-t", targetPane, "C-q")
+	h.quit(t)
 }
 
 type tmuxRunner struct {
@@ -153,6 +177,115 @@ func (r tmuxRunner) output(t *testing.T, args ...string) string {
 		t.Fatalf("tmux %s failed: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return string(out)
+}
+
+func (r tmuxRunner) sendKeys(t *testing.T, target string, keys ...string) {
+	t.Helper()
+	args := []string{"send-keys", "-t", target}
+	args = append(args, keys...)
+	r.must(t, args...)
+}
+
+func (r tmuxRunner) sendLiteral(t *testing.T, target, value string) {
+	t.Helper()
+	r.must(t, "send-keys", "-l", "-t", target, value)
+}
+
+func (r tmuxRunner) sendCtrlShiftLetter(t *testing.T, target string, letter rune) {
+	t.Helper()
+	r.sendLiteral(t, target, fmt.Sprintf("\x1b[%d;%du", letter, kittyCtrlShiftMod))
+}
+
+func newTerminalHarness(t *testing.T) terminalHarness {
+	t.Helper()
+	if os.Getenv(terminalIntegrationEnv) != "1" {
+		t.Skipf("set %s=1 to run the Ghostty/tmux integration test", terminalIntegrationEnv)
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("Ghostty screenshot integration is currently macOS-only")
+	}
+
+	openPath := requireCommand(t, "open")
+	tmuxPath := requireCommand(t, "tmux")
+	screencapturePath := requireCommand(t, "screencapture")
+	osascriptPath, _ := exec.LookPath("osascript")
+	clangPath, _ := exec.LookPath("clang")
+
+	ghosttyApp := os.Getenv("TOAST_GHOSTTY_APP")
+	if ghosttyApp == "" {
+		ghosttyApp = "/Applications/Ghostty.app"
+	}
+	if _, err := os.Stat(ghosttyApp); err != nil {
+		t.Skipf("Ghostty app not found at %s; set TOAST_GHOSTTY_APP to override", ghosttyApp)
+	}
+
+	repoRoot := repoRoot(t)
+	artifacts := artifactDir(t)
+	t.Logf("terminal integration artifacts: %s", artifacts)
+	windowFinderPath := buildWindowFinder(t, artifacts, clangPath)
+
+	binaryPath := filepath.Join(artifacts, "toast-it")
+	run(t, repoRoot, "go", "build", "-o", binaryPath, "./cmd/toast")
+
+	homeDir := filepath.Join(artifacts, "home")
+	fixtureDir := fixtureWorkspaceDir
+	writeToastConfig(t, homeDir)
+	writeGhosttyConfig(t, artifacts)
+	resetFixtureDir(t, fixtureDir)
+
+	socketName := "toastit" + uniqueID()
+	sessionName := "toastit"
+	targetPane := sessionName + ":0.0"
+	tmux := tmuxRunner{path: tmuxPath, socketName: socketName}
+	tmux.must(t, "new-session", "-d", "-s", sessionName, "-x", "100", "-y", "34", "-c", fixtureDir, "/bin/zsh", "-i")
+	tmux.must(t, "set-option", "-t", sessionName, "status", "off")
+	t.Cleanup(func() {
+		_ = tmux.run("kill-server")
+	})
+
+	title := "toast integration " + uniqueID()
+	ghosttyConfigPath := filepath.Join(artifacts, "ghostty.config")
+	launchGhostty(t, openPath, ghosttyApp, ghosttyConfigPath, tmuxPath, socketName, sessionName, title, fixtureDir)
+	waitForTmuxClient(t, tmux, sessionName, 15*time.Second)
+
+	return terminalHarness{
+		repoRoot:          repoRoot,
+		artifacts:         artifacts,
+		binaryPath:        binaryPath,
+		homeDir:           homeDir,
+		fixtureDir:        fixtureDir,
+		screencapturePath: screencapturePath,
+		windowFinderPath:  windowFinderPath,
+		osascriptPath:     osascriptPath,
+		title:             title,
+		targetPane:        targetPane,
+		tmux:              tmux,
+	}
+}
+
+func (h terminalHarness) launchToast(t *testing.T, args ...string) {
+	t.Helper()
+	h.tmux.sendKeys(t, h.targetPane, h.toastCommand(args...), "Enter")
+}
+
+func (h terminalHarness) launchToastTracked(t *testing.T, exitMarker string, args ...string) {
+	t.Helper()
+	command := h.toastCommand(args...)
+	command += "; printf '%s\\n' " + shellQuote(exitMarker)
+	h.tmux.sendKeys(t, h.targetPane, command, "Enter")
+}
+
+func (h terminalHarness) quit(t *testing.T) {
+	t.Helper()
+	h.tmux.sendKeys(t, h.targetPane, "Escape", "C-q")
+}
+
+func (h terminalHarness) toastCommand(args ...string) string {
+	command := fmt.Sprintf("HOME=%s %s", shellQuote(h.homeDir), shellQuote(h.binaryPath))
+	for _, arg := range args {
+		command += " " + shellQuote(arg)
+	}
+	return command
 }
 
 func launchGhostty(t *testing.T, openPath, ghosttyApp, ghosttyConfigPath, tmuxPath, socketName, sessionName, title, workingDir string) {

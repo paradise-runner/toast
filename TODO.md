@@ -25,13 +25,23 @@
 23. [ ] Add a 'Save' button (#7)
 24. [x] fix folders not showing git changes
 25. [ ] Does this need a settings dialog? (#9)
-26. [ ] Resizable sidebar (#10)
+26. [x] Resizable sidebar (#10)
 27. [x] Mouse selection seems to be one char to the right? (#11)
 28. [x] Markdown line wrapping (#12)
 29. [x] `toast some-non-existant-file` creates a file and opens the editor there (#13)
 30. [x] switching tabs causes unsaved text to be lost (#14)
-31. [ ] Ignored files/folders should be greyed out in the explorer (#15)
-32. [ ] 'System Theme' generation from terminal theme (#18)
+31. [x] Ignored files/folders should be greyed out in the explorer (#15)
+32. [x] 'System Theme' generation from terminal theme (#18)
 33. [ ] More themes! Oh wow! (#17)
 34. [ ] Markdown preview theme respect is grim and full of holes. Should nail it down more. (#19)
 35. [ ] Emoji alters the cursor by the length of the emoji text in editor position making it seem off while actally rendering the emoji (#20)
+36. [ ] Restore the Ghostty quit-flow screenshot test once the quit dialog shows the specific unsaved filenames and the capture can wait on that full state.
+37. [ ] Restore the clean external-reload screenshot test once the app shows a visible reload notice so the golden proves the watcher-driven flow, not just the final buffer contents.
+38. [ ] Restore the dirty external-change screenshot test once the app shows a visible "kept local edits" notice and the flow asserts the on-disk file remains the remote version after quitting.
+39. [ ] Wire `Ctrl+N` / `Cmd+N` to a real new-file flow.
+40. [ ] Project search results should jump to the selected match line/column instead of only opening the file.
+41. [ ] Go-to-definition should jump to the returned line/column instead of only opening the target file.
+42. [ ] Wire `editor.word_wrap` into the editor so wrap behavior is configurable instead of markdown-only.
+43. [ ] Implement `editor.show_whitespace`.
+44. [ ] Use configured `search.command` / `search.args` instead of hardcoding `rg --json`.
+45. [ ] Make JavaScript LSP work out of the box with the default config.

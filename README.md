@@ -19,14 +19,18 @@ A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your
 
 ## Features
 
-- **Multi-tab editing** with unsaved-changes indicators
+- **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
 - **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, Markdown)
-- **LSP integration** — completions, hover docs, and go-to-definition out of the box
-- **File tree sidebar** with git status, create/delete actions, and file watching
+- **LSP integration for configured languages** — completions, hover docs, diagnostics, and definition lookups
+- **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
 - **Project-wide search** powered by `rg` (ripgrep)
-- **Markdown preview** for `.md` and `.markdown` files
+- **In-file find/replace** with next/previous navigation, match-case, and whole-word options
+- **Go to line** overlay
+- **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
+- **External file watching** that silently reloads clean buffers
 - **Rope-backed buffer** with full undo/redo
-- **Theme system** — built-in `system`, dark, and light themes, plus a VSCode theme importer
+- **Theme system** — built-in `system` (derived from terminal colors at runtime), `toast-dark`, and `toast-light`, plus a VSCode theme importer
+- **Binary file guard** to avoid dumping binary content into the editor
 - **Configurable** via `~/.config/toast/config.json`
 
 ## Installation
@@ -84,15 +88,16 @@ toast --version
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+Shift+E` | Toggle focus between editor and file tree |
 | `Ctrl+Shift+F` | Search |
+| `Ctrl+F` / `Cmd+F` | Find and replace in the current file |
 | `Ctrl+G` / `Cmd+L` | Go to line |
 | `Ctrl+Shift+M` | Toggle Markdown preview |
 | `Ctrl+Z` / `Cmd+Z` | Undo |
 | `Ctrl+Y` / `Ctrl+Shift+Z` / `Cmd+Y` / `Cmd+Shift+Z` | Redo |
 | `Ctrl+Space` / `Cmd+Space` | Trigger completion |
 | `Ctrl+Shift+K` | Show hover |
-| `F12` | Go to definition |
+| `F12` | Ask the LSP for a definition |
 
-File-tree create/delete actions and theme selection are currently driven from the UI: right-click in the sidebar for file operations, and use the `theme` button in the status bar to open the theme picker.
+File-tree create/delete actions are driven from the UI: right-click in the sidebar for file operations, drag the sidebar divider to resize it, use the `theme` button in the status bar to open the theme picker, and use the breadcrumb `Preview` button as a mouse shortcut for markdown preview.
 
 ## Configuration
 
@@ -103,8 +108,6 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
   "theme": "toast-dark",
   "editor": {
     "tab_width": 4,
-    "word_wrap": false,
-    "show_whitespace": false,
     "auto_indent": true,
     "trim_trailing_whitespace_on_save": true,
     "insert_final_newline_on_save": true
@@ -120,13 +123,13 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
     "typescript": { "command": "typescript-language-server",  "args": ["--stdio"] },
     "rust":       { "command": "rust-analyzer",               "args": [] }
   },
-  "search": {
-    "command": "rg",
-    "args": ["--json"]
-  },
   "ignored_patterns": [".git", "node_modules", "__pycache__", ".DS_Store"]
 }
 ```
+
+The current UI honors the fields above. The config schema also contains `editor.word_wrap`, `editor.show_whitespace`, and `search.*`, but those are not wired into the current UI yet.
+
+If you want LSP features for `.js` / `.mjs` files today, add a `javascript` entry to `lsp` that points at the same server you use for TypeScript.
 
 ### Themes
 
@@ -140,6 +143,12 @@ toast migrate-theme vscode path/to/theme.json
 ```
 
 Then set `"theme": "<theme-name>"` in your config.
+
+## Current Limitations
+
+- Project search opens the selected file, but it does not jump to the exact match line/column yet.
+- `F12` opens the definition target file, but it does not jump to the exact location returned by the language server yet.
+- Default LSP config covers Go, Python, TypeScript, and Rust. JavaScript files need an explicit `javascript` config entry if you want LSP features there.
 
 ## Feedback & Issues
 
