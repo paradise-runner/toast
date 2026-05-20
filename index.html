@@ -101,7 +101,7 @@
     h1 {
       font-size: 2.4rem;
       font-weight: 700;
-      letter-spacing: -1px;
+      letter-spacing: 0;
       margin-bottom: 8px;
     }
 
@@ -133,6 +133,8 @@
       padding: 14px 20px;
       font-size: 0.9rem;
       display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
       align-items: center;
       gap: 12px;
       cursor: pointer;
@@ -259,6 +261,7 @@
     .feature {
       padding: 16px 18px;
       background: var(--panel);
+      border-radius: 8px;
       border: 1px solid transparent;
       transition: border-color 0.2s, background 0.2s;
     }
@@ -267,11 +270,6 @@
       border-color: var(--border);
       background: var(--panel-2);
     }
-
-    .feature:nth-child(1) { border-radius: 8px 0 0 0; }
-    .feature:nth-child(2) { border-radius: 0 8px 0 0; }
-    .feature:nth-child(7) { border-radius: 0 0 0 8px; }
-    .feature:nth-child(8) { border-radius: 0 0 8px 0; }
 
     .feature-name {
       font-size: 0.85rem;
@@ -347,6 +345,61 @@
       box-shadow: 0 1px 0 var(--border);
     }
 
+    /* SECTIONS */
+
+    .section {
+      margin-top: 64px;
+    }
+
+    .section h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .callouts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .callout {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+    }
+
+    .callout-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .callout p,
+    .callout ul {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .callout ul {
+      list-style: none;
+    }
+
+    .callout li + li {
+      margin-top: 6px;
+    }
+
+    .warning {
+      margin-top: 18px;
+      color: var(--yellow);
+      font-size: 0.82rem;
+    }
+
     /* FOOTER */
 
     .footer {
@@ -390,12 +443,11 @@
         grid-template-columns: 1fr;
       }
 
-      .feature:nth-child(1) { border-radius: 8px 8px 0 0; }
-      .feature:nth-child(2) { border-radius: 0; }
-      .feature:nth-child(7) { border-radius: 0; }
-      .feature:nth-child(8) { border-radius: 0 0 8px 8px; }
-
       .kb-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .callouts {
         grid-template-columns: 1fr;
       }
 
@@ -405,6 +457,14 @@
 
       .install-box {
         font-size: 0.82rem;
+      }
+
+      .install-box .copy-hint {
+        width: 100%;
+        border-left: 0;
+        border-top: 1px solid var(--border);
+        padding-left: 0;
+        padding-top: 8px;
       }
     }
   </style>
@@ -435,7 +495,10 @@
         <a href="https://github.com/paradise-runner/toast">source</a>
         <a href="https://github.com/paradise-runner/toast/releases">releases</a>
         <a href="https://github.com/paradise-runner/toast#installation">install</a>
+        <a href="https://github.com/paradise-runner/toast#configuration">config</a>
       </div>
+
+      <div class="warning">early development: expect rough edges and missing workflows</div>
     </section>
 
     <!-- SCREENSHOT -->
@@ -448,42 +511,52 @@
       <div class="feature-grid">
         <div class="feature">
           <div class="feature-name"><span class="icon" style="color: var(--cyan);">&#9638;</span> multi-tab buffers</div>
-          <div class="feature-desc">dirty-state tracking, fast switching, no modal friction</div>
+          <div class="feature-desc">dirty-state tracking, close buttons, and quit confirmation</div>
         </div>
 
         <div class="feature">
           <div class="feature-name"><span class="icon" style="color: var(--green);">&#9652;</span> tree-sitter parsing</div>
-          <div class="feature-desc">incremental highlighting for Go, Python, JS/TS, Rust &amp; more</div>
+          <div class="feature-desc">syntax highlighting for Go, Python, JS/TS, Rust, CSS, HTML, YAML, Bash, and Markdown</div>
         </div>
 
         <div class="feature">
           <div class="feature-name"><span class="icon" style="color: var(--magenta);">&#9672;</span> LSP integration</div>
-          <div class="feature-desc">completions, hover, diagnostics, go-to-definition</div>
+          <div class="feature-desc">completions, hover docs, diagnostics, and definition lookups for configured languages</div>
         </div>
 
         <div class="feature">
           <div class="feature-name"><span class="icon" style="color: var(--orange);">&#8981;</span> ripgrep search</div>
-          <div class="feature-desc">project-wide via <code>rg</code> with instant results</div>
+          <div class="feature-desc">project-wide search via <code>rg</code> plus in-file find and replace</div>
         </div>
 
         <div class="feature">
           <div class="feature-name"><span class="icon" style="color: var(--red);">&#8853;</span> git-aware tree</div>
-          <div class="feature-desc">status indicators, staging, file ops in the sidebar</div>
+          <div class="feature-desc">status indicators, ignored-file dimming, create/delete actions, and draggable resizing</div>
         </div>
 
         <div class="feature">
-          <div class="feature-name"><span class="icon" style="color: var(--yellow);">&#9881;</span> rope text engine</div>
-          <div class="feature-desc">large-file performance with full undo/redo history</div>
+          <div class="feature-name"><span class="icon" style="color: var(--yellow);">&#9881;</span> editor workflow</div>
+          <div class="feature-desc">go to line, markdown preview, external file watching, and binary file protection</div>
         </div>
 
         <div class="feature">
           <div class="feature-name"><span class="icon" style="color: var(--accent);">&#9673;</span> theme system</div>
-          <div class="feature-desc">built-in dark/light + VSCode theme importing</div>
+          <div class="feature-desc">built-in <code>system</code>, <code>toast-dark</code>, and <code>toast-light</code> themes plus VSCode theme importing</div>
         </div>
 
         <div class="feature">
-          <div class="feature-name"><span class="icon" style="color: var(--green);">&#9655;</span> config-first</div>
-          <div class="feature-desc"><code>~/.config/toast/config.json</code> for everything</div>
+          <div class="feature-name"><span class="icon" style="color: var(--green);">&#9655;</span> rope-backed buffer</div>
+          <div class="feature-desc">full undo and redo with editor state managed entirely in terminal</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--cyan);">&#9711;</span> config file</div>
+          <div class="feature-desc"><code>~/.config/toast/config.json</code> for theme, editor, sidebar, and LSP settings</div>
+        </div>
+
+        <div class="feature">
+          <div class="feature-name"><span class="icon" style="color: var(--orange);">&#8645;</span> file-first startup</div>
+          <div class="feature-desc">open directories, existing files, or a new file path with git-root detection</div>
         </div>
       </div>
     </section>
@@ -494,15 +567,15 @@
 
       <div class="kb-grid">
         <div class="kb-item">
-          <span class="kb-action">open file</span>
-          <kbd>Enter</kbd>
+          <span class="kb-action">project search</span>
+          <kbd>Ctrl+Shift+F</kbd>
         </div>
         <div class="kb-item">
           <span class="kb-action">save</span>
           <kbd>Ctrl+S</kbd>
         </div>
         <div class="kb-item">
-          <span class="kb-action">search</span>
+          <span class="kb-action">find / replace</span>
           <kbd>Ctrl+F</kbd>
         </div>
         <div class="kb-item">
@@ -522,12 +595,48 @@
           <kbd>Ctrl+B</kbd>
         </div>
         <div class="kb-item">
-          <span class="kb-action">theme</span>
-          <kbd>Ctrl+K</kbd>
+          <span class="kb-action">markdown preview</span>
+          <kbd>Ctrl+Shift+M</kbd>
         </div>
         <div class="kb-item">
           <span class="kb-action">quit</span>
           <kbd>Ctrl+Q</kbd>
+        </div>
+        <div class="kb-item">
+          <span class="kb-action">hover docs</span>
+          <kbd>Ctrl+Shift+K</kbd>
+        </div>
+        <div class="kb-item">
+          <span class="kb-action">completion</span>
+          <kbd>Ctrl+Space</kbd>
+        </div>
+        <div class="kb-item">
+          <span class="kb-action">definition</span>
+          <kbd>F12</kbd>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>// install and run</h2>
+      <div class="callouts">
+        <div class="callout">
+          <div class="callout-title">launch</div>
+          <ul>
+            <li><code>toast</code> opens the current directory</li>
+            <li><code>toast path/to/dir</code> opens a specific project</li>
+            <li><code>toast path/to/file</code> opens a file and detects the git root</li>
+            <li><code>toast new/file.go</code> opens a new buffer if the parent directory exists</li>
+          </ul>
+        </div>
+
+        <div class="callout">
+          <div class="callout-title">requirements</div>
+          <ul>
+            <li><code>rg</code> is required for project search</li>
+            <li><code>gopls</code>, <code>pyright-langserver</code>, <code>typescript-language-server</code>, and <code>rust-analyzer</code> enable LSP features when installed</li>
+            <li><code>toast migrate-theme vscode path/to/theme.json</code> imports a VSCode theme</li>
+          </ul>
         </div>
       </div>
     </section>
