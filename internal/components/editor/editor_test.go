@@ -3,9 +3,11 @@ package editor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/yourusername/toast/internal/buffer"
 	"github.com/yourusername/toast/internal/clipboard"
 	"github.com/yourusername/toast/internal/config"
@@ -1211,6 +1213,84 @@ func TestFileLoadedMsg_Binary_NilHighlighter(t *testing.T) {
 	result := updated.(Model)
 	if result.highlighter != nil {
 		t.Fatal("expected nil highlighter for binary file")
+	}
+}
+
+func TestFileLoadedMsg_Binary_ViewShowsExternalOpenButton(t *testing.T) {
+	m := newThemedTestModel(t, "hello\n")
+	m.pendingBufferID = 1
+	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "photo.png", isBinary: true})
+	m = updated.(Model)
+
+	content := m.View().Content
+	if !strings.Contains(content, "Binary file") {
+		t.Fatalf("expected binary message in view, got %q", content)
+	}
+	if !strings.Contains(content, "open with default app") {
+		t.Fatalf("expected external-open button in view, got %q", content)
+	}
+	for i, line := range strings.Split(content, "\n") {
+		if got := lipgloss.Width(line); got != m.viewWidth {
+			t.Fatalf("line %d width = %d, want %d", i, got, m.viewWidth)
+		}
+	}
+}
+
+func TestFileLoadedMsg_Binary_OpenButtonEmitsExternalOpenMsg(t *testing.T) {
+	m := newThemedTestModel(t, "hello\n")
+	m.pendingBufferID = 1
+	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "photo.png", isBinary: true})
+	m = updated.(Model)
+
+	x, y, w, ok := m.openExternalButtonBounds()
+	if !ok {
+		t.Fatal("expected external-open button bounds")
+	}
+
+	_, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: x + w/2, Y: y})
+	if cmd == nil {
+		t.Fatal("expected external-open command")
+	}
+	msg := cmd()
+	openMsg, ok := msg.(messages.OpenExternalFileMsg)
+	if !ok {
+		t.Fatalf("expected OpenExternalFileMsg, got %T", msg)
+	}
+	if openMsg.Path != "photo.png" {
+		t.Fatalf("path = %q, want %q", openMsg.Path, "photo.png")
+	}
+}
+
+func TestFileLoadedMsg_LoadError_ShowsUnavailableLandingPage(t *testing.T) {
+	m := newThemedTestModel(t, "hello\n")
+	m.pendingBufferID = 1
+	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "secret.pdf", loadErr: "permission denied"})
+	m = updated.(Model)
+
+	if !m.cannotDisplayFile() {
+		t.Fatal("expected load error to make file unavailable")
+	}
+	if m.buf.String() != "" {
+		t.Fatalf("expected empty buffer for load error, got %q", m.buf.String())
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if cmd != nil {
+		t.Fatal("expected typing to be ignored for load error")
+	}
+	if m.buf.String() != "" {
+		t.Fatalf("expected buffer to remain empty after typing, got %q", m.buf.String())
+	}
+
+	content := m.View().Content
+	if !strings.Contains(content, "Unable to open file") {
+		t.Fatalf("expected load-error message in view, got %q", content)
+	}
+	if !strings.Contains(content, "permission denied") {
+		t.Fatalf("expected load error detail in view, got %q", content)
+	}
+	if !strings.Contains(content, "open with default app") {
+		t.Fatalf("expected external-open button in view, got %q", content)
 	}
 }
 

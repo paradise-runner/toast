@@ -292,3 +292,6 @@ type FileLoadedMsg struct {
 	Path     string
 	Content  string
 }
+
+// OpenExternalFileMsg - open a file with the operating system's default app.
+type OpenExternalFileMsg struct{ Path string }

@@ -23,6 +23,11 @@ import (
 	"github.com/yourusername/toast/internal/theme"
 )
 
+const (
+	openExternalButtonText        string = "[ open with default app ]"
+	openExternalCompactButtonText string = "[ open ]"
+)
+
 // cursorPos holds the cursor position as a zero-based line and byte column.
 type cursorPos struct {
 	line int
@@ -35,6 +40,7 @@ type fileLoadedMsg struct {
 	path     string
 	content  string
 	isBinary bool
+	loadErr  string
 }
 
 // Model is the bubbletea model for the editor component.
@@ -75,6 +81,7 @@ type Model struct {
 	lineKinds   []messages.GitLineKind
 	focused     bool
 	binaryFile  bool
+	loadError   string
 	wrapMode    bool
 	highlighter *syntax.Highlighter
 
@@ -133,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.PasteMsg:
-		if m.focused && m.buf != nil && msg.Content != "" && !m.binaryFile {
+		if m.focused && m.buf != nil && msg.Content != "" && !m.cannotDisplayFile() {
 			preModified := false
 			if m.buf != nil {
 				preModified = m.buf.Modified()
@@ -165,6 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.binaryFile = msg.isBinary
+		m.loadError = msg.loadErr
 		m.bufferID = msg.bufferID
 		m.path = msg.path
 		m.cursor = cursorPos{}
@@ -175,7 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewportLeft = 0
 		m.clearFindState()
 		m.wrapMode = isMarkdownPath(msg.path)
-		if msg.isBinary {
+		if msg.isBinary || msg.loadErr != "" {
 			m.buf = buffer.NewEditBuffer("")
 			m.highlighter = nil
 			return m, nil
@@ -256,7 +264,7 @@ func openFile(bufferID int, path string) tea.Cmd {
 	return func() tea.Msg {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return fileLoadedMsg{bufferID: bufferID, path: path, content: ""}
+			return fileLoadedMsg{bufferID: bufferID, path: path, loadErr: err.Error()}
 		}
 		if IsBinary(data) {
 			return fileLoadedMsg{bufferID: bufferID, path: path, isBinary: true}
@@ -288,6 +296,7 @@ type BufferSnapshot struct {
 	viewportLeft    int
 	wrapMode        bool
 	binaryFile      bool
+	loadError       string
 	lineKinds       []messages.GitLineKind
 	diagnostics     []messages.Diagnostic
 	highlighter     *syntax.Highlighter
@@ -353,6 +362,7 @@ func (m Model) Snapshot() BufferSnapshot {
 		viewportLeft:    m.viewportLeft,
 		wrapMode:        m.wrapMode,
 		binaryFile:      m.binaryFile,
+		loadError:       m.loadError,
 		lineKinds:       m.lineKinds,
 		diagnostics:     m.diagnostics,
 		highlighter:     m.highlighter,
@@ -375,6 +385,7 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.viewportLeft = snap.viewportLeft
 	m.wrapMode = snap.wrapMode
 	m.binaryFile = snap.binaryFile
+	m.loadError = snap.loadError
 	m.lineKinds = snap.lineKinds
 	m.diagnostics = snap.diagnostics
 	m.highlighter = snap.highlighter
@@ -413,7 +424,7 @@ func (m Model) BufferID() int { return m.bufferID }
 
 // handleKey routes all key events to the appropriate handler.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.binaryFile {
+	if m.cannotDisplayFile() {
 		return m, nil
 	}
 	// Capture the modified state before handling the key.
@@ -783,7 +794,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // handleMouseClick handles left-click and multi-click positioning.
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if m.binaryFile {
+	if m.cannotDisplayFile() {
+		if msg.Button == tea.MouseLeft && m.openExternalButtonHit(msg.X, msg.Y) {
+			path := m.path
+			return m, func() tea.Msg {
+				return messages.OpenExternalFileMsg{Path: path}
+			}
+		}
 		return m, nil
 	}
 	switch msg.Button {
@@ -829,7 +846,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 // handleMouseMotion handles mouse drag for selection.
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if m.binaryFile {
+	if m.cannotDisplayFile() {
 		return m, nil
 	}
 	if msg.Button == tea.MouseLeft && m.mouseDragging {
@@ -845,7 +862,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 
 // handleMouseRelease handles mouse button release.
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	if m.binaryFile {
+	if m.cannotDisplayFile() {
 		return m, nil
 	}
 	if msg.Button == tea.MouseLeft && m.mouseDragging {
@@ -861,7 +878,7 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 
 // handleMouseWheel handles scroll wheel events.
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.binaryFile {
+	if m.cannotDisplayFile() {
 		return m, nil
 	}
 	switch msg.Button {
@@ -1237,7 +1254,7 @@ func (m *Model) deleteForward() {
 // save writes the current buffer to disk, optionally trimming trailing whitespace
 // and inserting a final newline.
 func (m *Model) save() tea.Cmd {
-	if m.path == "" {
+	if m.path == "" || m.buf == nil || m.cannotDisplayFile() {
 		return nil
 	}
 	content := m.buf.String()
@@ -1271,6 +1288,176 @@ func (m *Model) save() tea.Cmd {
 	)
 }
 
+func (m Model) cannotDisplayFile() bool {
+	return m.binaryFile || m.loadError != ""
+}
+
+func (m Model) unavailableFileRows() ([]string, int) {
+	if m.viewHeight <= 1 {
+		return []string{m.openExternalButtonLabel()}, 0
+	}
+
+	title := "Unable to open file"
+	if m.binaryFile {
+		title = "Binary file \u2014 cannot display"
+	}
+
+	name := filepath.Base(m.path)
+	if name == "." || name == string(filepath.Separator) {
+		name = m.path
+	}
+
+	rows := []string{title}
+	if name != "" && m.viewHeight >= 4 {
+		rows = append(rows, name)
+	}
+	if m.loadError != "" && m.viewHeight >= 5 {
+		rows = append(rows, fitPlainText(m.loadError, m.viewWidth))
+	}
+	if m.viewHeight >= len(rows)+2 {
+		rows = append(rows, "")
+	}
+	buttonIndex := len(rows)
+	rows = append(rows, m.openExternalButtonLabel())
+	return rows, buttonIndex
+}
+
+func (m Model) openExternalButtonLabel() string {
+	if lipgloss.Width(openExternalButtonText) <= m.viewWidth {
+		return openExternalButtonText
+	}
+	if lipgloss.Width(openExternalCompactButtonText) <= m.viewWidth {
+		return openExternalCompactButtonText
+	}
+	return fitPlainText(openExternalCompactButtonText, m.viewWidth)
+}
+
+func (m Model) openExternalButtonBounds() (x, y, w int, ok bool) {
+	if !m.cannotDisplayFile() || m.path == "" || m.viewWidth <= 0 || m.viewHeight <= 0 {
+		return 0, 0, 0, false
+	}
+
+	rows, buttonIndex := m.unavailableFileRows()
+	if buttonIndex < 0 || buttonIndex >= len(rows) {
+		return 0, 0, 0, false
+	}
+
+	label := rows[buttonIndex]
+	w = lipgloss.Width(label)
+	if w <= 0 || w > m.viewWidth {
+		return 0, 0, 0, false
+	}
+
+	startY := (m.viewHeight - len(rows)) / 2
+	if startY < 0 {
+		startY = 0
+	}
+	y = startY + buttonIndex
+	if y < 0 || y >= m.viewHeight {
+		return 0, 0, 0, false
+	}
+
+	x = (m.viewWidth - w) / 2
+	return x, y, w, true
+}
+
+func (m Model) openExternalButtonHit(x, y int) bool {
+	btnX, btnY, btnW, ok := m.openExternalButtonBounds()
+	return ok && y == btnY && x >= btnX && x < btnX+btnW
+}
+
+func (m Model) unavailableFileView() tea.View {
+	bgColor := lipgloss.Color(m.uiColor("background", ""))
+	fg := m.uiColor("foreground", "")
+	fgColor := lipgloss.Color(fg)
+	mutedColor := lipgloss.Color(m.uiColor("breadcrumbs_fg", fg))
+	buttonBG := m.uiColor("completion_selected", m.uiColor("selection", m.uiColor("line_highlight", "")))
+	buttonFG := m.uiColor("completion_fg", fg)
+
+	baseStyle := lipgloss.NewStyle().
+		Background(bgColor).
+		Foreground(fgColor).
+		Width(m.viewWidth)
+	padStyle := lipgloss.NewStyle().
+		Background(bgColor).
+		Foreground(fgColor)
+	messageStyle := baseStyle.Copy().
+		Foreground(mutedColor).
+		Align(lipgloss.Center)
+	buttonStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(buttonBG)).
+		Foreground(lipgloss.Color(buttonFG))
+
+	rows, buttonIndex := m.unavailableFileRows()
+	startY := (m.viewHeight - len(rows)) / 2
+	if startY < 0 {
+		startY = 0
+	}
+
+	var sb strings.Builder
+	for row := 0; row < m.viewHeight; row++ {
+		contentIndex := row - startY
+		if contentIndex >= 0 && contentIndex < len(rows) {
+			line := rows[contentIndex]
+			if contentIndex == buttonIndex {
+				rendered := buttonStyle.Render(line)
+				width := lipgloss.Width(rendered)
+				leftPad := (m.viewWidth - width) / 2
+				if leftPad < 0 {
+					leftPad = 0
+				}
+				rightPad := m.viewWidth - leftPad - width
+				if rightPad < 0 {
+					rightPad = 0
+				}
+				sb.WriteString(padStyle.Render(strings.Repeat(" ", leftPad)))
+				sb.WriteString(rendered)
+				sb.WriteString(padStyle.Render(strings.Repeat(" ", rightPad)))
+			} else {
+				sb.WriteString(messageStyle.Render(fitPlainText(line, m.viewWidth)))
+			}
+		} else {
+			sb.WriteString(baseStyle.Render(""))
+		}
+		if row < m.viewHeight-1 {
+			sb.WriteByte('\n')
+		}
+	}
+
+	v := tea.NewView(sb.String())
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
+}
+
+func (m Model) uiColor(key, fallback string) string {
+	if m.theme == nil {
+		return fallback
+	}
+	if c := m.theme.UI(key); c != "" {
+		return c
+	}
+	return fallback
+}
+
+func fitPlainText(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	if width <= 3 {
+		return strings.Repeat(".", width)
+	}
+
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes))+3 > width {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "..."
+}
+
 // ── View ─────────────────────────────────────────────────────────────────────
 
 // View renders the editor: gutter (line numbers + git diff bar) + content.
@@ -1279,33 +1466,9 @@ func (m Model) View() tea.View {
 		return tea.NewView("")
 	}
 
-	// Binary file — render centered error message instead of buffer content.
-	if m.binaryFile {
-		line1 := "Binary file \u2014 cannot display"
-		line2 := filepath.Base(m.path)
-		msgStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(m.theme.UI("muted"))).
-			Width(m.viewWidth).
-			Align(lipgloss.Center)
-		midRow := (m.viewHeight - 2) / 2
-		var sb strings.Builder
-		for row := 0; row < m.viewHeight; row++ {
-			switch row {
-			case midRow:
-				sb.WriteString(msgStyle.Render(line1))
-			case midRow + 1:
-				sb.WriteString(msgStyle.Render(line2))
-			default:
-				sb.WriteString(strings.Repeat(" ", m.viewWidth))
-			}
-			if row < m.viewHeight-1 {
-				sb.WriteByte('\n')
-			}
-		}
-		v := tea.NewView(sb.String())
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		return v
+	// Unavailable file — render centered message with an external-open action.
+	if m.cannotDisplayFile() {
+		return m.unavailableFileView()
 	}
 
 	bgColor := lipgloss.Color(m.theme.UI("background"))

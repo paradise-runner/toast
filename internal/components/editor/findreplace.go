@@ -39,7 +39,7 @@ func (m *Model) clearFindState() {
 }
 
 func (m *Model) applyFindQuery(query string, opts findOptions) {
-	if m.buf == nil || m.binaryFile {
+	if m.buf == nil || m.cannotDisplayFile() {
 		m.clearFindState()
 		return
 	}
@@ -71,7 +71,7 @@ func (m *Model) navigateFind(forward bool) {
 }
 
 func (m *Model) replaceCurrentFind(query, replacement string, opts findOptions) bool {
-	if m.buf == nil || m.binaryFile {
+	if m.buf == nil || m.cannotDisplayFile() {
 		return false
 	}
 
@@ -112,7 +112,7 @@ func (m *Model) replaceCurrentFind(query, replacement string, opts findOptions) 
 }
 
 func (m *Model) replaceAllFind(query, replacement string, opts findOptions) bool {
-	if m.buf == nil || m.binaryFile {
+	if m.buf == nil || m.cannotDisplayFile() {
 		return false
 	}
 

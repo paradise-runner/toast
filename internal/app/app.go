@@ -3,7 +3,9 @@ package app
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -529,6 +531,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previewOpen = false
 		}
 		m.breadcrumb.SetPreviewOpen(m.previewOpen)
+
+	case messages.OpenExternalFileMsg:
+		if cmd := openExternalFile(msg.Path); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.SidebarToggleMsg:
 		m.sidebarVisible = !m.sidebarVisible
@@ -1485,6 +1492,28 @@ func (m *Model) resizeComponents() []tea.Cmd {
 	m.statusBar = sbUpdated.(statusbar.Model)
 
 	return cmds
+}
+
+func openExternalFile(path string) tea.Cmd {
+	if path == "" {
+		return nil
+	}
+
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", path)
+		case "windows":
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+		default:
+			cmd = exec.Command("xdg-open", path)
+		}
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "toast: open external failed for %s: %v\n", path, err)
+		}
+		return nil
+	}
 }
 
 // runGitStatus runs git status asynchronously and returns a GitStatusUpdatedMsg.
