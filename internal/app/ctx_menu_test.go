@@ -74,6 +74,37 @@ func TestRightClick_EmptySpace_FallsBackToRootDir(t *testing.T) {
 	}
 }
 
+func TestSidebarInlineCreate_EscapeCancelsFromAppKeyRouting(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: 1})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	name := "cancel_escape_probe.go"
+	for _, ch := range name {
+		model.Update(tea.KeyPressMsg{Text: string(ch)})
+	}
+
+	if !strings.Contains(model.View().Content, name) {
+		t.Fatalf("expected inline create row to contain %q before Escape", name)
+	}
+
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if strings.Contains(model.View().Content, name) {
+		t.Fatalf("expected Escape to cancel inline create row containing %q", name)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

@@ -733,6 +733,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		if m.focus == FocusFileTree {
+			if m.fileTree.HasTransientInteraction() {
+				return m.updateFocused(msg)
+			}
 			m.setFocus(FocusEditor)
 			return nil
 		}

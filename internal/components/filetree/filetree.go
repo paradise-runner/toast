@@ -636,6 +636,12 @@ func (m Model) HasDeleteDialog() bool {
 	return m.deleteDialog != nil
 }
 
+// HasTransientInteraction returns true when the file tree is handling a
+// dismissible context menu, confirmation dialog, or inline create input.
+func (m Model) HasTransientInteraction() bool {
+	return m.ctxMenu != nil || m.deleteDialog != nil || m.inlineInput != nil
+}
+
 // reloadDir finds the node for dirPath, reloads its children, and rebuilds flat.
 func (m *Model) reloadDir(dirPath string) {
 	var reload func(n *TreeNode) bool
