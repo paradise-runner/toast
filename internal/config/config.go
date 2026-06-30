@@ -26,9 +26,15 @@ type EditorConfig struct {
 }
 
 type SidebarConfig struct {
-	Visible       bool `json:"visible"`
-	Width         int  `json:"width"`
-	ConfirmDelete bool `json:"confirm_delete"`
+	Visible       bool           `json:"visible"`
+	Width         int            `json:"width"`
+	ConfirmDelete bool           `json:"confirm_delete"`
+	FileIcons     FileIconConfig `json:"file_icons"`
+}
+
+type FileIconConfig struct {
+	Enabled   bool   `json:"enabled"`
+	ColorMode string `json:"color_mode"`
 }
 
 type LSPCmd struct {
@@ -48,7 +54,12 @@ func Defaults() Config {
 			TabWidth: 4, AutoIndent: true,
 			TrimTrailingWhitespaceOnSave: true, InsertFinalNewlineOnSave: true,
 		},
-		Sidebar: SidebarConfig{Visible: true, Width: 30, ConfirmDelete: true},
+		Sidebar: SidebarConfig{
+			Visible:       true,
+			Width:         30,
+			ConfirmDelete: true,
+			FileIcons:     FileIconConfig{Enabled: true, ColorMode: "accent"},
+		},
 		LSP: map[string]LSPCmd{
 			"go":         {Command: "gopls", Args: []string{"serve"}},
 			"python":     {Command: "pyright-langserver", Args: []string{"--stdio"}},
@@ -104,5 +115,17 @@ func LoadFrom(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Defaults(), fmt.Errorf("parsing config: %w", err)
 	}
+	cfg.normalize()
 	return cfg, nil
+}
+
+func (c *Config) normalize() {
+	switch c.Sidebar.FileIcons.ColorMode {
+	case "", "accent", "semantic", "none":
+	default:
+		c.Sidebar.FileIcons.ColorMode = "accent"
+	}
+	if c.Sidebar.FileIcons.ColorMode == "" {
+		c.Sidebar.FileIcons.ColorMode = "accent"
+	}
 }

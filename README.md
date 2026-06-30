@@ -115,7 +115,11 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
   "sidebar": {
     "visible": true,
     "width": 30,
-    "confirm_delete": true
+    "confirm_delete": true,
+    "file_icons": {
+      "enabled": true,
+      "color_mode": "accent"
+    }
   },
   "lsp": {
     "go":         { "command": "gopls",                       "args": ["serve"] },
@@ -126,6 +130,8 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
   "ignored_patterns": [".git", "node_modules", "__pycache__", ".DS_Store"]
 }
 ```
+
+The sidebar file tree uses homemade terminal-style file type markers by default. `sidebar.file_icons.color_mode` supports `accent` (one theme accent), `semantic` (type-specific colors derived from the active theme), and `none` (normal sidebar foreground).
 
 The current UI honors the fields above. The config schema also contains `editor.word_wrap`, `editor.show_whitespace`, and `search.*`, but those are not wired into the current UI yet.
 

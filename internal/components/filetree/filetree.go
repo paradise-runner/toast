@@ -282,7 +282,6 @@ func (m Model) View() tea.View {
 		if labelWidth < 0 {
 			labelWidth = 0
 		}
-		label := ansi.Truncate(indent+prefix+node.Name, labelWidth, "")
 		ignored := node.GitStatus == messages.GitStatusIgnored
 
 		var line string
@@ -302,6 +301,8 @@ func (m Model) View() tea.View {
 			if hasIcon && gitColor != "" {
 				iconStyle = iconStyle.Foreground(lipgloss.Color(gitColor))
 			}
+			markerStyle := m.fileIconStyle(node, selectedStyle, ignored, ignoredFG)
+			label, labelVisualWidth := m.renderNodeLabel(node, indent, prefix, labelWidth, labelStyle, markerStyle)
 			var iconStr string
 			if iconSlotWidth == 0 {
 				iconStr = ""
@@ -310,16 +311,11 @@ func (m Model) View() tea.View {
 			} else {
 				iconStr = iconStyle.Render("   ")
 			}
-			// Pad line to full width for highlight
-			rendered := label
-			if iconSlotWidth > 0 {
-				rendered += " " + icon + " "
-			}
-			padLen := m.width - lipgloss.Width(rendered)
+			padLen := m.width - labelVisualWidth - iconSlotWidth
 			if padLen < 0 {
 				padLen = 0
 			}
-			line = labelStyle.Render(label) + iconStr + selectedStyle.Render(strings.Repeat(" ", padLen))
+			line = label + iconStr + selectedStyle.Render(strings.Repeat(" ", padLen))
 		} else {
 			labelStyle := baseStyle.Copy()
 			if ignored && ignoredFG != "" {
@@ -330,6 +326,8 @@ func (m Model) View() tea.View {
 			if hasIcon && gitColor != "" {
 				iconStyle = iconStyle.Foreground(lipgloss.Color(gitColor))
 			}
+			markerStyle := m.fileIconStyle(node, baseStyle, ignored, ignoredFG)
+			label, labelVisualWidth := m.renderNodeLabel(node, indent, prefix, labelWidth, labelStyle, markerStyle)
 			var iconStr string
 			if iconSlotWidth == 0 {
 				iconStr = ""
@@ -339,15 +337,11 @@ func (m Model) View() tea.View {
 				iconStr = baseStyle.Render("   ")
 			}
 			// Pad to full width so JoinHorizontal doesn't add unstyled spaces.
-			rendered := label
-			if iconSlotWidth > 0 {
-				rendered += " " + icon + " "
-			}
-			padLen := m.width - lipgloss.Width(rendered)
+			padLen := m.width - labelVisualWidth - iconSlotWidth
 			if padLen < 0 {
 				padLen = 0
 			}
-			line = labelStyle.Render(label) + iconStr + baseStyle.Render(strings.Repeat(" ", padLen))
+			line = label + iconStr + baseStyle.Render(strings.Repeat(" ", padLen))
 		}
 
 		sb.WriteString(line)
@@ -383,6 +377,58 @@ func (m Model) ContextMenuOverlay() (rendered string, x, y int, ok bool) {
 		return "", 0, 0, false
 	}
 	return m.ctxMenu.Render(), m.ctxMenu.X, m.ctxMenu.Y, true
+}
+
+func (m Model) renderNodeLabel(node *TreeNode, indent, prefix string, maxWidth int, labelStyle, markerStyle lipgloss.Style) (string, int) {
+	if maxWidth <= 0 {
+		return "", 0
+	}
+
+	var parts strings.Builder
+	used := 0
+
+	prefixText := ansi.Truncate(indent+prefix, maxWidth, "")
+	if prefixText != "" {
+		parts.WriteString(labelStyle.Render(prefixText))
+		used += lipgloss.Width(prefixText)
+	}
+	if used >= maxWidth {
+		return parts.String(), used
+	}
+
+	if m.cfg.Sidebar.FileIcons.Enabled && !node.IsDir {
+		icon := fileIconForName(node.Name)
+		markerText := ansi.Truncate(icon.marker+" ", maxWidth-used, "")
+		if markerText != "" {
+			parts.WriteString(markerStyle.Render(markerText))
+			used += lipgloss.Width(markerText)
+		}
+		if used >= maxWidth {
+			return parts.String(), used
+		}
+	}
+
+	nameText := ansi.Truncate(node.Name, maxWidth-used, "")
+	if nameText != "" {
+		parts.WriteString(labelStyle.Render(nameText))
+		used += lipgloss.Width(nameText)
+	}
+
+	return parts.String(), used
+}
+
+func (m Model) fileIconStyle(node *TreeNode, base lipgloss.Style, ignored bool, ignoredFG string) lipgloss.Style {
+	style := base.Copy().Bold(true)
+	if !m.cfg.Sidebar.FileIcons.Enabled || node.IsDir {
+		return style
+	}
+	if ignored && ignoredFG != "" {
+		return style.Foreground(lipgloss.Color(ignoredFG))
+	}
+	if color := fileIconColor(m.theme, m.cfg.Sidebar.FileIcons, fileIconForName(node.Name)); color != "" {
+		return style.Foreground(lipgloss.Color(color))
+	}
+	return style
 }
 
 // activateNode toggles directories or emits FileSelectedMsg for files.

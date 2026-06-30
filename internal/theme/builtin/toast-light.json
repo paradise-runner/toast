@@ -6,7 +6,7 @@
     "selection": "#acb0be", "line_highlight": "#e6e9ef", "border": "#bcc0cc",
     "tab_active_bg": "#eff1f5", "tab_active_fg": "#4c4f69",
     "tab_inactive_bg": "#e6e9ef", "tab_inactive_fg": "#8c8fa1",
-    "sidebar_bg": "#e6e9ef", "sidebar_fg": "#4c4f69",
+    "sidebar_bg": "#e6e9ef", "sidebar_fg": "#4c4f69", "sidebar_icon_fg": "#1e66f5",
     "sidebar_selected_bg": "#bcc0cc", "sidebar_selected_fg": "#4c4f69",
     "statusbar_bg": "#e6e9ef", "statusbar_fg": "#6c6f85",
     "breadcrumbs_fg": "#8c8fa1", "breadcrumbs_active_fg": "#4c4f69",

@@ -22,6 +22,12 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.Width != 30 {
 		t.Errorf("expected default sidebar width 30, got %d", cfg.Sidebar.Width)
 	}
+	if !cfg.Sidebar.FileIcons.Enabled {
+		t.Error("expected sidebar file icons enabled by default")
+	}
+	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
+		t.Errorf("expected default file icon color mode accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
+	}
 }
 
 func TestLoadFromFile(t *testing.T) {
@@ -43,6 +49,45 @@ func TestLoadFromFile(t *testing.T) {
 	}
 	if !cfg.Editor.AutoIndent {
 		t.Error("expected auto_indent to default to true even when not in file")
+	}
+}
+
+func TestLoadSidebarFileIconConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"sidebar": {"file_icons": {"enabled": true, "color_mode": "semantic"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.Sidebar.FileIcons.Enabled {
+		t.Error("expected sidebar file icons enabled from config")
+	}
+	if cfg.Sidebar.FileIcons.ColorMode != "semantic" {
+		t.Errorf("expected semantic color mode, got %q", cfg.Sidebar.FileIcons.ColorMode)
+	}
+}
+
+func TestLoadSidebarFileIconConfig_InvalidColorModeFallsBackToAccent(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	content := `{"sidebar": {"file_icons": {"enabled": true, "color_mode": "rainbow"}}}`
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
+		t.Errorf("expected invalid color mode to fall back to accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
 	}
 }
 

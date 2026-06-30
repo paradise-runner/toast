@@ -8,6 +8,7 @@ import (
 
 	bubbletea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/yourusername/toast/internal/config"
 	"github.com/yourusername/toast/internal/messages"
@@ -171,6 +172,90 @@ func TestView_LongFileNamesDoNotOverflowWidth(t *testing.T) {
 	const width = 30
 	m := New(tm, config.Config{}, dir)
 	m, _ = m.Update(bubbletea.WindowSizeMsg{Width: width, Height: 3})
+
+	lines := strings.Split(m.View().Content, "\n")
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w != width {
+			t.Fatalf("line %d visual width = %d, want %d\nLine: %q", i, w, width, line)
+		}
+	}
+}
+
+func TestView_FileIconsRenderBeforeFileNames(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"main.go", "package.json", "run.sh"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(""), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tm := newTestTheme(t)
+	m := New(tm, config.Defaults(), dir)
+	m, _ = m.Update(bubbletea.WindowSizeMsg{Width: 36, Height: 5})
+
+	plain := ansi.Strip(m.View().Content)
+	for _, want := range []string{"go main.go", "{} package.json", "$  run.sh"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected visible file icon row to contain %q\nView:\n%s", want, plain)
+		}
+	}
+}
+
+func TestView_FileIconsDoNotRenderForDirectories(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "pkg"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	tm := newTestTheme(t)
+	m := New(tm, config.Defaults(), dir)
+	m, _ = m.Update(bubbletea.WindowSizeMsg{Width: 36, Height: 3})
+
+	plain := ansi.Strip(m.View().Content)
+	if !strings.Contains(plain, "▶ pkg") {
+		t.Fatalf("expected directory row to keep disclosure arrow\nView:\n%s", plain)
+	}
+	if strings.Contains(plain, "-- pkg") {
+		t.Fatalf("directory row should not include file icon fallback\nView:\n%s", plain)
+	}
+}
+
+func TestView_FileIconsCanBeDisabled(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Sidebar.FileIcons.Enabled = false
+	tm := newTestTheme(t)
+	m := New(tm, cfg, dir)
+	m, _ = m.Update(bubbletea.WindowSizeMsg{Width: 36, Height: 3})
+
+	plain := ansi.Strip(m.View().Content)
+	if strings.Contains(plain, "go main.go") {
+		t.Fatalf("disabled file icons should not render marker\nView:\n%s", plain)
+	}
+	if !strings.Contains(plain, "  main.go") {
+		t.Fatalf("expected plain filename row when icons are disabled\nView:\n%s", plain)
+	}
+}
+
+func TestView_FileIcons_LinesAreFullWidth(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"main.go", "package.json", "run.sh"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(""), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tm, err := theme.NewManager("toast-light", "../../../internal/theme/builtin")
+	if err != nil {
+		t.Fatalf("failed to load theme: %v", err)
+	}
+	const width = 30
+	m := New(tm, config.Defaults(), dir)
+	m, _ = m.Update(bubbletea.WindowSizeMsg{Width: width, Height: 5})
 
 	lines := strings.Split(m.View().Content, "\n")
 	for i, line := range lines {
