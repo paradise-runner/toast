@@ -11,7 +11,7 @@ import (
 	"github.com/yourusername/toast/internal/migrate"
 )
 
-var version = "v0.0.7"
+var version = "v0.1.11"
 
 // findGitRoot walks up the directory tree from path looking for a .git entry
 // (directory or file, to support worktrees). It returns the directory containing

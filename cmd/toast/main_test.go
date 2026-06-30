@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+func TestVersionMatchesRelease(t *testing.T) {
+	if version != "v0.1.11" {
+		t.Fatalf("version = %q, want v0.1.11", version)
+	}
+}
+
 func TestFindGitRoot_FindsRepoRoot(t *testing.T) {
 	// Create a temp directory tree: root/.git, root/sub/file.go
 	dir := t.TempDir()
