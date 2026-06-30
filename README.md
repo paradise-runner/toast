@@ -131,7 +131,7 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
 }
 ```
 
-The sidebar file tree uses homemade terminal-style file type markers by default. `sidebar.file_icons.color_mode` supports `accent` (one theme accent), `semantic` (type-specific colors derived from the active theme), and `none` (normal sidebar foreground).
+The sidebar file tree uses homemade terminal-style file type markers by default, covering common IDE file types such as Go, JavaScript/TypeScript, HTML, CSS, Rust, Python, Ruby, PHP, JVM languages, Swift, C/C++, C#, shell scripts, JSON/YAML/TOML, SQL, Dockerfiles, images, archives, and build files. `sidebar.file_icons.color_mode` supports `accent` (one theme accent), `semantic` (type-specific colors derived from the active theme), and `none` (normal sidebar foreground).
 
 The current UI honors the fields above. The config schema also contains `editor.word_wrap`, `editor.show_whitespace`, and `search.*`, but those are not wired into the current UI yet.
 
