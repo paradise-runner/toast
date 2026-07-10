@@ -1593,46 +1593,15 @@ func (m Model) View() tea.View {
 			lineContent = lineContent[:contentWidth]
 		}
 
-		// Compute selection range for this chunk.
-		// selRange offsets are relative to the start of lineContent (the chunk).
-		var lineSelRange *[2]int
-		if start, end, active := m.selectionRange(); active {
-			lineStart := m.buf.OffsetForLine(bufLine)
-			selStartOff := m.buf.OffsetForLine(start.line) + start.col
-			selEndOff := m.buf.OffsetForLine(end.line) + end.col
-			lineContentLen := m.lineContentLen(bufLine)
-
-			chunkByteStart := 0
-			chunkByteEnd := lineContentLen
-			if m.wrapMode {
-				chunks := m.lineChunks(bufLine)
-				chunkByteStart = chunks[chunkIndex]
-				if chunkIndex+1 < len(chunks) {
-					chunkByteEnd = chunks[chunkIndex+1]
-				} else {
-					chunkByteEnd = lineContentLen
-				}
-			}
-
-			if lineStart+chunkByteEnd > selStartOff && lineStart+chunkByteStart < selEndOff {
-				rawStart := selStartOff - lineStart - chunkByteStart
-				if rawStart < 0 {
-					rawStart = 0
-				}
-				rawEnd := selEndOff - lineStart - chunkByteStart
-				if rawEnd > chunkByteEnd-chunkByteStart {
-					rawEnd = chunkByteEnd - chunkByteStart
-				}
-				r := [2]int{rawStart, rawEnd}
-				lineSelRange = &r
-			}
-		}
-
 		// lineOffset is the raw line-relative byte index where lineContent starts.
 		lineOffset := m.viewportLeft
 		if m.wrapMode && bufLine < lineCount {
 			lineOffset = m.lineChunks(bufLine)[chunkIndex]
 		}
+		// Selection ranges, like syntax spans and find ranges, are raw
+		// line-relative byte offsets. Keep that coordinate system even when
+		// rendering a wrapped chunk or a horizontally scrolled slice.
+		lineSelRange := m.selectionRangeForLine(bufLine, lineOffset, lineOffset+len(lineContent))
 		findRanges := m.findRangesForLineRange(bufLine, lineOffset, lineOffset+len(lineContent))
 
 		var renderedContent string
@@ -2026,6 +1995,50 @@ func (m *Model) selectionRange() (start, end cursorPos, active bool) {
 		a, b = b, a
 	}
 	return a, b, true
+}
+
+// selectionRangeForLine returns the selected portion of the visible line
+// range as raw line-relative byte offsets. visibleStart and visibleEnd are
+// also raw line-relative offsets, so the result works for wrapped chunks and
+// horizontally scrolled lines alike.
+func (m *Model) selectionRangeForLine(line, visibleStart, visibleEnd int) *[2]int {
+	start, end, active := m.selectionRange()
+	if !active || line < 0 || line >= m.buf.LineCount() {
+		return nil
+	}
+
+	lineStart := m.buf.OffsetForLine(line)
+	lineEnd := lineStart + m.lineContentLen(line)
+	selectionStart := m.buf.OffsetForLine(start.line) + start.col
+	selectionEnd := m.buf.OffsetForLine(end.line) + end.col
+
+	if visibleStart < 0 {
+		visibleStart = 0
+	}
+	if visibleEnd > m.lineContentLen(line) {
+		visibleEnd = m.lineContentLen(line)
+	}
+	if visibleEnd <= visibleStart || lineEnd <= selectionStart || lineStart >= selectionEnd {
+		return nil
+	}
+
+	if selectionStart < lineStart {
+		selectionStart = lineStart
+	}
+	if selectionEnd > lineEnd {
+		selectionEnd = lineEnd
+	}
+	if selectionStart < lineStart+visibleStart {
+		selectionStart = lineStart + visibleStart
+	}
+	if selectionEnd > lineStart+visibleEnd {
+		selectionEnd = lineStart + visibleEnd
+	}
+	if selectionEnd <= selectionStart {
+		return nil
+	}
+
+	return &[2]int{selectionStart - lineStart, selectionEnd - lineStart}
 }
 
 // clearSelection sets selectionAnchor to nil.

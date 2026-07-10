@@ -104,6 +104,34 @@ func TestSelectionRange_NoSelection(t *testing.T) {
 	}
 }
 
+func TestSelectionRangeForLineUsesRawLineOffsets(t *testing.T) {
+	m := newTestModel("0123456789abcdef\n")
+	anchor := cursorPos{line: 0, col: 2}
+	m.selectionAnchor = &anchor
+	m.cursor = cursorPos{line: 0, col: 14}
+
+	// The visible slice starts at byte 8. The renderer still needs the
+	// selection expressed in raw line coordinates, not slice coordinates.
+	r := m.selectionRangeForLine(0, 8, 16)
+	if r == nil || *r != [2]int{8, 14} {
+		t.Fatalf("selection range = %v, want [8 14]", r)
+	}
+}
+
+func TestSelectionRangeForWrappedChunkUsesRawLineOffsets(t *testing.T) {
+	m := newTestModel("0123456789abcdef\n")
+	anchor := cursorPos{line: 0, col: 2}
+	m.selectionAnchor = &anchor
+	m.cursor = cursorPos{line: 0, col: 14}
+
+	// A wrapped chunk beginning at byte 8 must receive [8,14], so the
+	// highlighter and selection renderer agree on the same coordinate system.
+	r := m.selectionRangeForLine(0, 8, 12)
+	if r == nil || *r != [2]int{8, 12} {
+		t.Fatalf("selection range = %v, want [8 12]", r)
+	}
+}
+
 func TestCursorScreenPositionUsesCellWidthForEmoji(t *testing.T) {
 	m := newThemedTestModel(t, "a🙂b\n")
 	m.cursor = cursorPos{line: 0, col: len("a🙂")}
