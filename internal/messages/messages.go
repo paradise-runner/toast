@@ -101,13 +101,21 @@ type DefinitionRequestMsg struct {
 	BufferID  int
 	Path      string
 	Line, Col int
+	Navigate  bool
 }
 
 // DefinitionResultMsg - definition location
 type DefinitionResultMsg struct {
-	Path      string
-	Line, Col int
+	BufferID              int
+	SourceLine, SourceCol int
+	Path                  string
+	Line, Col             int
+	Navigate              bool
 }
+
+// GoToPositionMsg moves the editor cursor to an LSP location. Col is a UTF-16
+// code-unit offset, as required by the language-server protocol.
+type GoToPositionMsg struct{ Line, Col int }
 
 // ThemeChangedMsg - active theme changed
 type ThemeChangedMsg struct{ ThemeName string }
@@ -224,6 +232,31 @@ const (
 	LSPServerReady
 	LSPServerCrashed
 	LSPServerNotFound
+)
+
+// LSPInstallPromptMsg asks the app to offer an opt-in managed installation.
+type LSPInstallPromptMsg struct {
+	Language string
+	Name     string
+}
+
+// LSPInstallRequestMsg is emitted when the user accepts an install prompt.
+type LSPInstallRequestMsg struct{ Language string }
+
+// LSPInstallStatusMsg reports managed install progress and failures.
+type LSPInstallStatusMsg struct {
+	Language string
+	Status   LSPInstallStatus
+	Message  string
+}
+
+// LSPInstallStatus identifies the current managed installation phase.
+type LSPInstallStatus int
+
+const (
+	LSPInstallRunning LSPInstallStatus = iota
+	LSPInstallSucceeded
+	LSPInstallFailed
 )
 
 // ThemePickerOpenMsg - open the theme picker dialog

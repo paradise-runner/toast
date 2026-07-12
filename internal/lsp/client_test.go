@@ -17,3 +17,14 @@ func TestPathToURIRoundtrip(t *testing.T) {
 		t.Errorf("got %q", back)
 	}
 }
+
+func TestPathToURIRoundtripWithSpaces(t *testing.T) {
+	path := "/Users/bob/My Project/main.go"
+	uri := lsp.URIFromPath(path)
+	if uri != "file:///Users/bob/My%20Project/main.go" {
+		t.Fatalf("got %q", uri)
+	}
+	if back := lsp.PathFromURI(uri); back != path {
+		t.Fatalf("roundtrip got %q", back)
+	}
+}

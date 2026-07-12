@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/yourusername/toast/internal/buffer"
 	"github.com/yourusername/toast/internal/clipboard"
 	"github.com/yourusername/toast/internal/config"
@@ -65,6 +66,7 @@ type Model struct {
 	// Mouse drag tracking
 	mouseDragging   bool
 	mouseDragAnchor cursorPos
+	definitionLink  definitionLinkState
 
 	// Multi-click detection
 	lastClickTime time.Time
@@ -216,6 +218,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.GoToLineMsg:
 		return m.handleGoToLine(msg)
+
+	case messages.GoToPositionMsg:
+		return m.handleGoToPosition(msg)
+
+	case messages.DefinitionResultMsg:
+		if !msg.Navigate && msg.BufferID == m.bufferID &&
+			msg.SourceLine == m.definitionLink.line && msg.SourceCol == m.definitionLink.sourceCol {
+			m.definitionLink.pending = false
+			if msg.Path == "" {
+				m.definitionLink.hide()
+			} else {
+				m.definitionLink.visible = true
+				m.definitionLink.targetPath = msg.Path
+				m.definitionLink.targetLine = msg.Line
+				m.definitionLink.targetCol = msg.Col
+			}
+		}
 
 	case messages.FindReplaceCloseMsg:
 		m.clearFindState()
@@ -427,6 +446,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.cannotDisplayFile() {
 		return m, nil
 	}
+	m.definitionLink.hide()
 	// Capture the modified state before handling the key.
 	// Defaults to false when no buffer is loaded; emitModified() also
 	// guards against nil buf, so the two nil-checks are consistent.
@@ -806,6 +826,21 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	switch msg.Button {
 	case tea.MouseLeft:
 		clickLine, clickCol := m.screenToBuffer(msg.X, msg.Y)
+		if msg.Mod.Contains(tea.ModCtrl) && msg.X >= m.gutterWidth {
+			if m.definitionLink.contains(clickLine, clickCol) && m.definitionLink.targetPath != "" {
+				result := messages.DefinitionResultMsg{
+					BufferID: m.bufferID, SourceLine: clickLine, SourceCol: clickCol,
+					Path: m.definitionLink.targetPath, Line: m.definitionLink.targetLine,
+					Col: m.definitionLink.targetCol, Navigate: true,
+				}
+				return m, func() tea.Msg { return result }
+			}
+			bufferID, path := m.bufferID, m.path
+			return m, func() tea.Msg {
+				return messages.DefinitionRequestMsg{BufferID: bufferID, Path: path, Line: clickLine, Col: clickCol, Navigate: true}
+			}
+		}
+		m.definitionLink.hide()
 		newPos := cursorPos{line: clickLine, col: clickCol}
 
 		// Multi-click detection
@@ -849,6 +884,24 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.cannotDisplayFile() {
 		return m, nil
 	}
+	if msg.Mod.Contains(tea.ModCtrl) && !m.mouseDragging && msg.X >= m.gutterWidth {
+		line, col := m.screenToBuffer(msg.X, msg.Y)
+		start, end, ok := m.wordRangeAt(line, col)
+		if !ok {
+			m.definitionLink.hide()
+			return m, nil
+		}
+		if m.definitionLink.line == line && m.definitionLink.start == start &&
+			m.definitionLink.end == end && (m.definitionLink.pending || m.definitionLink.visible) {
+			return m, nil
+		}
+		m.definitionLink = definitionLinkState{line: line, start: start, end: end, sourceCol: col, pending: true}
+		bufferID, path := m.bufferID, m.path
+		return m, func() tea.Msg {
+			return messages.DefinitionRequestMsg{BufferID: bufferID, Path: path, Line: line, Col: col}
+		}
+	}
+	m.definitionLink.hide()
 	if msg.Button == tea.MouseLeft && m.mouseDragging {
 		dragLine, dragCol := m.screenToBuffer(msg.X, msg.Y)
 		m.cursor = cursorPos{line: dragLine, col: dragCol}
@@ -1426,7 +1479,7 @@ func (m Model) unavailableFileView() tea.View {
 
 	v := tea.NewView(sb.String())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeAllMotion
 	return v
 }
 
@@ -1589,10 +1642,6 @@ func (m Model) View() tea.View {
 		if contentWidth < 0 {
 			contentWidth = 0
 		}
-		if !m.wrapMode && len(lineContent) > contentWidth {
-			lineContent = lineContent[:contentWidth]
-		}
-
 		// lineOffset is the raw line-relative byte index where lineContent starts.
 		lineOffset := m.viewportLeft
 		if m.wrapMode && bufLine < lineCount {
@@ -1744,6 +1793,14 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 					nextBoundary = r.end
 				}
 			}
+			if m.definitionLink.visible && m.definitionLink.line == bufLine {
+				if m.definitionLink.start > pos && m.definitionLink.start < nextBoundary {
+					nextBoundary = m.definitionLink.start
+				}
+				if m.definitionLink.end > pos && m.definitionLink.end < nextBoundary {
+					nextBoundary = m.definitionLink.end
+				}
+			}
 			chunkLen := nextBoundary - pos
 			if chunkLen <= 0 || chunkLen > len(remaining) {
 				chunkLen = len(remaining)
@@ -1753,25 +1810,29 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 			pos += chunkLen
 		}
 		var out strings.Builder
+		renderPos := segStart
+		tabWidth := normalizedTabWidth(m.cfg.Editor.TabWidth)
+		renderColumn := displayColumnAtByte(m.lineContent(bufLine), segStart, tabWidth)
 		for _, c := range chunks {
 			style := fgStyle.Background(c.bg)
 			if c.fg != nil {
 				style = style.Foreground(c.fg)
 			}
-			out.WriteString(style.Render(c.s))
+			if m.definitionLink.visible && m.definitionLink.line == bufLine &&
+				renderPos >= m.definitionLink.start && renderPos < m.definitionLink.end {
+				style = style.Underline(true)
+			}
+			expanded := expandTabs(c.s, renderColumn, tabWidth)
+			out.WriteString(style.Render(expanded))
+			renderColumn += lipgloss.Width(expanded)
+			renderPos += len(c.s)
 		}
 		return out.String()
 	}
 
 	if m.highlighter == nil || len(text) == 0 {
 		rendered := renderSegment(text, offset, baseStyle)
-		if padWidth > 0 {
-			visLen := lipgloss.Width(rendered)
-			if visLen < padWidth {
-				rendered += baseStyle.Render(strings.Repeat(" ", padWidth-visLen))
-			}
-		}
-		return rendered
+		return fitRenderedLine(rendered, padWidth, baseStyle)
 	}
 
 	// Get the raw line content (with newline) for the highlighter.
@@ -1783,13 +1844,7 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 	spans := m.highlighter.HighlightLine(bufLine, rawLine)
 	if len(spans) == 0 {
 		rendered := renderSegment(text, offset, baseStyle)
-		if padWidth > 0 {
-			visLen := lipgloss.Width(rendered)
-			if visLen < padWidth {
-				rendered += baseStyle.Render(strings.Repeat(" ", padWidth-visLen))
-			}
-		}
-		return rendered
+		return fitRenderedLine(rendered, padWidth, baseStyle)
 	}
 
 	// Adjust spans for viewport left offset.
@@ -1835,14 +1890,21 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 		out.WriteString(renderSegment(text[pos:], pos+offset, baseStyle))
 	}
 
-	if padWidth > 0 {
-		visLen := lipgloss.Width(out.String())
-		if visLen < padWidth {
-			out.WriteString(baseStyle.Render(strings.Repeat(" ", padWidth-visLen)))
-		}
-	}
+	return fitRenderedLine(out.String(), padWidth, baseStyle)
+}
 
-	return out.String()
+func fitRenderedLine(rendered string, width int, style lipgloss.Style) string {
+	if width <= 0 {
+		return rendered
+	}
+	visualWidth := lipgloss.Width(rendered)
+	if visualWidth > width {
+		return ansi.Truncate(rendered, width, "")
+	}
+	if visualWidth < width {
+		return rendered + style.Render(strings.Repeat(" ", width-visualWidth))
+	}
+	return rendered
 }
 
 // ── Public accessors ─────────────────────────────────────────────────────────
@@ -1907,7 +1969,7 @@ func (m *Model) lineContent(line int) string {
 }
 
 func visualWidth(s string) int {
-	return lipgloss.Width(s)
+	return displayColumnAtByte(s, len(s), defaultTabWidth)
 }
 
 func (m *Model) visualWidthForLineRange(line, start, end int) int {
@@ -1917,29 +1979,11 @@ func (m *Model) visualWidthForLineRange(line, start, end int) int {
 	if end < start {
 		end = start
 	}
-	return visualWidth(content[start:end])
+	return displayWidthForByteRange(content, start, end, m.cfg.Editor.TabWidth)
 }
 
-func byteColForVisualCol(content string, start, visualCol int) int {
-	start = clampByteCol(content, start)
-	if visualCol <= 0 {
-		return start
-	}
-	prev := start
-	for i := start; i < len(content); {
-		_, size := utf8.DecodeRuneInString(content[i:])
-		next := i + size
-		width := visualWidth(content[start:next])
-		if width > visualCol {
-			return prev
-		}
-		if width == visualCol {
-			return next
-		}
-		prev = next
-		i = next
-	}
-	return len(content)
+func byteColForVisualCol(content string, start, visualCol, tabWidth int) int {
+	return byteColForDisplayOffset(content, start, visualCol, tabWidth)
 }
 
 func clampByteCol(s string, col int) int {
@@ -2098,7 +2142,7 @@ func (m *Model) screenToBuffer(x, y int) (line, col int) {
 		if visualCol < 0 {
 			visualCol = 0
 		}
-		bufCol := byteColForVisualCol(m.lineContent(bufLine), chunkStart, visualCol)
+		bufCol := byteColForVisualCol(m.lineContent(bufLine), chunkStart, visualCol, m.cfg.Editor.TabWidth)
 		return bufLine, bufCol
 	}
 
@@ -2111,7 +2155,7 @@ func (m *Model) screenToBuffer(x, y int) (line, col int) {
 		line = 0
 	}
 	visualCol := x - m.gutterWidth
-	col = byteColForVisualCol(m.lineContent(line), m.viewportLeft, visualCol)
+	col = byteColForVisualCol(m.lineContent(line), m.viewportLeft, visualCol, m.cfg.Editor.TabWidth)
 	return line, col
 }
 
@@ -2216,20 +2260,24 @@ func (m *Model) clampViewport() {
 		m.viewportTop = 0
 	}
 
-	// Horizontal: ensure cursor col is visible.
-	cursorScreenCol := m.cursor.col - m.viewportLeft
+	// Horizontal: ensure the cursor's display cell is visible. Buffer columns
+	// remain byte offsets, while tabs and wide runes occupy multiple cells.
+	line := m.lineContent(m.cursor.line)
+	tabWidth := m.cfg.Editor.TabWidth
+	cursorDisplayCol := displayColumnAtByte(line, m.cursor.col, tabWidth)
+	leftDisplayCol := displayColumnAtByte(line, m.viewportLeft, tabWidth)
+	cursorScreenCol := cursorDisplayCol - leftDisplayCol
 	contentWidth := m.viewWidth - m.gutterWidth
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
 	if cursorScreenCol < 0 {
-		m.viewportLeft += cursorScreenCol
-		if m.viewportLeft < 0 {
-			m.viewportLeft = 0
-		}
+		m.viewportLeft = m.cursor.col
+		cursorScreenCol = 0
 	}
 	if cursorScreenCol >= contentWidth {
-		m.viewportLeft += cursorScreenCol - contentWidth + 1
+		targetDisplayCol := cursorDisplayCol - contentWidth + 1
+		m.viewportLeft = byteColAtOrAfterDisplayColumn(line, targetDisplayCol, tabWidth)
 	}
 }
 

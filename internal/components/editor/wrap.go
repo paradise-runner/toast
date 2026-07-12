@@ -88,14 +88,18 @@ func (m *Model) visualRowOfCursor() int {
 // Breaking occurs at the last ASCII space before the width limit; if no space
 // exists in the chunk, the break falls back to the column boundary.
 func wordWrapChunks(line string, width int) []int {
+	return wordWrapChunksWithTabWidth(line, width, defaultTabWidth)
+}
+
+func wordWrapChunksWithTabWidth(line string, width, tabWidth int) []int {
 	chunks := []int{0}
 	start := 0
-	for start < len(line) && visualWidth(line[start:]) > width {
+	for start < len(line) && displayWidthForByteRange(line, start, len(line), tabWidth) > width {
 		end := start
 		lastSpaceEnd := -1
 		for i, r := range line[start:] {
 			next := start + i + len(string(r))
-			if visualWidth(line[start:next]) > width {
+			if displayWidthForByteRange(line, start, next, tabWidth) > width {
 				break
 			}
 			end = next
@@ -149,7 +153,7 @@ func (m *Model) lineChunks(bufLine int) []int {
 	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
 		raw = raw[:len(raw)-1]
 	}
-	return wordWrapChunks(raw, m.wrapWidth())
+	return wordWrapChunksWithTabWidth(raw, m.wrapWidth(), m.cfg.Editor.TabWidth)
 }
 
 // bufPosFromVisualRow maps an absolute visual row index to a (bufLine, bufCol)

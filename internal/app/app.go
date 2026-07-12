@@ -18,6 +18,7 @@ import (
 	"github.com/yourusername/toast/internal/components/filetree"
 	"github.com/yourusername/toast/internal/components/findreplace"
 	"github.com/yourusername/toast/internal/components/gotoline"
+	"github.com/yourusername/toast/internal/components/lspinstall"
 	"github.com/yourusername/toast/internal/components/preview"
 	"github.com/yourusername/toast/internal/components/quitdialog"
 	"github.com/yourusername/toast/internal/components/search"
@@ -78,6 +79,9 @@ type Model struct {
 
 	quitDialogOpen bool
 	quitDialog     quitdialog.Model
+
+	lspInstall        lspinstall.Model
+	pendingDefinition *messages.DefinitionResultMsg
 
 	// pendingQuit is set while a save-then-quit sequence is in progress.
 	pendingQuit bool
@@ -161,6 +165,7 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		themePicker:     themepicker.New(tm, themeDir, cfg.Theme),
 		goToLine:        gotoline.NewWithTheme(tm),
 		findReplace:     findreplace.New(tm),
+		lspInstall:      lspinstall.New(tm),
 
 		fileTree:   filetree.New(tm, cfg, rootDir),
 		tabBar:     tabbar.New(tm),
@@ -301,6 +306,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Remove from openBuffers map and unwatch.
 		for path, id := range m.openBuffers {
 			if id == msg.BufferID {
+				if m.lspMgr != nil {
+					if language := m.languageForPath(path); language != "" {
+						m.lspMgr.DidClose(path, language)
+					}
+				}
 				delete(m.openBuffers, path)
 				delete(m.previewByBuffer, id)
 				// Preserve unsaved changes so the user can be prompted at quit.
@@ -449,12 +459,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.HoverResultMsg:
 		m.updateEditor(msg)
 
-	case messages.DefinitionResultMsg:
-		// Open the definition file
-		cmd := m.handleFileSelected(messages.FileSelectedMsg{Path: msg.Path})
-		if cmd != nil {
-			cmds = append(cmds, cmd)
+	case messages.DefinitionRequestMsg:
+		if m.lspMgr != nil {
+			if language := m.languageForPath(msg.Path); language != "" {
+				m.lspMgr.Definition(msg.BufferID, msg.Path, language, msg.Line, msg.Col, msg.Navigate)
+			}
 		}
+
+	case messages.DefinitionResultMsg:
+		if msg.Navigate {
+			if cmd := m.navigateToDefinition(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else {
+			m.updateEditor(msg)
+		}
+
+	case messages.LSPInstallPromptMsg:
+		m.lspInstall.Show(msg.Language, msg.Name)
+
+	case messages.LSPInstallRequestMsg:
+		if m.lspMgr != nil {
+			go m.lspMgr.Install(msg.Language)
+		}
+
+	case messages.LSPInstallStatusMsg:
+		m.lspInstall, _ = m.lspInstall.Update(msg)
 
 	case messages.SearchOpenMsg:
 		m.openSearch()
@@ -494,6 +524,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.LSPServerStatusMsg:
 		m.updateStatusBar(msg)
+		m.lspInstall, _ = m.lspInstall.Update(msg)
 
 	case messages.FileSaveFailedMsg:
 		if m.isSavingPath == msg.Path {
@@ -522,6 +553,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.FileLoadedMsg:
+		if m.lspMgr != nil {
+			if language := m.languageForPath(msg.Path); language != "" {
+				m.lspMgr.DidOpen(msg.Path, language, msg.Content)
+			}
+		}
+		if m.pendingDefinition != nil && m.pendingDefinition.Path == msg.Path {
+			m.updateEditor(messages.GoToPositionMsg{Line: m.pendingDefinition.Line, Col: m.pendingDefinition.Col})
+			m.pendingDefinition = nil
+		}
 		// Restore per-buffer preview state when a file finishes loading.
 		wasOpen := m.previewByBuffer[msg.BufferID]
 		if isMarkdownPath(msg.Path) && wasOpen {
@@ -638,6 +678,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes key messages, checking app-level bindings first then
 // forwarding to the focused component.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.lspInstall.Visible() {
+		updated, cmd := m.lspInstall.Update(msg)
+		m.lspInstall = updated
+		return cmd
+	}
 	if m.quitDialogOpen {
 		// Ctrl+Q while dialog is open force-quits without saving.
 		if isQuit(msg) {
@@ -712,6 +757,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.goToLine = m.goToLine.Open(m.editor.LineCount())
 		m.goToLineOpen = true
 		return nil
+
+	case isGoToDefinition(msg):
+		if m.editor.Path() == "" {
+			return nil
+		}
+		return func() tea.Msg {
+			return messages.DefinitionRequestMsg{
+				BufferID: m.editor.BufferID(), Path: m.editor.Path(),
+				Line: m.editor.CursorLine(), Col: m.editor.CursorCol(), Navigate: true,
+			}
+		}
 
 	case isMarkdownPreview(msg):
 		if isMarkdownPath(m.editor.Path()) {
@@ -810,6 +866,11 @@ func (m *Model) forceCloseTab(path string) tea.Cmd {
 		return nil
 	}
 	delete(m.openBuffers, path)
+	if m.lspMgr != nil {
+		if language := m.languageForPath(path); language != "" {
+			m.lspMgr.DidClose(path, language)
+		}
+	}
 	if m.watcher != nil {
 		_ = m.watcher.Unwatch(filepath.Dir(path))
 	}
@@ -840,6 +901,23 @@ func (m *Model) forceCloseTab(path string) tea.Cmd {
 
 // handleMouseClick routes mouse click events to the appropriate component based on position.
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
+	if m.lspInstall.Visible() {
+		ow, oh := m.lspInstall.Dimensions()
+		startX := m.width - ow - 1
+		startY := m.height - oh - 1
+		if startX < 0 {
+			startX = 0
+		}
+		if startY < 0 {
+			startY = 0
+		}
+		if msg.X >= startX && msg.X < startX+ow && msg.Y >= startY && msg.Y < startY+oh {
+			local := tea.MouseClickMsg{Button: msg.Button, Mod: msg.Mod, X: msg.X - startX, Y: msg.Y - startY}
+			updated, cmd := m.lspInstall.Update(local)
+			m.lspInstall = updated
+			return cmd
+		}
+	}
 	if m.quitDialogOpen {
 		ow, oh := m.quitDialog.Dimensions()
 		startX := (m.width - ow) / 2
@@ -1295,9 +1373,9 @@ func (m *Model) handleFileSelected(msg messages.FileSelectedMsg) tea.Cmd {
 			_ = m.watcher.Watch(filepath.Dir(path))
 		}
 		if m.lspMgr != nil {
-			lang := lsp.LanguageForPath(path)
+			lang := m.languageForPath(path)
 			if lang != "" {
-				go m.lspMgr.EnsureServer(lang)
+				m.lspMgr.DidOpen(path, lang, m.editor.Content())
 			}
 		}
 		m.setFocus(FocusEditor)
@@ -1319,7 +1397,7 @@ func (m *Model) handleFileSelected(msg messages.FileSelectedMsg) tea.Cmd {
 
 	// Start LSP for this file type
 	if m.lspMgr != nil {
-		lang := lsp.LanguageForPath(path)
+		lang := m.languageForPath(path)
 		if lang != "" {
 			go m.lspMgr.EnsureServer(lang)
 		}
@@ -1407,8 +1485,11 @@ func (m *Model) updateFocused(msg tea.Msg) tea.Cmd {
 				return cmd
 			}
 		}
+		beforePath := m.editor.Path()
+		beforeContent := m.editor.Content()
 		updated, cmd := m.editor.Update(msg)
 		m.editor = updated.(editor.Model)
+		m.syncLSPChange(beforePath, beforeContent)
 		return cmd
 	case FocusFileTree:
 		var cmd tea.Cmd
@@ -1424,9 +1505,21 @@ func (m *Model) updateFocused(msg tea.Msg) tea.Cmd {
 
 // updateEditor forwards a message to the editor component with proper type assertion.
 func (m *Model) updateEditor(msg tea.Msg) tea.Cmd {
+	beforePath := m.editor.Path()
+	beforeContent := m.editor.Content()
 	updated, cmd := m.editor.Update(msg)
 	m.editor = updated.(editor.Model)
+	m.syncLSPChange(beforePath, beforeContent)
 	return cmd
+}
+
+func (m *Model) syncLSPChange(beforePath, beforeContent string) {
+	if m.lspMgr == nil || beforePath == "" || beforePath != m.editor.Path() || beforeContent == m.editor.Content() {
+		return
+	}
+	if language := m.languageForPath(beforePath); language != "" {
+		m.lspMgr.DidChange(beforePath, language, m.editor.Content())
+	}
 }
 
 // updateBreadcrumbs forwards a message to the breadcrumbs component.
@@ -1581,7 +1674,9 @@ func (m *Model) runGitDiff(bufferID int, path string) tea.Cmd {
 func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	// Definition discovery depends on receiving pointer movement without a
+	// button held. CellMotion only reports drags; AllMotion reports hover.
+	v.MouseMode = tea.MouseModeAllMotion
 
 	if !m.ready {
 		v.Content = "Loading..."
@@ -1672,10 +1767,32 @@ func (m *Model) View() tea.View {
 		overlayStr := m.quitDialog.Render()
 		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
 	}
+	if m.lspInstall.Visible() {
+		overlayStr := m.lspInstall.Render()
+		ow, oh := m.lspInstall.Dimensions()
+		v.Content = overlayAt(v.Content, overlayStr, m.width-ow-1, m.height-oh-1, m.width, m.height)
+	}
 	if rendered, ok := m.fileTree.DeleteDialogOverlay(m.width, m.height); ok {
 		v.Content = overlayCenter(v.Content, rendered, m.width, m.height)
 	}
 	return v
+}
+
+func (m *Model) languageForPath(path string) string {
+	return lsp.LanguageForPathConfig(path, m.cfg.LSP)
+}
+
+func (m *Model) navigateToDefinition(msg messages.DefinitionResultMsg) tea.Cmd {
+	if msg.Path == "" {
+		return nil
+	}
+	m.pendingDefinition = &msg
+	cmd := m.handleFileSelected(messages.FileSelectedMsg{Path: msg.Path})
+	if m.editor.Path() == msg.Path {
+		m.updateEditor(messages.GoToPositionMsg{Line: msg.Line, Col: msg.Col})
+		m.pendingDefinition = nil
+	}
+	return cmd
 }
 
 // isMarkdownPath returns true when path has a markdown file extension.

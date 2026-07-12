@@ -43,18 +43,8 @@ func NewClient(language, command string, args []string, send func(tea.Msg)) (*Cl
 	}
 
 	if err := cmd.Start(); err != nil {
-		send(messages.LSPServerStatusMsg{
-			Language: language,
-			Status:   messages.LSPServerNotFound,
-			Message:  err.Error(),
-		})
 		return nil, fmt.Errorf("lsp: start %q: %w", command, err)
 	}
-
-	send(messages.LSPServerStatusMsg{
-		Language: language,
-		Status:   messages.LSPServerStarting,
-	})
 
 	c := &Client{
 		language: language,
@@ -77,6 +67,7 @@ func (c *Client) Initialize(rootURI string) error {
 		"rootUri": rootURI,
 		"capabilities": map[string]interface{}{
 			"textDocument": map[string]interface{}{
+				"definition": map[string]interface{}{},
 				"completion": map[string]interface{}{
 					"completionItem": map[string]interface{}{
 						"documentationFormat": []string{"plaintext", "markdown"},
@@ -99,11 +90,6 @@ func (c *Client) Initialize(rootURI string) error {
 	if err := c.notify("initialized", map[string]interface{}{}); err != nil {
 		return fmt.Errorf("lsp: initialized notification: %w", err)
 	}
-
-	c.send(messages.LSPServerStatusMsg{
-		Language: c.language,
-		Status:   messages.LSPServerReady,
-	})
 
 	return nil
 }
@@ -224,33 +210,47 @@ func (c *Client) Hover(bufferID int, path string, line, col int) {
 
 // Definition requests the definition location for the symbol at the given position.
 // The result is dispatched asynchronously via the send function.
-func (c *Client) Definition(path string, line, col int) {
+func (c *Client) Definition(bufferID int, path string, sourceLine, sourceCol, protocolCol int, navigate bool) {
 	go func() {
 		params := DefinitionParams{
 			TextDocument: TextDocumentIdentifier{URI: URIFromPath(path)},
-			Position:     Position{Line: line, Character: col},
+			Position:     Position{Line: sourceLine, Character: protocolCol},
 		}
 		raw, err := c.call(context.Background(), "textDocument/definition", params)
-		if err != nil {
-			return
-		}
-
-		// Result may be Location or []Location.
 		var loc Location
-		if err := json.Unmarshal(raw, &loc); err != nil {
-			var locs []Location
-			if err2 := json.Unmarshal(raw, &locs); err2 != nil || len(locs) == 0 {
-				return
-			}
-			loc = locs[0]
+		if err == nil {
+			loc, _ = parseDefinitionLocation(raw)
 		}
 
 		c.send(messages.DefinitionResultMsg{
-			Path: PathFromURI(loc.URI),
-			Line: loc.Range.Start.Line,
-			Col:  loc.Range.Start.Character,
+			BufferID:   bufferID,
+			SourceLine: sourceLine,
+			SourceCol:  sourceCol,
+			Path:       PathFromURI(loc.URI),
+			Line:       loc.Range.Start.Line,
+			Col:        loc.Range.Start.Character,
+			Navigate:   navigate,
 		})
 	}()
+}
+
+func parseDefinitionLocation(raw json.RawMessage) (Location, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return Location{}, false
+	}
+	var loc Location
+	if err := json.Unmarshal(raw, &loc); err == nil && loc.URI != "" {
+		return loc, true
+	}
+	var locations []Location
+	if err := json.Unmarshal(raw, &locations); err == nil && len(locations) > 0 && locations[0].URI != "" {
+		return locations[0], true
+	}
+	var links []LocationLink
+	if err := json.Unmarshal(raw, &links); err == nil && len(links) > 0 && links[0].TargetURI != "" {
+		return Location{URI: links[0].TargetURI, Range: links[0].TargetSelectionRange}, true
+	}
+	return Location{}, false
 }
 
 // Shutdown sends a shutdown request and an exit notification, then waits for the process.

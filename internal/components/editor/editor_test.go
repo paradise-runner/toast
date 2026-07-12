@@ -159,6 +159,81 @@ func TestScreenToBufferUsesCellWidthForEmoji(t *testing.T) {
 	}
 }
 
+func TestCursorScreenPositionExpandsTabs(t *testing.T) {
+	m := newThemedTestModel(t, "\tcall()\n")
+	m.cursor = cursorPos{line: 0, col: 1}
+
+	view := m.View()
+	if view.Cursor == nil {
+		t.Fatal("expected cursor")
+	}
+	if got, want := view.Cursor.Position.X, m.gutterWidth+4; got != want {
+		t.Fatalf("cursor X after tab = %d, want %d", got, want)
+	}
+	if strings.ContainsRune(view.Content, '\t') {
+		t.Fatal("rendered editor content must expand tabs to spaces")
+	}
+}
+
+func TestScreenToBufferUsesExpandedTabCells(t *testing.T) {
+	m := newTestModel("\talpha\n")
+	m.viewWidth = 40
+	m.viewHeight = 5
+	m.recomputeGutterWidth()
+
+	for cell := 0; cell < 4; cell++ {
+		_, col := m.screenToBuffer(m.gutterWidth+cell, 0)
+		if col != 0 {
+			t.Fatalf("col inside expanded tab at cell %d = %d, want 0", cell, col)
+		}
+	}
+	_, col := m.screenToBuffer(m.gutterWidth+4, 0)
+	if col != 1 {
+		t.Fatalf("col after expanded tab = %d, want 1", col)
+	}
+}
+
+func TestMouseDragSelectionStaysAlignedAfterTab(t *testing.T) {
+	m := newTestModel("\talpha beta\n")
+	m.focused = true
+	m.viewWidth = 40
+	m.viewHeight = 5
+	m.recomputeGutterWidth()
+
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth + 4, Y: 0})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 9, Y: 0})
+	m = updated.(Model)
+
+	start, end, active := m.selectionRange()
+	if !active || start != (cursorPos{line: 0, col: 1}) || end != (cursorPos{line: 0, col: 6}) {
+		t.Fatalf("selection after tab = %v..%v active=%v, want {0,1}..{0,6}", start, end, active)
+	}
+}
+
+func TestConfiguredTabWidthControlsCursorAndHitTesting(t *testing.T) {
+	tm, err := theme.NewManager("toast-dark", "")
+	if err != nil {
+		t.Fatalf("theme setup: %v", err)
+	}
+	m := New(tm, config.Config{Editor: config.EditorConfig{TabWidth: 2}})
+	m.buf = buffer.NewEditBuffer("\tx\n")
+	m.path = "test.go"
+	m.viewWidth = 20
+	m.viewHeight = 3
+	m.recomputeGutterWidth()
+	m.cursor = cursorPos{line: 0, col: 1}
+
+	view := m.View()
+	if got, want := view.Cursor.Position.X, m.gutterWidth+2; got != want {
+		t.Fatalf("cursor X with tab_width=2 = %d, want %d", got, want)
+	}
+	_, col := m.screenToBuffer(m.gutterWidth+2, 0)
+	if col != 1 {
+		t.Fatalf("hit-test col with tab_width=2 = %d, want 1", col)
+	}
+}
+
 func TestSelectionRange_ForwardSingleLine(t *testing.T) {
 	m := newTestModel("hello\nworld\n")
 	anchor := cursorPos{line: 0, col: 1}
@@ -1477,6 +1552,71 @@ func TestLineCount_ReturnsBufferLineCount(t *testing.T) {
 	m := newTestModel(content)
 	if m.LineCount() != m.buf.LineCount() {
 		t.Fatalf("expected LineCount()=%d, got %d", m.buf.LineCount(), m.LineCount())
+	}
+}
+
+// ── Go-to-Definition ─────────────────────────────────────────────────────────
+
+func TestCtrlHoverRequestsDefinitionOncePerWord(t *testing.T) {
+	m := newThemedTestModel(t, "call(target)\n")
+	m.path = "/tmp/main.go"
+	m.bufferID = 7
+
+	updated, cmd := m.Update(tea.MouseMotionMsg{Mod: tea.ModCtrl, X: m.gutterWidth + 6, Y: 0})
+	result := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected definition request")
+	}
+	request, ok := cmd().(messages.DefinitionRequestMsg)
+	if !ok {
+		t.Fatalf("expected DefinitionRequestMsg, got %T", cmd())
+	}
+	if request.BufferID != 7 || request.Line != 0 || request.Navigate {
+		t.Fatalf("unexpected request: %#v", request)
+	}
+
+	_, repeated := result.Update(tea.MouseMotionMsg{Mod: tea.ModCtrl, X: result.gutterWidth + 8, Y: 0})
+	if repeated != nil {
+		t.Fatal("expected no repeated request while hovering the same word")
+	}
+}
+
+func TestCtrlClickUsesAvailableDefinition(t *testing.T) {
+	m := newThemedTestModel(t, "call(target)\n")
+	m.path = "/tmp/main.go"
+	m.bufferID = 7
+
+	updated, cmd := m.Update(tea.MouseMotionMsg{Mod: tea.ModCtrl, X: m.gutterWidth + 6, Y: 0})
+	m = updated.(Model)
+	request := cmd().(messages.DefinitionRequestMsg)
+	updated, _ = m.Update(messages.DefinitionResultMsg{
+		BufferID: 7, SourceLine: request.Line, SourceCol: request.Col,
+		Path: "/tmp/target.go", Line: 10, Col: 3,
+	})
+	m = updated.(Model)
+	if !m.definitionLink.visible {
+		t.Fatal("expected the definition link to become visible")
+	}
+
+	_, cmd = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, Mod: tea.ModCtrl, X: m.gutterWidth + 7, Y: 0})
+	if cmd == nil {
+		t.Fatal("expected cached definition navigation")
+	}
+	navigation, ok := cmd().(messages.DefinitionResultMsg)
+	if !ok {
+		t.Fatalf("expected DefinitionResultMsg, got %T", cmd())
+	}
+	if !navigation.Navigate || navigation.Path != "/tmp/target.go" || navigation.Line != 10 {
+		t.Fatalf("unexpected navigation: %#v", navigation)
+	}
+}
+
+func TestGoToPositionConvertsUTF16ColumnToByteOffset(t *testing.T) {
+	m := newTestModel("a😀éz\n")
+	updated, _ := m.Update(messages.GoToPositionMsg{Line: 0, Col: 4})
+	result := updated.(Model)
+	if result.CursorCol() != len("a😀é") {
+		t.Fatalf("cursor col = %d, want %d", result.CursorCol(), len("a😀é"))
 	}
 }
 

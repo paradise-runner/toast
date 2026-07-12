@@ -28,6 +28,12 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
 		t.Errorf("expected default file icon color mode accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
 	}
+	for _, language := range []string{"go", "rust", "python", "typescript", "javascript"} {
+		server, ok := cfg.LSP[language]
+		if !ok || len(server.Extensions) == 0 || server.Install == nil {
+			t.Fatalf("expected managed default LSP metadata for %s, got %#v", language, server)
+		}
+	}
 }
 
 func TestLoadFromFile(t *testing.T) {
@@ -49,6 +55,37 @@ func TestLoadFromFile(t *testing.T) {
 	}
 	if !cfg.Editor.AutoIndent {
 		t.Error("expected auto_indent to default to true even when not in file")
+	}
+}
+
+func TestLoadEmptyLSPDisablesDefaultServers(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"lsp": {}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if len(cfg.LSP) != 0 {
+		t.Fatalf("expected explicit empty lsp config to disable defaults, got %#v", cfg.LSP)
+	}
+}
+
+func TestLoadLegacyLSPEntryAddsManagedMetadata(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"lsp": {"go": {"command": "gopls", "args": ["serve"]}}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	server := cfg.LSP["go"]
+	if server.Install == nil || server.ManagedCommand == "" || len(server.Extensions) == 0 {
+		t.Fatalf("expected legacy go entry to gain managed metadata, got %#v", server)
 	}
 }
 

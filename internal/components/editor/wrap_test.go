@@ -39,6 +39,19 @@ func TestWordWrapChunksUsesCellWidthForEmoji(t *testing.T) {
 	}
 }
 
+func TestWordWrapChunksUsesExpandedTabWidth(t *testing.T) {
+	got := wordWrapChunks("\tabcde", 4)
+	want := []int{0, 1, 5}
+	if len(got) != len(want) {
+		t.Fatalf("chunks = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("chunks = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestVisualRowsForLine_Short(t *testing.T) {
 	// "hello" is 5 bytes → fits in 20 cols → 1 visual row
 	m := newWrapModel("hello\n")

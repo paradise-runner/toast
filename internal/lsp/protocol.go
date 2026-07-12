@@ -1,6 +1,6 @@
 package lsp
 
-import "strings"
+import "net/url"
 
 // RequestMessage is a JSON-RPC 2.0 request.
 type RequestMessage struct {
@@ -12,10 +12,10 @@ type RequestMessage struct {
 
 // ResponseMessage is a JSON-RPC 2.0 response.
 type ResponseMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id"`
-	Result  interface{}     `json:"result,omitempty"`
-	Error   *ResponseError  `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      *int           `json:"id"`
+	Result  interface{}    `json:"result,omitempty"`
+	Error   *ResponseError `json:"error,omitempty"`
 }
 
 // NotificationMessage is a JSON-RPC 2.0 notification (no ID).
@@ -130,12 +130,24 @@ type Location struct {
 	Range Range  `json:"range"`
 }
 
+// LocationLink is a definition link returned by servers that distinguish the
+// target selection from the broader target range.
+type LocationLink struct {
+	TargetURI            string `json:"targetUri"`
+	TargetRange          Range  `json:"targetRange"`
+	TargetSelectionRange Range  `json:"targetSelectionRange"`
+}
+
 // URIFromPath converts a filesystem path to a file:// URI.
 func URIFromPath(path string) string {
-	return "file://" + path
+	return (&url.URL{Scheme: "file", Path: path}).String()
 }
 
 // PathFromURI converts a file:// URI back to a filesystem path.
 func PathFromURI(uri string) string {
-	return strings.TrimPrefix(uri, "file://")
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Scheme != "file" {
+		return ""
+	}
+	return parsed.Path
 }

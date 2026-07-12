@@ -21,7 +21,8 @@ A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
 - **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, Markdown)
-- **LSP integration for configured languages** — completions, hover docs, diagnostics, and definition lookups
+- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, and TypeScript, with an extensible config for other languages
+- **Go to definition** — hold `Ctrl` and hover to underline symbols with a target, then `Ctrl`-click to jump to the exact definition
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
 - **Project-wide search** powered by `rg` (ripgrep)
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
@@ -74,7 +75,7 @@ toast --help
 toast --version
 ```
 
-`rg` is required for project search. Language servers such as `gopls`, `pyright-langserver`, `typescript-language-server`, and `rust-analyzer` are optional and enable LSP features when installed.
+`rg` is required for project search. When a built-in language server is missing, Toast shows an install prompt in the lower-right corner. Managed installs use the language's standard toolchain (`go`, `npm`, or `rustup`) and only run after you accept the prompt. Toast also uses compatible servers already on your `$PATH`.
 
 ## Keybindings
 
@@ -95,7 +96,8 @@ toast --version
 | `Ctrl+Y` / `Ctrl+Shift+Z` / `Cmd+Y` / `Cmd+Shift+Z` | Redo |
 | `Ctrl+Space` / `Cmd+Space` | Trigger completion |
 | `Ctrl+Shift+K` | Show hover |
-| `F12` | Ask the LSP for a definition |
+| `Ctrl`+hover / `Ctrl`-click | Check for and follow a definition |
+| `F12` | Go to the definition at the cursor |
 
 File-tree create/delete actions are driven from the UI: right-click in the sidebar for file operations, drag the sidebar divider to resize it, use the `theme` button in the status bar to open the theme picker, and use the breadcrumb `Preview` button as a mouse shortcut for markdown preview.
 
@@ -121,21 +123,48 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
       "color_mode": "accent"
     }
   },
-  "lsp": {
-    "go":         { "command": "gopls",                       "args": ["serve"] },
-    "python":     { "command": "pyright-langserver",          "args": ["--stdio"] },
-    "typescript": { "command": "typescript-language-server",  "args": ["--stdio"] },
-    "rust":       { "command": "rust-analyzer",               "args": [] }
-  },
   "ignored_patterns": [".git", "node_modules", "__pycache__", ".DS_Store"]
+}
+```
+
+Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, and TypeScript; set `"lsp": {}` to disable language servers. Each entry is extension-driven, so other languages can be added without changing Toast. A custom server already installed on `$PATH` only needs a command and its filename suffixes:
+
+```json
+{
+  "lsp": {
+    "zig": {
+      "command": "zls",
+      "args": [],
+      "extensions": [".zig"]
+    }
+  }
+}
+```
+
+For an opt-in managed custom server, add `managed_command` (the installed executable path) and an `install` recipe. Recipes support `{install_dir}`, `{install_root}`, `{root_dir}`, and `{home}` placeholders:
+
+```json
+{
+  "lsp": {
+    "example": {
+      "command": "example-language-server",
+      "args": ["--stdio"],
+      "extensions": [".example"],
+      "managed_command": "{install_dir}/bin/example-language-server",
+      "install": {
+        "name": "Example Language Server",
+        "command": "example-package-manager",
+        "args": ["install", "--bin-dir", "{install_dir}/bin", "example-language-server"],
+        "env": {}
+      }
+    }
+  }
 }
 ```
 
 The sidebar file tree uses homemade terminal-style file type markers by default, covering common IDE file types such as Go, JavaScript/TypeScript, HTML, CSS, Rust, Python, Ruby, PHP, JVM languages, Swift, C/C++, C#, shell scripts, JSON/YAML/TOML, SQL, Dockerfiles, images, archives, and build files. `sidebar.file_icons.color_mode` supports `accent` (one theme accent), `semantic` (type-specific colors derived from the active theme), and `none` (normal sidebar foreground).
 
 The current UI honors the fields above. The config schema also contains `editor.word_wrap`, `editor.show_whitespace`, and `search.*`, but those are not wired into the current UI yet.
-
-If you want LSP features for `.js` / `.mjs` files today, add a `javascript` entry to `lsp` that points at the same server you use for TypeScript.
 
 ### Themes
 
@@ -153,8 +182,6 @@ Then set `"theme": "<theme-name>"` in your config.
 ## Current Limitations
 
 - Project search opens the selected file, but it does not jump to the exact match line/column yet.
-- `F12` opens the definition target file, but it does not jump to the exact location returned by the language server yet.
-- Default LSP config covers Go, Python, TypeScript, and Rust. JavaScript files need an explicit `javascript` config entry if you want LSP features there.
 
 ## Feedback & Issues
 

@@ -38,8 +38,21 @@ type FileIconConfig struct {
 }
 
 type LSPCmd struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Command        string      `json:"command"`
+	Args           []string    `json:"args"`
+	Extensions     []string    `json:"extensions,omitempty"`
+	LanguageID     string      `json:"language_id,omitempty"`
+	ManagedCommand string      `json:"managed_command,omitempty"`
+	Install        *LSPInstall `json:"install,omitempty"`
+}
+
+// LSPInstall describes an opt-in language-server installation. Placeholders
+// such as {install_dir} are expanded by the LSP manager at runtime.
+type LSPInstall struct {
+	Name    string            `json:"name,omitempty"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 type SearchConfig struct {
@@ -61,10 +74,30 @@ func Defaults() Config {
 			FileIcons:     FileIconConfig{Enabled: true, ColorMode: "accent"},
 		},
 		LSP: map[string]LSPCmd{
-			"go":         {Command: "gopls", Args: []string{"serve"}},
-			"python":     {Command: "pyright-langserver", Args: []string{"--stdio"}},
-			"typescript": {Command: "typescript-language-server", Args: []string{"--stdio"}},
-			"rust":       {Command: "rust-analyzer"},
+			"go": {
+				Command: "gopls", Args: []string{"serve"}, Extensions: []string{".go"},
+				ManagedCommand: "{install_dir}/bin/gopls",
+				Install:        &LSPInstall{Name: "gopls", Command: "go", Args: []string{"install", "golang.org/x/tools/gopls@latest"}, Env: map[string]string{"GOBIN": "{install_dir}/bin"}},
+			},
+			"python": {
+				Command: "pyright-langserver", Args: []string{"--stdio"}, Extensions: []string{".py", ".pyi"},
+				ManagedCommand: "{install_dir}/node_modules/.bin/pyright-langserver",
+				Install:        &LSPInstall{Name: "Pyright", Command: "npm", Args: []string{"install", "--prefix", "{install_dir}", "pyright"}},
+			},
+			"typescript": {
+				Command: "typescript-language-server", Args: []string{"--stdio"}, Extensions: []string{".ts", ".tsx", ".mts", ".cts"},
+				ManagedCommand: "{install_dir}/node_modules/.bin/typescript-language-server",
+				Install:        &LSPInstall{Name: "TypeScript Language Server", Command: "npm", Args: []string{"install", "--prefix", "{install_dir}", "typescript-language-server", "typescript"}},
+			},
+			"javascript": {
+				Command: "typescript-language-server", Args: []string{"--stdio"}, Extensions: []string{".js", ".jsx", ".mjs", ".cjs"},
+				ManagedCommand: "{install_dir}/node_modules/.bin/typescript-language-server",
+				Install:        &LSPInstall{Name: "TypeScript Language Server", Command: "npm", Args: []string{"install", "--prefix", "{install_dir}", "typescript-language-server", "typescript"}},
+			},
+			"rust": {
+				Command: "rust-analyzer", Extensions: []string{".rs"}, ManagedCommand: "{home}/.cargo/bin/rust-analyzer",
+				Install: &LSPInstall{Name: "rust-analyzer", Command: "rustup", Args: []string{"component", "add", "rust-analyzer"}},
+			},
 		},
 		Search:          SearchConfig{Command: "rg", Args: []string{"--json"}},
 		IgnoredPatterns: []string{".git", "node_modules", "__pycache__", ".DS_Store"},
@@ -112,6 +145,14 @@ func LoadFrom(path string) (Config, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("reading config: %w", err)
 	}
+	// A present lsp object replaces the defaults. This makes "lsp": {} an
+	// explicit opt-out while omitting lsp continues to use managed defaults.
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(data, &topLevel); err == nil {
+		if _, present := topLevel["lsp"]; present {
+			cfg.LSP = make(map[string]LSPCmd)
+		}
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Defaults(), fmt.Errorf("parsing config: %w", err)
 	}
@@ -127,5 +168,27 @@ func (c *Config) normalize() {
 	}
 	if c.Sidebar.FileIcons.ColorMode == "" {
 		c.Sidebar.FileIcons.ColorMode = "accent"
+	}
+
+	// Preserve managed metadata when loading the older command/args-only shape.
+	// A custom command remains custom and is never assigned a default installer.
+	defaults := Defaults()
+	for language, server := range c.LSP {
+		builtIn, ok := defaults.LSP[language]
+		if !ok {
+			continue
+		}
+		if len(server.Extensions) == 0 {
+			server.Extensions = builtIn.Extensions
+		}
+		if server.Command == builtIn.Command {
+			if server.ManagedCommand == "" {
+				server.ManagedCommand = builtIn.ManagedCommand
+			}
+			if server.Install == nil {
+				server.Install = builtIn.Install
+			}
+		}
+		c.LSP[language] = server
 	}
 }

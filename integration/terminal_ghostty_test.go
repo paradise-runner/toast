@@ -140,6 +140,55 @@ func TestGhosttyTmuxTerminalSmoke(t *testing.T) {
 	h.quit(t)
 }
 
+func TestGhosttyTmuxCtrlHoverShowsDefinitionLink(t *testing.T) {
+	goplsPath, err := exec.LookPath("gopls")
+	if err != nil {
+		t.Skip("gopls is required for the Ctrl-hover integration test")
+	}
+	h := newTerminalHarness(t)
+	enableGoLSP(t, h.homeDir, goplsPath)
+
+	filePath := filepath.Join(h.fixtureDir, "hover.go")
+	content := "package hover\n\nfunc target() {}\n\n\tfunc caller() { target() }\n"
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing hover fixture: %v", err)
+	}
+	h.launchToast(t, filePath)
+	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, "func caller()", "target()")
+
+	// App coordinates at 100x34 with the default 30-column sidebar:
+	// tab + breadcrumb + source line 5 => y=6; sidebar + 4-char gutter +
+	// a four-cell source tab + target's source column => x=55. SGR button
+	// code 51 is Ctrl+hover motion.
+	const ctrlMotion = "\x1b[<51;56;7M"
+	deadline := time.Now().Add(15 * time.Second)
+	styledPane := ""
+	for time.Now().Before(deadline) {
+		h.tmux.sendLiteral(t, h.targetPane, ctrlMotion)
+		styledPane = h.tmux.output(t, "capture-pane", "-p", "-e", "-t", h.targetPane)
+		if strings.Contains(styledPane, "\x1b[4m") {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	writeArtifact(t, filepath.Join(h.artifacts, "ctrl-hover-pane.txt"), []byte(styledPane))
+	if !strings.Contains(styledPane, "\x1b[4m") {
+		t.Fatalf("Ctrl-hover did not render an underlined definition link\nstyled pane:\n%q", styledPane)
+	}
+
+	// Drag from the start to the end of "caller". These cells come after the
+	// expanded source tab; the resulting byte cursor is column 12 (displayed as
+	// one-based Col 13 in the status bar).
+	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<0;44;7M")
+	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<32;50;7M")
+	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<0;50;7m")
+	waitForPane(t, h.tmux, h.targetPane, 5*time.Second, "Ln 5, Col 13")
+	selectionPane := h.tmux.output(t, "capture-pane", "-p", "-e", "-t", h.targetPane)
+	writeArtifact(t, filepath.Join(h.artifacts, "tab-selection-pane.txt"), []byte(selectionPane))
+
+	h.quit(t)
+}
+
 type tmuxRunner struct {
 	path       string
 	socketName string
@@ -794,6 +843,21 @@ func writeToastConfig(t *testing.T, homeDir string) {
 	configPath := filepath.Join(homeDir, ".config", "toast", "config.json")
 	if err := config.Save(cfg, configPath); err != nil {
 		t.Fatalf("writing toast config %s: %v", configPath, err)
+	}
+}
+
+func enableGoLSP(t *testing.T, homeDir, goplsPath string) {
+	t.Helper()
+	configPath := filepath.Join(homeDir, ".config", "toast", "config.json")
+	cfg, err := config.LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("loading integration config: %v", err)
+	}
+	cfg.LSP = map[string]config.LSPCmd{
+		"go": {Command: goplsPath, Args: []string{"serve"}, Extensions: []string{".go"}},
+	}
+	if err := config.Save(cfg, configPath); err != nil {
+		t.Fatalf("enabling gopls in integration config: %v", err)
 	}
 }
 
