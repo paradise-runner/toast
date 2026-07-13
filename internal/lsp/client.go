@@ -126,43 +126,130 @@ func (c *Client) DidClose(path string) error {
 
 // Completion requests completion items at the given position.
 // The result is dispatched asynchronously via the send function.
-func (c *Client) Completion(bufferID int, path string, line, col int) {
+func (c *Client) Completion(bufferID, generation int, path string, line, sourceCol, protocolCol int) {
 	go func() {
 		params := CompletionParams{
 			TextDocument: TextDocumentIdentifier{URI: URIFromPath(path)},
-			Position:     Position{Line: line, Character: col},
+			Position:     Position{Line: line, Character: protocolCol},
 		}
 		raw, err := c.call(context.Background(), "textDocument/completion", params)
 		if err != nil {
 			return
 		}
 
-		// The result may be CompletionList or []CompletionItem.
-		var itemList []LSPCompletionItem
-		// Try array first.
-		if err := json.Unmarshal(raw, &itemList); err != nil {
-			// Try CompletionList.
-			var list struct {
-				Items []LSPCompletionItem `json:"items"`
-			}
-			if err2 := json.Unmarshal(raw, &list); err2 != nil {
-				return
-			}
-			itemList = list.Items
-		}
-
-		result := messages.CompletionResultMsg{BufferID: bufferID}
-		for _, item := range itemList {
-			result.Items = append(result.Items, messages.CompletionItem{
-				Label:         item.Label,
-				Kind:          item.Kind,
-				Detail:        item.Detail,
-				Documentation: item.Documentation,
-				InsertText:    item.InsertText,
-			})
+		result, ok := parseCompletionResult(raw, bufferID, generation, path, line, sourceCol)
+		if !ok {
+			return
 		}
 		c.send(result)
 	}()
+}
+
+func parseCompletionResult(raw json.RawMessage, bufferID, generation int, path string, line, col int) (messages.CompletionResultMsg, bool) {
+	result := messages.CompletionResultMsg{BufferID: bufferID, Generation: generation, Path: path, Line: line, Col: col}
+	if len(raw) == 0 || string(raw) == "null" {
+		return result, true
+	}
+
+	// The result may be CompletionList or []CompletionItem.
+	var itemList []LSPCompletionItem
+	var defaultEditRange *Range
+	defaultInsertTextFormat := 0
+	if err := json.Unmarshal(raw, &itemList); err != nil {
+		var list struct {
+			Items        []LSPCompletionItem `json:"items"`
+			ItemDefaults *struct {
+				EditRange        json.RawMessage `json:"editRange"`
+				InsertTextFormat int             `json:"insertTextFormat"`
+			} `json:"itemDefaults,omitempty"`
+		}
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return messages.CompletionResultMsg{}, false
+		}
+		itemList = list.Items
+		if list.ItemDefaults != nil {
+			defaultEditRange = parseCompletionEditRange(list.ItemDefaults.EditRange)
+			defaultInsertTextFormat = list.ItemDefaults.InsertTextFormat
+		}
+	}
+
+	for _, item := range itemList {
+		completion := messages.CompletionItem{
+			Label:            item.Label,
+			Kind:             item.Kind,
+			Detail:           item.Detail,
+			Documentation:    completionDocumentation(item.Documentation),
+			InsertText:       item.InsertText,
+			InsertTextFormat: item.InsertTextFormat,
+		}
+		if completion.InsertTextFormat == 0 {
+			completion.InsertTextFormat = defaultInsertTextFormat
+		}
+		if item.TextEdit != nil {
+			editRange := item.TextEdit.Range
+			if editRange == nil {
+				editRange = item.TextEdit.Insert
+			}
+			if editRange != nil {
+				completion.TextEdit = &messages.TextEdit{
+					Line:    editRange.Start.Line,
+					Col:     editRange.Start.Character,
+					EndLine: editRange.End.Line,
+					EndCol:  editRange.End.Character,
+					NewText: item.TextEdit.NewText,
+				}
+			}
+		} else if defaultEditRange != nil {
+			newText := item.TextEditText
+			if newText == "" {
+				newText = item.InsertText
+			}
+			if newText == "" {
+				newText = item.Label
+			}
+			completion.TextEdit = &messages.TextEdit{
+				Line:    defaultEditRange.Start.Line,
+				Col:     defaultEditRange.Start.Character,
+				EndLine: defaultEditRange.End.Line,
+				EndCol:  defaultEditRange.End.Character,
+				NewText: newText,
+			}
+		}
+		result.Items = append(result.Items, completion)
+	}
+	return result, true
+}
+
+func parseCompletionEditRange(raw json.RawMessage) *Range {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var direct struct {
+		Start *Position `json:"start"`
+		End   *Position `json:"end"`
+	}
+	if err := json.Unmarshal(raw, &direct); err == nil && direct.Start != nil && direct.End != nil {
+		return &Range{Start: *direct.Start, End: *direct.End}
+	}
+	var insertReplace struct {
+		Insert *Range `json:"insert"`
+	}
+	if err := json.Unmarshal(raw, &insertReplace); err == nil {
+		return insertReplace.Insert
+	}
+	return nil
+}
+
+func completionDocumentation(value interface{}) string {
+	switch value := value.(type) {
+	case string:
+		return value
+	case map[string]interface{}:
+		if text, ok := value["value"].(string); ok {
+			return text
+		}
+	}
+	return ""
 }
 
 // Hover requests hover information at the given position.

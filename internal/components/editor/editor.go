@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/yourusername/toast/internal/buffer"
 	"github.com/yourusername/toast/internal/clipboard"
 	"github.com/yourusername/toast/internal/config"
@@ -81,6 +82,7 @@ type Model struct {
 
 	diagnostics []messages.Diagnostic
 	lineKinds   []messages.GitLineKind
+	completion  completionState
 	focused     bool
 	binaryFile  bool
 	loadError   string
@@ -123,26 +125,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseClickMsg:
 		if m.focused {
+			m.completion.hide()
 			return m.handleMouseClick(msg)
 		}
 
 	case tea.MouseMotionMsg:
 		if m.focused {
+			m.completion.hide()
 			return m.handleMouseMotion(msg)
 		}
 
 	case tea.MouseReleaseMsg:
 		if m.focused {
+			m.completion.hide()
 			return m.handleMouseRelease(msg)
 		}
 
 	case tea.MouseWheelMsg:
 		if m.focused {
+			m.completion.hide()
 			return m.handleMouseWheel(msg)
 		}
 
 	case tea.PasteMsg:
 		if m.focused && m.buf != nil && msg.Content != "" && !m.cannotDisplayFile() {
+			m.completion.hide()
 			preModified := false
 			if m.buf != nil {
 				preModified = m.buf.Modified()
@@ -183,6 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.preferredCol = 0
 		m.viewportTop = 0
 		m.viewportLeft = 0
+		m.completion.hide()
 		m.clearFindState()
 		m.wrapMode = isMarkdownPath(msg.path)
 		if msg.isBinary || msg.loadErr != "" {
@@ -214,6 +222,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.GitDiffUpdatedMsg:
 		if msg.BufferID == m.bufferID {
 			m.lineKinds = msg.LineKinds
+		}
+
+	case messages.CompletionResultMsg:
+		if m.focused && msg.BufferID == m.bufferID && msg.Generation == m.buf.Generation() && msg.Path == m.path &&
+			msg.Line == m.cursor.line && msg.Col == m.cursor.col {
+			m.completion.show(msg.Items, msg.Line, msg.Col)
 		}
 
 	case messages.GoToLineMsg:
@@ -413,6 +427,7 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.pendingBufferID = bufferID
 	m.path = path
 	m.mouseDragging = false
+	m.completion.hide()
 	m.visualRowCache = nil
 	m.wrapCacheGen = 0
 	m.wrapCacheWidth = 0
@@ -441,6 +456,14 @@ func (m Model) SelectedText() string {
 // BufferID returns the buffer ID of the currently loaded file.
 func (m Model) BufferID() int { return m.bufferID }
 
+// BufferGeneration returns the active buffer's edit generation.
+func (m Model) BufferGeneration() int {
+	if m.buf == nil {
+		return 0
+	}
+	return m.buf.Generation()
+}
+
 // handleKey routes all key events to the appropriate handler.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.cannotDisplayFile() {
@@ -454,6 +477,34 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.buf != nil {
 		preModified = m.buf.Modified()
 	}
+
+	if m.completion.visible {
+		switch msg.String() {
+		case "up":
+			m.completion.moveUp()
+			return m, nil
+		case "down":
+			m.completion.moveDown()
+			return m, nil
+		case "tab", "enter":
+			if item := m.completion.accept(); item != nil {
+				m.applyCompletion(*item)
+				m.reparseSyntax()
+				m.clampViewport()
+				if m.buf != nil && m.buf.Modified() != preModified {
+					return m, m.emitModified()
+				}
+			}
+			return m, nil
+		case "escape":
+			m.completion.hide()
+			return m, nil
+		default:
+			m.completion.hide()
+		}
+	}
+
+	requestCompletion := false
 
 	// Handle Super (Cmd) key combinations for copy/cut/paste/select-all and arrow jumps.
 	if msg.Mod.Contains(tea.ModSuper) {
@@ -756,12 +807,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.deleteBackward()
 		}
+		requestCompletion = true
 	case "delete":
 		if _, _, active := m.selectionRange(); active {
 			m.deleteSelection()
 		} else {
 			m.deleteForward()
 		}
+		requestCompletion = true
 	case "tab":
 		if _, _, active := m.selectionRange(); active {
 			m.deleteSelection()
@@ -800,16 +853,29 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			if len(printable) > 0 {
 				m.insertRunes(printable)
+				requestCompletion = !unicode.IsSpace(printable[len(printable)-1])
 			}
 		}
 	}
 
 	m.reparseSyntax()
 	m.clampViewport()
+	var modifiedCmd tea.Cmd
 	if m.buf != nil && m.buf.Modified() != preModified {
-		return m, m.emitModified()
+		modifiedCmd = m.emitModified()
 	}
-	return m, nil
+	var completionCmd tea.Cmd
+	if requestCompletion {
+		completionCmd = m.requestCompletion()
+	}
+	switch {
+	case modifiedCmd != nil && completionCmd != nil:
+		return m, tea.Batch(modifiedCmd, completionCmd)
+	case modifiedCmd != nil:
+		return m, modifiedCmd
+	default:
+		return m, completionCmd
+	}
 }
 
 // handleMouseClick handles left-click and multi-click positioning.
@@ -1191,6 +1257,74 @@ func (m *Model) insertTab() {
 	m.buf.Insert(offset, spaces)
 	m.cursor.col += tabWidth
 	m.preferredCol = m.cursor.col
+}
+
+func (m Model) requestCompletion() tea.Cmd {
+	if m.path == "" || m.bufferID == 0 || m.buf == nil {
+		return nil
+	}
+	bufferID := m.bufferID
+	path := m.path
+	line := m.cursor.line
+	col := m.cursor.col
+	generation := m.buf.Generation()
+	return func() tea.Msg {
+		return messages.CompletionRequestMsg{
+			BufferID:   bufferID,
+			Generation: generation,
+			Path:       path,
+			Line:       line,
+			Col:        col,
+		}
+	}
+}
+
+func (m *Model) applyCompletion(item messages.CompletionItem) {
+	if m.buf == nil {
+		return
+	}
+
+	text := item.InsertText
+	if item.TextEdit != nil {
+		text = item.TextEdit.NewText
+	} else if text == "" {
+		text = item.Label
+	}
+	cursorInText := len(text)
+	if item.InsertTextFormat == 2 { // LSP InsertTextFormat.Snippet
+		text, cursorInText = expandCompletionSnippet(text)
+	}
+
+	startLine, startCol := m.cursor.line, m.cursor.col
+	endLine, endCol := m.cursor.line, m.cursor.col
+	if edit := item.TextEdit; edit != nil &&
+		edit.Line >= 0 && edit.Line < m.buf.LineCount() &&
+		edit.EndLine >= edit.Line && edit.EndLine < m.buf.LineCount() {
+		startLine = edit.Line
+		startCol = utf16ColToByte(m.lineContent(startLine), edit.Col)
+		endLine = edit.EndLine
+		endCol = utf16ColToByte(m.lineContent(endLine), edit.EndCol)
+	} else {
+		line := m.lineContent(m.cursor.line)
+		for startCol > 0 {
+			r, size := utf8.DecodeLastRuneInString(line[:startCol])
+			if !isWordChar(r) {
+				break
+			}
+			startCol -= size
+		}
+	}
+
+	startOffset := m.buf.OffsetForLine(startLine) + startCol
+	endOffset := m.buf.OffsetForLine(endLine) + endCol
+	if endOffset < startOffset {
+		return
+	}
+	m.buf.Replace(startOffset, endOffset, text)
+	m.cursor.line, m.cursor.col = m.buf.LineColForOffset(startOffset + cursorInText)
+	m.preferredCol = m.cursor.col
+	m.clearSelection()
+	m.recomputeGutterWidth()
 }
 
 // dedent removes up to tabWidth leading spaces from the current line.
@@ -1667,9 +1801,9 @@ func (m Model) View() tea.View {
 		sb.WriteString(renderedContent)
 	}
 
-	v := tea.NewView(sb.String())
+	content := sb.String()
+	var cursorScreenX, cursorScreenY int
 	if m.focused {
-		var cursorScreenX, cursorScreenY int
 		if m.wrapMode {
 			chunks := m.lineChunks(m.cursor.line)
 			chunkIdx := chunkContaining(chunks, m.cursor.col)
@@ -1680,6 +1814,14 @@ func (m Model) View() tea.View {
 			cursorScreenX = m.gutterWidth + m.visualWidthForLineRange(m.cursor.line, m.viewportLeft, m.cursor.col)
 			cursorScreenY = m.cursor.line - m.viewportTop
 		}
+		if m.completion.visible {
+			menu := renderCompletion(m.completion, m.viewWidth, m.theme)
+			content = overlayCompletion(content, menu, cursorScreenX, cursorScreenY, m.viewWidth, m.viewHeight)
+		}
+	}
+
+	v := tea.NewView(content)
+	if m.focused {
 		v.Cursor = &tea.Cursor{
 			Position: tea.Position{X: cursorScreenX, Y: cursorScreenY},
 			Shape:    tea.CursorBar,
@@ -1919,7 +2061,10 @@ func (m Model) CursorCol() int { return m.cursor.col }
 func (m *Model) Focus() { m.focused = true }
 
 // Blur removes keyboard focus from the editor.
-func (m *Model) Blur() { m.focused = false }
+func (m *Model) Blur() {
+	m.focused = false
+	m.completion.hide()
+}
 
 // IsModified returns true if the current buffer has unsaved changes.
 func (m Model) IsModified() bool {

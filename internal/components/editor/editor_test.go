@@ -1760,3 +1760,190 @@ func TestWrapMode_SetOnMarkdownLoad(t *testing.T) {
 		t.Fatal("wrapMode should be true after loading .markdown file")
 	}
 }
+
+func TestTypingRequestsLSPCompletionForOpenBuffer(t *testing.T) {
+	m := newTestModelWithPath("pri", "main.go", 7)
+	m.cursor.col = 3
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	m = updated.(Model)
+	if m.buf.String() != "prin" {
+		t.Fatalf("buffer = %q, want %q", m.buf.String(), "prin")
+	}
+	if cmd == nil {
+		t.Fatal("expected modified and completion commands")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected tea.BatchMsg, got %T", msg)
+	}
+
+	var request messages.CompletionRequestMsg
+	var found bool
+	for _, inner := range batch {
+		if msg, ok := inner().(messages.CompletionRequestMsg); ok {
+			request = msg
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected CompletionRequestMsg in batch")
+	}
+	if request.BufferID != 7 || request.Generation != 1 || request.Path != "main.go" || request.Line != 0 || request.Col != 4 {
+		t.Fatalf("completion request = %+v", request)
+	}
+}
+
+func TestCompletionTabReplacesCurrentWord(t *testing.T) {
+	m := newTestModelWithPath("fmt.Pr", "main.go", 7)
+	m.cursor.col = len("fmt.Pr")
+	updated, _ := m.Update(messages.CompletionResultMsg{
+		BufferID: 7,
+		Path:     "main.go",
+		Line:     0,
+		Col:      len("fmt.Pr"),
+		Items: []messages.CompletionItem{{
+			Label:      "Println",
+			InsertText: "Println",
+		}},
+	})
+	m = updated.(Model)
+	if !m.completion.visible {
+		t.Fatal("expected completion menu to be visible")
+	}
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(Model)
+	if got := m.buf.String(); got != "fmt.Println" {
+		t.Fatalf("buffer = %q, want %q", got, "fmt.Println")
+	}
+	if m.cursor.col != len("fmt.Println") {
+		t.Fatalf("cursor col = %d, want %d", m.cursor.col, len("fmt.Println"))
+	}
+	if m.completion.visible {
+		t.Fatal("expected completion menu to close after Tab")
+	}
+	if cmd == nil {
+		t.Fatal("expected completion acceptance to emit BufferModifiedMsg")
+	}
+}
+
+func TestCompletionArrowKeysChooseTabAcceptance(t *testing.T) {
+	m := newTestModelWithPath("Pr", "main.go", 7)
+	m.cursor.col = len("Pr")
+	updated, _ := m.Update(messages.CompletionResultMsg{
+		BufferID: 7,
+		Path:     "main.go",
+		Line:     0,
+		Col:      len("Pr"),
+		Items: []messages.CompletionItem{
+			{Label: "Print", InsertText: "Print"},
+			{Label: "Println", InsertText: "Println"},
+		},
+	})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(Model)
+	if got := m.buf.String(); got != "Println" {
+		t.Fatalf("buffer = %q, want selected completion %q", got, "Println")
+	}
+}
+
+func TestCompletionTextEditUsesUTF16Columns(t *testing.T) {
+	const content = "let café = pri"
+	m := newTestModelWithPath(content, "main.go", 7)
+	m.cursor.col = len(content)
+	updated, _ := m.Update(messages.CompletionResultMsg{
+		BufferID: 7,
+		Path:     "main.go",
+		Line:     0,
+		Col:      len(content),
+		Items: []messages.CompletionItem{{
+			Label: "print",
+			TextEdit: &messages.TextEdit{
+				Line: 0, Col: 11, EndLine: 0, EndCol: 14, NewText: "print",
+			},
+		}},
+	})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(Model)
+	if got := m.buf.String(); got != "let café = print" {
+		t.Fatalf("buffer = %q, want %q", got, "let café = print")
+	}
+}
+
+func TestCompletionResultAtStaleCursorIsIgnored(t *testing.T) {
+	m := newTestModelWithPath("print", "main.go", 7)
+	m.cursor.col = len("print")
+	updated, _ := m.Update(messages.CompletionResultMsg{
+		BufferID: 7,
+		Path:     "main.go",
+		Line:     0,
+		Col:      len("prin"),
+		Items:    []messages.CompletionItem{{Label: "Println"}},
+	})
+	m = updated.(Model)
+	if m.completion.visible {
+		t.Fatal("stale completion result should not open the menu")
+	}
+}
+
+func TestCompletionResultForStaleGenerationIsIgnored(t *testing.T) {
+	m := newTestModelWithPath("print", "main.go", 7)
+	m.cursor.col = len("print")
+	m.buf.Insert(len("print"), "x")
+	m.buf.Delete(len("print"), len("printx"))
+	updated, _ := m.Update(messages.CompletionResultMsg{
+		BufferID:   7,
+		Generation: 0,
+		Path:       "main.go",
+		Line:       0,
+		Col:        len("print"),
+		Items:      []messages.CompletionItem{{Label: "Println"}},
+	})
+	m = updated.(Model)
+	if m.completion.visible {
+		t.Fatal("completion result from an older buffer generation should be ignored")
+	}
+}
+
+func TestCompletionSnippetDoesNotInsertPlaceholderSyntax(t *testing.T) {
+	m := newTestModelWithPath("Pri", "main.go", 7)
+	m.cursor.col = len("Pri")
+	updated, _ := m.Update(messages.CompletionResultMsg{
+		BufferID: 7,
+		Path:     "main.go",
+		Line:     0,
+		Col:      len("Pri"),
+		Items: []messages.CompletionItem{{
+			Label:            "Println",
+			InsertText:       "Println(${1:value})$0",
+			InsertTextFormat: 2,
+		}},
+	})
+	m = updated.(Model)
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(Model)
+	if got := m.buf.String(); got != "Println(value)" {
+		t.Fatalf("buffer = %q, want %q", got, "Println(value)")
+	}
+	if m.cursor.col != len("Println(value)") {
+		t.Fatalf("cursor col = %d, want %d", m.cursor.col, len("Println(value)"))
+	}
+}
+
+func TestTabStillIndentsWithoutVisibleCompletion(t *testing.T) {
+	m := newTestModel("x")
+	m.cursor.col = 1
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(Model)
+	if got := m.buf.String(); got != "x    " {
+		t.Fatalf("buffer = %q, want ordinary Tab indentation", got)
+	}
+}

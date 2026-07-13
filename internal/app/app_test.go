@@ -195,3 +195,27 @@ func TestApp_ViewEnablesHoverMouseMotion(t *testing.T) {
 		t.Fatalf("mouse mode = %v, want MouseModeAllMotion for Ctrl-hover", view.MouseMode)
 	}
 }
+
+func TestApp_CtrlSpaceRequestsCompletionAtEditorCursor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	m := newTestApp(t, dir)
+	_, cmd := m.Update(messages.FileSelectedMsg{Path: path})
+	runAppCmd(t, m, cmd, 0)
+
+	cmd = m.handleKey(tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
+	msgs := collectAppCmdMessages(t, cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("completion messages = %d, want 1", len(msgs))
+	}
+	request, ok := msgs[0].(messages.CompletionRequestMsg)
+	if !ok {
+		t.Fatalf("expected CompletionRequestMsg, got %T", msgs[0])
+	}
+	if request.Path != path || request.BufferID == 0 || request.Line != 0 || request.Col != 0 {
+		t.Fatalf("completion request = %+v", request)
+	}
+}

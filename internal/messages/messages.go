@@ -58,25 +58,29 @@ type Diagnostic struct {
 
 // CompletionRequestMsg - editor wants completion items
 type CompletionRequestMsg struct {
-	BufferID  int
-	Path      string
-	Line, Col int
+	BufferID   int
+	Generation int
+	Path       string
+	Line, Col  int
 }
 
 // CompletionResultMsg - completion items from LSP
 type CompletionResultMsg struct {
-	BufferID int
-	Items    []CompletionItem
+	BufferID   int
+	Generation int
+	Path       string
+	Line, Col  int
+	Items      []CompletionItem
 }
 
 // CompletionItem - single completion item
 type CompletionItem struct {
 	Label, Detail, Documentation, InsertText string
-	Kind                                     int
+	Kind, InsertTextFormat                   int
 	TextEdit                                 *TextEdit
 }
 
-// TextEdit - ranged replacement in buffer
+// TextEdit is a ranged replacement in LSP UTF-16 coordinates.
 type TextEdit struct {
 	Line, Col, EndLine, EndCol int
 	NewText                    string

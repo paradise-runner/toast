@@ -242,9 +242,9 @@ func (m *Manager) DidClose(path, language string) {
 }
 
 // Completion requests completion items at the given position.
-func (m *Manager) Completion(bufferID int, path, language string, line, col int) {
+func (m *Manager) Completion(bufferID, generation int, path, language string, line, col int) {
 	if c := m.getClient(language); c != nil {
-		c.Completion(bufferID, path, line, m.protocolCol(path, line, col))
+		c.Completion(bufferID, generation, path, line, col, m.protocolCol(path, line, col))
 	}
 }
 

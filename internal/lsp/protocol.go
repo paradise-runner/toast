@@ -97,13 +97,26 @@ type CompletionParams struct {
 	Position     Position               `json:"position"`
 }
 
+// LSPCompletionTextEdit is either a standard TextEdit (Range) or an
+// InsertReplaceEdit (Insert and Replace). Toast uses the insert range when the
+// server supplies both.
+type LSPCompletionTextEdit struct {
+	Range   *Range `json:"range,omitempty"`
+	Insert  *Range `json:"insert,omitempty"`
+	Replace *Range `json:"replace,omitempty"`
+	NewText string `json:"newText"`
+}
+
 // LSPCompletionItem is a single completion item returned by the server.
 type LSPCompletionItem struct {
-	Label         string `json:"label"`
-	Kind          int    `json:"kind,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-	Documentation string `json:"documentation,omitempty"`
-	InsertText    string `json:"insertText,omitempty"`
+	Label            string                 `json:"label"`
+	Kind             int                    `json:"kind,omitempty"`
+	Detail           string                 `json:"detail,omitempty"`
+	Documentation    interface{}            `json:"documentation,omitempty"`
+	InsertText       string                 `json:"insertText,omitempty"`
+	TextEditText     string                 `json:"textEditText,omitempty"`
+	InsertTextFormat int                    `json:"insertTextFormat,omitempty"`
+	TextEdit         *LSPCompletionTextEdit `json:"textEdit,omitempty"`
 }
 
 // HoverParams are the params for textDocument/hover.

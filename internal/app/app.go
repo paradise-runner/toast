@@ -456,6 +456,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.CompletionResultMsg:
 		m.updateEditor(msg)
 
+	case messages.CompletionRequestMsg:
+		if m.lspMgr != nil {
+			if language := m.languageForPath(msg.Path); language != "" {
+				m.lspMgr.Completion(msg.BufferID, msg.Generation, msg.Path, language, msg.Line, msg.Col)
+			}
+		}
+
 	case messages.HoverResultMsg:
 		m.updateEditor(msg)
 
@@ -766,6 +773,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return messages.DefinitionRequestMsg{
 				BufferID: m.editor.BufferID(), Path: m.editor.Path(),
 				Line: m.editor.CursorLine(), Col: m.editor.CursorCol(), Navigate: true,
+			}
+		}
+
+	case isTriggerCompletion(msg):
+		if m.focus != FocusEditor || m.editor.Path() == "" {
+			return nil
+		}
+		return func() tea.Msg {
+			return messages.CompletionRequestMsg{
+				BufferID: m.editor.BufferID(), Generation: m.editor.BufferGeneration(), Path: m.editor.Path(),
+				Line: m.editor.CursorLine(), Col: m.editor.CursorCol(),
 			}
 		}
 
