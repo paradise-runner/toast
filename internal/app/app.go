@@ -20,6 +20,7 @@ import (
 	"github.com/yourusername/toast/internal/components/gotoline"
 	"github.com/yourusername/toast/internal/components/lspinstall"
 	"github.com/yourusername/toast/internal/components/preview"
+	"github.com/yourusername/toast/internal/components/quickopen"
 	"github.com/yourusername/toast/internal/components/quitdialog"
 	"github.com/yourusername/toast/internal/components/search"
 	"github.com/yourusername/toast/internal/components/statusbar"
@@ -65,6 +66,9 @@ type Model struct {
 	themePicker     themepicker.Model
 	themeDir        string
 	configPath      string
+
+	quickOpenOpen bool
+	quickOpen     quickopen.Model
 
 	closeDialogOpen  bool
 	closePendingID   int
@@ -165,6 +169,7 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		themePicker:     themepicker.New(tm, themeDir, cfg.Theme),
 		goToLine:        gotoline.NewWithTheme(tm),
 		findReplace:     findreplace.New(tm),
+		quickOpen:       quickopen.New(tm, rootDir, cfg.IgnoredPatterns),
 		lspInstall:      lspinstall.New(tm),
 
 		fileTree:   filetree.New(tm, cfg, rootDir),
@@ -283,12 +288,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.FileSelectedMsg:
 		closeSearch := m.searchOpen
+		closeQuickOpen := m.quickOpenOpen
 		cmd := m.handleFileSelected(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if closeSearch {
 			m.closeSearch()
+		}
+		if closeQuickOpen {
+			m.closeQuickOpen()
 		}
 
 	case messages.CloseTabRequestMsg:
@@ -498,6 +507,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.SearchCloseMsg:
 		m.closeSearch()
+
+	case messages.QuickOpenOpenMsg:
+		cmd := m.openQuickOpen()
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.QuickOpenCloseMsg:
+		m.closeQuickOpen()
+
+	case quickopen.LoadFilesMsg:
+		updated, cmd := m.quickOpen.Update(msg)
+		m.quickOpen = updated
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case messages.FindReplaceOpenMsg:
 		m.openFindReplace("")
@@ -719,6 +744,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 
+	if m.quickOpenOpen {
+		// Forward keypresses to the quick open overlay.
+		if isEscape(msg) {
+			m.closeQuickOpen()
+			return nil
+		}
+		updated, cmd := m.quickOpen.Update(msg)
+		m.quickOpen = updated
+		if !m.quickOpen.IsOpen() {
+			m.quickOpenOpen = false
+		}
+		return cmd
+	}
+
 	if m.findReplaceOpen {
 		if isEscape(msg) {
 			m.closeFindReplace()
@@ -764,6 +803,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.goToLine = m.goToLine.Open(m.editor.LineCount())
 		m.goToLineOpen = true
 		return nil
+
+	case isQuickOpen(msg):
+		return m.openQuickOpen()
 
 	case isGoToDefinition(msg):
 		if m.editor.Path() == "" {
@@ -1481,6 +1523,24 @@ func (m *Model) closeFindReplace() {
 	_ = m.updateEditor(messages.FindReplaceCloseMsg{})
 }
 
+func (m *Model) openQuickOpen() tea.Cmd {
+	if m.searchOpen {
+		m.closeSearch()
+	}
+	if m.findReplaceOpen {
+		m.closeFindReplace()
+	}
+	m.quickOpenOpen = true
+	updated, cmd := m.quickOpen.Open()
+	m.quickOpen = updated
+	return cmd
+}
+
+func (m *Model) closeQuickOpen() {
+	m.quickOpenOpen = false
+	m.quickOpen, _ = m.quickOpen.Update(messages.QuickOpenCloseMsg{})
+}
+
 func (m *Model) syncFindReplaceStatus() {
 	current, total := m.editor.FindStatus()
 	m.findReplace.SetMatchStatus(current, total)
@@ -1775,6 +1835,10 @@ func (m *Model) View() tea.View {
 	}
 	if m.goToLineOpen {
 		overlayStr := m.goToLine.Render()
+		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
+	}
+	if m.quickOpenOpen {
+		overlayStr := m.quickOpen.Render()
 		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
 	}
 	if m.findReplaceOpen {

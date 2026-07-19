@@ -319,6 +319,12 @@ type QuitConfirmedMsg struct {
 	Cancelled bool
 }
 
+// QuickOpenOpenMsg - open the quick open file overlay (Ctrl+P).
+type QuickOpenOpenMsg struct{}
+
+// QuickOpenCloseMsg - close the quick open file overlay.
+type QuickOpenCloseMsg struct{}
+
 // MarkdownPreviewToggleMsg - toggle the markdown preview pane on/off.
 type MarkdownPreviewToggleMsg struct{}
 

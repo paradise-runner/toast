@@ -21,12 +21,20 @@ func isRedo(msg tea.KeyPressMsg) bool {
 		(msg.Mod.Contains(tea.ModSuper) && msg.Code == 'y') ||
 		(msg.Mod.Contains(tea.ModSuper) && msg.Mod.Contains(tea.ModShift) && msg.Code == 'z')
 }
-func isNextTab(msg tea.KeyPressMsg) bool { return msg.String() == "ctrl+tab" }
-func isPrevTab(msg tea.KeyPressMsg) bool { return msg.String() == "ctrl+shift+tab" }
+func isNextTab(msg tea.KeyPressMsg) bool {
+	return msg.String() == "ctrl+alt+right"
+}
+func isPrevTab(msg tea.KeyPressMsg) bool {
+	return msg.String() == "ctrl+alt+left"
+}
 func isSearch(msg tea.KeyPressMsg) bool  { return msg.String() == "ctrl+shift+f" }
 func isFindReplace(msg tea.KeyPressMsg) bool {
 	return msg.String() == "ctrl+f" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'f')
 }
+func isQuickOpen(msg tea.KeyPressMsg) bool {
+	return msg.String() == "ctrl+p" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'p')
+}
+
 func isEscape(msg tea.KeyPressMsg) bool {
 	return msg.String() == "escape" || msg.Code == tea.KeyEscape
 }

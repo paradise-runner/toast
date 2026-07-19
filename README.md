@@ -84,8 +84,9 @@ toast --version
 | `Ctrl+Q` | Quit |
 | `Ctrl+S` / `Cmd+S` | Save |
 | `Ctrl+W` / `Cmd+W` | Close tab |
-| `Ctrl+Tab` | Next tab |
-| `Ctrl+Shift+Tab` | Previous tab |
+| `Ctrl+P` | Quick-open file search (fuzzy) |
+| `Ctrl+Alt+Right` | Next tab |
+| `Ctrl+Alt+Left` | Previous tab |
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+Shift+E` | Toggle focus between editor and file tree |
 | `Ctrl+Shift+F` | Search |
