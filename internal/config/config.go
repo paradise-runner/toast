@@ -14,6 +14,7 @@ type Config struct {
 	LSP             map[string]LSPCmd `json:"lsp"`
 	Search          SearchConfig      `json:"search"`
 	IgnoredPatterns []string          `json:"ignored_patterns"`
+	Keybindings     KeybindingMap     `json:"keybindings,omitempty"`
 }
 
 type EditorConfig struct {
@@ -62,7 +63,8 @@ type SearchConfig struct {
 
 func Defaults() Config {
 	return Config{
-		Theme: "toast-dark",
+		Theme:       "toast-dark",
+		Keybindings: DefaultKeybindings(),
 		Editor: EditorConfig{
 			TabWidth: 4, AutoIndent: true,
 			TrimTrailingWhitespaceOnSave: true, InsertFinalNewlineOnSave: true,
@@ -100,7 +102,7 @@ func Defaults() Config {
 			},
 			"terraform": {
 				Command: "terraform-ls", Args: []string{"serve"}, Extensions: []string{".tf", ".tfvars"},
-				LanguageID: "terraform",
+				LanguageID:     "terraform",
 				ManagedCommand: "{install_dir}/bin/terraform-ls",
 				Install:        &LSPInstall{Name: "Terraform Language Server", Command: "go", Args: []string{"install", "github.com/hashicorp/terraform-ls@latest"}, Env: map[string]string{"GOBIN": "{install_dir}/bin"}},
 			},
@@ -176,9 +178,13 @@ func (c *Config) normalize() {
 		c.Sidebar.FileIcons.ColorMode = "accent"
 	}
 
+	// Merge user keybinding overrides with defaults so that a partial config
+	// (e.g. only overriding "save") does not erase all other defaults.
+	defaults := Defaults()
+	c.Keybindings = defaults.Keybindings.Merge(c.Keybindings)
+
 	// Preserve managed metadata when loading the older command/args-only shape.
 	// A custom command remains custom and is never assigned a default installer.
-	defaults := Defaults()
 	for language, server := range c.LSP {
 		builtIn, ok := defaults.LSP[language]
 		if !ok {

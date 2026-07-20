@@ -75,6 +75,8 @@ toast --version
 
 ## Keybindings
 
+All keybindings can be remapped in `~/.config/toast/config.json` (see [Configuration](#configuration)).
+
 | Key | Action |
 |-----|--------|
 | `Ctrl+Q` | Quit |
@@ -121,6 +123,24 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
   "ignored_patterns": [".git", "node_modules", "__pycache__", ".DS_Store"]
 }
 ```
+
+### Keybindings
+
+All default keybindings can be overridden with the `keybindings` object. Each action accepts a list of key strings (supports `ctrl`, `alt`, `shift`, `super` modifiers). An empty list unbinds the action.
+
+```json
+{
+  "keybindings": {
+    "save": ["ctrl+s"],
+    "quick_open": ["ctrl+o"],
+    "next_tab": ["ctrl+tab"],
+    "prev_tab": ["ctrl+shift+tab"],
+    "quit": []
+  }
+}
+```
+
+Available actions: `quit`, `toggle_sidebar`, `save`, `new_file`, `close_tab`, `undo`, `redo`, `next_tab`, `prev_tab`, `search`, `find_replace`, `quick_open`, `go_to_line`, `go_to_definition`, `toggle_focus`, `markdown_preview`, `show_hover`, `trigger_completion`.
 
 Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, and TypeScript; set `"lsp": {}` to disable language servers. Each entry is extension-driven, so other languages can be added without changing Toast. A custom server already installed on `$PATH` only needs a command and its filename suffixes:
 

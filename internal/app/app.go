@@ -717,7 +717,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	if m.quitDialogOpen {
 		// Ctrl+Q while dialog is open force-quits without saving.
-		if isQuit(msg) {
+		if m.isQuit(msg) {
 			m.quitDialogOpen = false
 			return tea.Quit
 		}
@@ -746,7 +746,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	if m.quickOpenOpen {
 		// Forward keypresses to the quick open overlay.
-		if isEscape(msg) {
+		if m.isEscape(msg) {
 			m.closeQuickOpen()
 			return nil
 		}
@@ -759,11 +759,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	if m.findReplaceOpen {
-		if isEscape(msg) {
+		if m.isEscape(msg) {
 			m.closeFindReplace()
 			return nil
 		}
-		if isFindReplace(msg) {
+		if m.isFindReplace(msg) {
 			m.openFindReplace("")
 			return nil
 		}
@@ -777,37 +777,37 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	// App-level keys always checked first.
 	switch {
-	case isQuit(msg):
+	case m.isQuit(msg):
 		return m.requestQuit()
 
-	case isToggleSidebar(msg):
+	case m.isToggleSidebar(msg):
 		m.sidebarVisible = !m.sidebarVisible
 		cmds := m.resizeComponents()
 		return tea.Batch(cmds...)
 
-	case isCloseTab(msg):
+	case m.isCloseTab(msg):
 		if tab := m.tabBar.ActiveTab(); tab != nil {
 			return m.requestCloseTab(tab.BufferID, tab.Path)
 		}
 		return nil
 
-	case isSearch(msg):
+	case m.isSearch(msg):
 		m.openSearch()
 		return nil
 
-	case isFindReplace(msg):
+	case m.isFindReplace(msg):
 		m.openFindReplace(m.editor.SelectedText())
 		return nil
 
-	case isGoToLine(msg):
+	case m.isGoToLine(msg):
 		m.goToLine = m.goToLine.Open(m.editor.LineCount())
 		m.goToLineOpen = true
 		return nil
 
-	case isQuickOpen(msg):
+	case m.isQuickOpen(msg):
 		return m.openQuickOpen()
 
-	case isGoToDefinition(msg):
+	case m.isGoToDefinition(msg):
 		if m.editor.Path() == "" {
 			return nil
 		}
@@ -818,7 +818,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 
-	case isTriggerCompletion(msg):
+	case m.isTriggerCompletion(msg):
 		if m.focus != FocusEditor || m.editor.Path() == "" {
 			return nil
 		}
@@ -829,21 +829,21 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 
-	case isMarkdownPreview(msg):
+	case m.isMarkdownPreview(msg):
 		if isMarkdownPath(m.editor.Path()) {
 			m.togglePreview()
 		}
 		return nil
 
-	case isNextTab(msg):
+	case m.isNextTab(msg):
 		cmd := m.tabBar.NextTab()
 		return cmd
 
-	case isPrevTab(msg):
+	case m.isPrevTab(msg):
 		cmd := m.tabBar.PrevTab()
 		return cmd
 
-	case isEscape(msg):
+	case m.isEscape(msg):
 		if m.searchOpen {
 			m.closeSearch()
 			return nil
@@ -856,7 +856,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 
-	case msg.String() == "ctrl+shift+e":
+	case m.isToggleFocus(msg):
 		// Toggle focus between editor and file tree
 		if m.focus == FocusFileTree {
 			m.setFocus(FocusEditor)

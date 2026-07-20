@@ -1,51 +1,87 @@
 package app
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
 
-func isQuit(msg tea.KeyPressMsg) bool          { return msg.String() == "ctrl+q" }
-func isToggleSidebar(msg tea.KeyPressMsg) bool { return msg.String() == "ctrl+b" }
-func isSave(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+s" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 's')
-}
-func isNewFile(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+n" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'n')
-}
-func isCloseTab(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+w" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'w')
-}
-func isUndo(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+z" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'z')
-}
-func isRedo(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+y" || msg.String() == "ctrl+shift+z" ||
-		(msg.Mod.Contains(tea.ModSuper) && msg.Code == 'y') ||
-		(msg.Mod.Contains(tea.ModSuper) && msg.Mod.Contains(tea.ModShift) && msg.Code == 'z')
-}
-func isNextTab(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+alt+right"
-}
-func isPrevTab(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+alt+left"
-}
-func isSearch(msg tea.KeyPressMsg) bool  { return msg.String() == "ctrl+shift+f" }
-func isFindReplace(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+f" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'f')
-}
-func isQuickOpen(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+p" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'p')
+	"github.com/yourusername/toast/internal/config"
+)
+
+// Keybinding-check helpers.
+// All of them use m.cfg.Keybindings so that user-configured overrides
+// are honoured. Fallback defaults are merged during config.Load().
+
+func (m *Model) isQuit(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionQuit)
 }
 
-func isEscape(msg tea.KeyPressMsg) bool {
-	return msg.String() == "escape" || msg.Code == tea.KeyEscape
+func (m *Model) isToggleSidebar(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionToggleSidebar)
 }
-func isGoToLine(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+g" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == 'l')
+
+func (m *Model) isSave(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionSave)
 }
-func isGoToDefinition(msg tea.KeyPressMsg) bool { return msg.String() == "f12" }
-func isMarkdownPreview(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+shift+m"
+
+func (m *Model) isNewFile(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionNewFile)
 }
-func isShowHover(msg tea.KeyPressMsg) bool { return msg.String() == "ctrl+shift+k" }
-func isTriggerCompletion(msg tea.KeyPressMsg) bool {
-	return msg.String() == "ctrl+space" || (msg.Mod.Contains(tea.ModSuper) && msg.Code == ' ')
+
+func (m *Model) isCloseTab(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionCloseTab)
+}
+
+func (m *Model) isUndo(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionUndo)
+}
+
+func (m *Model) isRedo(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionRedo)
+}
+
+func (m *Model) isNextTab(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionNextTab)
+}
+
+func (m *Model) isPrevTab(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionPrevTab)
+}
+
+func (m *Model) isSearch(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionSearch)
+}
+
+func (m *Model) isFindReplace(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionFindReplace)
+}
+
+func (m *Model) isQuickOpen(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionQuickOpen)
+}
+
+func (m *Model) isGoToLine(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionGoToLine)
+}
+
+func (m *Model) isGoToDefinition(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionGoToDefinition)
+}
+
+func (m *Model) isToggleFocus(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionToggleFocus)
+}
+
+func (m *Model) isMarkdownPreview(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionMarkdownPreview)
+}
+
+func (m *Model) isShowHover(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionShowHover)
+}
+
+func (m *Model) isTriggerCompletion(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionTriggerCompletion)
+}
+
+func (m *Model) isEscape(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.MatchEscape(msg)
 }
