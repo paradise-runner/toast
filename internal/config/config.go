@@ -98,6 +98,12 @@ func Defaults() Config {
 				Command: "rust-analyzer", Extensions: []string{".rs"}, ManagedCommand: "{home}/.cargo/bin/rust-analyzer",
 				Install: &LSPInstall{Name: "rust-analyzer", Command: "rustup", Args: []string{"component", "add", "rust-analyzer"}},
 			},
+			"terraform": {
+				Command: "terraform-ls", Args: []string{"serve"}, Extensions: []string{".tf", ".tfvars"},
+				LanguageID: "terraform",
+				ManagedCommand: "{install_dir}/bin/terraform-ls",
+				Install:        &LSPInstall{Name: "Terraform Language Server", Command: "go", Args: []string{"install", "github.com/hashicorp/terraform-ls@latest"}, Env: map[string]string{"GOBIN": "{install_dir}/bin"}},
+			},
 		},
 		Search:          SearchConfig{Command: "rg", Args: []string{"--json"}},
 		IgnoredPatterns: []string{".git", "node_modules", "__pycache__", ".DS_Store"},

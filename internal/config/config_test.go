@@ -28,7 +28,7 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
 		t.Errorf("expected default file icon color mode accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
 	}
-	for _, language := range []string{"go", "rust", "python", "typescript", "javascript"} {
+	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform"} {
 		server, ok := cfg.LSP[language]
 		if !ok || len(server.Extensions) == 0 || server.Install == nil {
 			t.Fatalf("expected managed default LSP metadata for %s, got %#v", language, server)

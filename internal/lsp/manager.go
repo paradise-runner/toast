@@ -367,6 +367,8 @@ func LanguageForPath(path string) string {
 		return "javascript"
 	case strings.HasSuffix(lower, ".rs"):
 		return "rust"
+	case strings.HasSuffix(lower, ".tf"), strings.HasSuffix(lower, ".tfvars"):
+		return "terraform"
 	default:
 		return ""
 	}
