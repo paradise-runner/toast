@@ -100,8 +100,6 @@ toast --version
 | `Ctrl`+hover / `Ctrl`-click | Check for and follow a definition |
 | `F12` | Go to the definition at the cursor |
 
-File-tree create/delete actions are driven from the UI: right-click in the sidebar for file operations, drag the sidebar divider to resize it, use the `theme` button in the status bar to open the theme picker, and use the breadcrumb `Preview` button as a mouse shortcut for markdown preview.
-
 ## Configuration
 
 Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to defaults.
@@ -163,10 +161,6 @@ For an opt-in managed custom server, add `managed_command` (the installed execut
 }
 ```
 
-The sidebar file tree uses homemade terminal-style file type markers by default, covering common IDE file types such as Go, JavaScript/TypeScript, HTML, CSS, Rust, Python, Ruby, PHP, JVM languages, Swift, C/C++, C#, shell scripts, JSON/YAML/TOML, SQL, Dockerfiles, images, archives, and build files. `sidebar.file_icons.color_mode` supports `accent` (one theme accent), `semantic` (type-specific colors derived from the active theme), and `none` (normal sidebar foreground).
-
-The current UI honors the fields above. The config schema also contains `editor.word_wrap`, `editor.show_whitespace`, and `search.*`, but those are not wired into the current UI yet.
-
 ### Themes
 
 Built-in themes: `system`, `toast-dark`, `toast-light`. Custom themes live in `~/.config/toast/themes/`.
@@ -179,10 +173,6 @@ toast migrate-theme vscode path/to/theme.json
 ```
 
 Then set `"theme": "<theme-name>"` in your config.
-
-## Current Limitations
-
-- Project search opens the selected file, but it does not jump to the exact match line/column yet.
 
 ## Feedback & Issues
 
@@ -197,42 +187,3 @@ make test              # go test ./...
 make test-integration  # run opt-in Ghostty/tmux terminal integration tests
 make test-integration-update  # refresh golden screenshots
 ```
-
-### Integration Tests
-
-The integration test suite launches Toast inside a temporary Ghostty window
-attached to an isolated tmux server, drives it with `tmux send-keys`, and writes
-pane captures plus PNG screenshots to a temporary artifact directory. The
-captured screenshots are compared against checked-in golden images in
-`integration/testdata/ghostty` so the test can catch visual regressions over
-time.
-
-Requirements:
-
-- macOS
-- Ghostty installed at `/Applications/Ghostty.app` or set `TOAST_GHOSTTY_APP`
-  to the app path
-- `tmux`
-- `screencapture`
-
-Before running the screenshot tests, enable Ghostty in:
-
-```text
-System Settings > Privacy & Security > Screen & System Audio Recording
-```
-
-Run the integration tests with:
-
-```bash
-make test-integration
-```
-
-Refresh the golden screenshots after an intentional visual change with:
-
-```bash
-make test-integration-update
-```
-
-By default, artifacts are written to a temporary directory and the path is
-printed in the verbose test output. Set `TOAST_TERMINAL_ARTIFACT_DIR` to keep
-artifacts in a specific directory.
