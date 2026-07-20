@@ -26,12 +26,8 @@ toast is a beatiful developer environment right in your terminal. nvim and emacs
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
 - **Project-wide search** powered by `rg` (ripgrep)
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
-- **Go to line** overlay
 - **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
-- **External file watching** that silently reloads clean buffers
-- **Rope-backed buffer** with full undo/redo
 - **Theme system** — built-in `system` (derived from terminal colors at runtime), `toast-dark`, and `toast-light`, plus a VSCode theme importer
-- **Binary file guard** to avoid dumping binary content into the editor
 - **Configurable** via `~/.config/toast/config.json`
 
 ## Installation
