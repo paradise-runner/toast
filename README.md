@@ -10,7 +10,7 @@
 </div>
 
 
-A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your terminal with a familiar editor feel: file tree, tabs, syntax highlighting, LSP support, project search, and git status, without the overhead of a full GUI.
+toast is a beatiful developer environment right in your terminal. nvim and emacs have you build your editor from scratch, while toast ships with managed LSPs, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
 
 > ⚠️ This project is in _early development_, you may encounter bugs. ⚠️
 
