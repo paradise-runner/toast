@@ -3,6 +3,7 @@
 package editor
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"os"
@@ -203,16 +204,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.buf = buffer.NewEditBuffer(msg.content)
 		m.recomputeGutterWidth()
+		// Auto-format JSON files for easier reading.
+		ext := strings.ToLower(filepath.Ext(msg.path))
+		if ext == ".json" || ext == ".jsonc" {
+			m.formatJSON()
+			// Avoid marking the file as modified just because we reformatted it.
+			m.buf.MarkSaved()
+		}
 		// Initialize syntax highlighter for the file.
 		h, _ := syntax.NewHighlighter(msg.path, m.theme)
 		m.highlighter = h
 		if m.highlighter != nil {
-			m.highlighter.Parse([]byte(msg.content))
+			m.highlighter.Parse([]byte(m.buf.String()))
 		}
 		// Notify app that file content is ready (e.g. for markdown preview).
 		bufID := msg.bufferID
 		path := msg.path
-		content := msg.content
+		content := m.buf.String()
 		return m, func() tea.Msg {
 			return messages.FileLoadedMsg{BufferID: bufID, Path: path, Content: content}
 		}
@@ -826,6 +834,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.insertTab()
 	case "shift+tab":
 		m.dedent()
+	case "ctrl+shift+i":
+		// Format document (JSON pretty-print).
+		if m.path == "" || m.buf == nil {
+			return m, nil
+		}
+		ext := strings.ToLower(filepath.Ext(m.path))
+		if ext == ".json" || ext == ".jsonc" {
+			m.formatJSON()
+		}
+		m.reparseSyntax()
+		m.clampViewport()
+		if m.buf != nil && m.buf.Modified() != preModified {
+			return m, m.emitModified()
+		}
+		return m, nil
 	case "ctrl+s":
 		saveCmd := m.save()
 		if saveCmd == nil {
@@ -2439,6 +2462,25 @@ func (m *Model) recomputeGutterWidth() {
 	digits := len(fmt.Sprintf("%d", lineCount))
 	// gutter = digits + 1 space + diff bar (1) + 1 space
 	m.gutterWidth = digits + 3
+}
+
+// formatJSON pretty-prints the current buffer content as JSON. If the content
+// cannot be parsed as JSON the buffer is left unchanged.
+func (m *Model) formatJSON() {
+	raw := m.buf.String()
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return // not valid JSON — leave the buffer as-is
+	}
+	formatted, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return
+	}
+	m.buf.Delete(0, len(raw))
+	m.buf.Insert(0, string(formatted))
+	if len(formatted) > 0 && formatted[len(formatted)-1] != '\n' {
+		m.buf.Insert(len(formatted), "\n")
+	}
 }
 
 // reparseSyntax re-parses the syntax tree from the current buffer content.

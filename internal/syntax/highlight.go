@@ -17,13 +17,19 @@ type Span struct {
 	Style string
 }
 
-// Highlighter holds a tree-sitter parser, the parsed tree and the compiled
-// highlight query for a single file.
+// Highlighter holds a tree-sitter parser (for most languages) or a JSON
+// scanner-based tokeniser. Exactly one of {tree-sitter fields, jsonTokens}
+// is active depending on the file type.
 type Highlighter struct {
-	lang    *LangDef
-	parser  *sitter.Parser
-	query   *sitter.Query
-	tree    *sitter.Tree
+	lang   *LangDef
+	parser *sitter.Parser
+	query  *sitter.Query
+	tree   *sitter.Tree
+
+	// For JSON files (scanner-based highlighting).
+	jsonTokens        []jsonToken
+	jsonAllowComments bool
+
 	content []byte
 	theme   *theme.Manager
 }
@@ -37,6 +43,14 @@ func NewHighlighter(path string, tm *theme.Manager) (*Highlighter, error) {
 	lang := ForPath(path)
 	if lang == nil {
 		// Unknown language – highlighting will be a no-op.
+		return h, nil
+	}
+
+	// JSON uses a custom scanner instead of tree-sitter.
+	// Enable comment highlighting for .jsonc files.
+	if lang.Name == "json" {
+		h.lang = lang
+		h.jsonAllowComments = strings.HasSuffix(strings.ToLower(path), ".jsonc")
 		return h, nil
 	}
 
@@ -59,13 +73,28 @@ func NewHighlighter(path string, tm *theme.Manager) (*Highlighter, error) {
 	return h, nil
 }
 
-// HasQuery returns true if a highlight query was successfully compiled.
+// HasQuery returns true when the highlighter is able to produce spans
+// (either via tree-sitter query or JSON scanner). For JSON files the
+// scanner is known to be available even before Parse() is called.
 func (h *Highlighter) HasQuery() bool {
-	return h.query != nil
+	if h.query != nil {
+		return true
+	}
+	if h.lang != nil && h.lang.Name == "json" {
+		return true
+	}
+	return h.jsonTokens != nil
 }
 
-// Parse does a full parse of src and stores the resulting tree.
+// Parse does a full parse of src and stores the resulting tree (tree-sitter)
+// or token list (JSON).
 func (h *Highlighter) Parse(src []byte) {
+	if h.lang != nil && h.lang.Name == "json" {
+		// For JSON files, use the custom scanner.
+		h.jsonTokens = scanJSON(src, h.jsonAllowComments)
+		h.content = src
+		return
+	}
 	if h.parser == nil {
 		return
 	}
@@ -79,11 +108,16 @@ func (h *Highlighter) Parse(src []byte) {
 
 // Edit applies an incremental edit to the stored tree and re-parses. All
 // index/row/col values use the same conventions as tree-sitter's EditInput.
+// For JSON files this is a full re-parse.
 func (h *Highlighter) Edit(
 	src []byte,
 	startByte, oldEndByte, newEndByte uint32,
 	startRow, startCol, oldEndRow, oldEndCol, newEndRow, newEndCol uint32,
 ) {
+	if h.lang != nil && h.lang.Name == "json" {
+		h.Parse(src)
+		return
+	}
 	if h.parser == nil || h.tree == nil {
 		h.Parse(src)
 		return
@@ -111,6 +145,9 @@ func (h *Highlighter) Edit(
 // any trailing newline). The returned Span offsets are relative to the
 // beginning of lineContent.
 func (h *Highlighter) HighlightLine(lineStart int, lineContent string) []Span {
+	if h.lang != nil && h.lang.Name == "json" && h.jsonTokens != nil {
+		return h.jsonHighlightLine(lineStart, lineContent)
+	}
 	if h.query == nil || h.tree == nil {
 		return nil
 	}
@@ -178,5 +215,49 @@ func (h *Highlighter) HighlightLine(lineStart int, lineContent string) []Span {
 		}
 	}
 
+	return spans
+}
+
+// jsonHighlightLine returns highlight spans for a single line using the
+// pre-computed JSON token list.
+func (h *Highlighter) jsonHighlightLine(lineStart int, lineContent string) []Span {
+	// Compute the byte range of this line within h.content.
+	lineStartByte := 0
+	if lineStart > 0 {
+		nlCount := 0
+		for i, b := range h.content {
+			if b == '\n' {
+				nlCount++
+				if nlCount == lineStart {
+					lineStartByte = i + 1
+					break
+				}
+			}
+		}
+	}
+	lineEndByte := lineStartByte + len(lineContent)
+
+	// Collect tokens that intersect this line.
+	var spans []Span
+	for _, tok := range h.jsonTokens {
+		if tok.endByte <= lineStartByte || tok.startByte >= lineEndByte {
+			continue
+		}
+		start := tok.startByte - lineStartByte
+		end := tok.endByte - lineStartByte
+		if start < 0 {
+			start = 0
+		}
+		if end > len(lineContent) {
+			end = len(lineContent)
+		}
+		if start < end {
+			spans = append(spans, Span{
+				Start: start,
+				End:   end,
+				Style: tok.style,
+			})
+		}
+	}
 	return spans
 }

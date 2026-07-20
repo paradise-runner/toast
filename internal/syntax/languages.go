@@ -44,6 +44,8 @@ func init() {
 		{Name: "bash", Language: bash.GetLanguage()},
 		{Name: "hcl", Language: hcl.GetLanguage()},
 		{Name: "markdown", Language: tree_sitter_markdown.GetLanguage()},
+		// JSON uses a custom scanner instead of tree-sitter (nil Language).
+		{Name: "json"},
 	}
 	for _, d := range defs {
 		q, err := queriesFS.ReadFile("queries/" + d.Name + ".scm")
@@ -58,6 +60,7 @@ func init() {
 		".sh": defs[8], ".bash": defs[8],
 		".hcl": defs[9], ".tf": defs[9], ".tfvars": defs[9],
 		".md": defs[10], ".markdown": defs[10],
+		".json": defs[11], ".jsonc": defs[11],
 	}
 	langByName = make(map[string]*LangDef, len(defs))
 	for _, d := range defs {
