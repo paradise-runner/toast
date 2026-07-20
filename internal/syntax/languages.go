@@ -9,6 +9,7 @@ import (
 	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/css"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/javascript"
 	tree_sitter_markdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
@@ -41,6 +42,7 @@ func init() {
 		{Name: "html", Language: html.GetLanguage()},
 		{Name: "yaml", Language: yaml.GetLanguage()},
 		{Name: "bash", Language: bash.GetLanguage()},
+		{Name: "hcl", Language: hcl.GetLanguage()},
 		{Name: "markdown", Language: tree_sitter_markdown.GetLanguage()},
 	}
 	for _, d := range defs {
@@ -54,7 +56,8 @@ func init() {
 		".ts": defs[3], ".tsx": defs[3], ".rs": defs[4], ".css": defs[5],
 		".html": defs[6], ".htm": defs[6], ".yaml": defs[7], ".yml": defs[7],
 		".sh": defs[8], ".bash": defs[8],
-		".md": defs[9], ".markdown": defs[9],
+		".hcl": defs[9], ".tf": defs[9], ".tfvars": defs[9],
+		".md": defs[10], ".markdown": defs[10],
 	}
 	langByName = make(map[string]*LangDef, len(defs))
 	for _, d := range defs {
