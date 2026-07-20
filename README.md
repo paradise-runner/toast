@@ -14,7 +14,7 @@ A lightweight, in-terminal IDE for quick file edits. Toast runs entirely in your
 
 > ⚠️ This project is in _early development_, you may encounter bugs. ⚠️
 
-<img src="toast-example.png" alt="toast logo" width="800" style="border-radius: 12px; display: block; margin: 20px 0;">
+<img src="toast-demo.gif" alt="toast logo" width="800" style="border-radius: 12px; display: block; margin: 20px 0;">
 
 
 ## Features
