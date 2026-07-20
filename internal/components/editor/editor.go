@@ -89,9 +89,12 @@ type Model struct {
 	wrapMode    bool
 	highlighter *syntax.Highlighter
 
-	// wrap-mode visual row cache: visualRowCache[i] = total visual rows for lines 0..i-1.
-	// Rebuilt lazily whenever buf.Generation() or wrapWidth() changes.
+	// wrap-mode caches, rebuilt lazily whenever buf.Generation() or
+	// wrapWidth() changes (i.e. only on edits / resize, never on cursor moves).
+	// visualRowCache[i] = total visual rows for lines 0..i-1 (prefix sum).
+	// chunkCache[l] = cached word-wrap chunk start offsets for line l.
 	visualRowCache []int
+	chunkCache     [][]int
 	wrapCacheGen   int
 	wrapCacheWidth int
 }
@@ -429,6 +432,7 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.mouseDragging = false
 	m.completion.hide()
 	m.visualRowCache = nil
+	m.chunkCache = nil
 	m.wrapCacheGen = 0
 	m.wrapCacheWidth = 0
 }

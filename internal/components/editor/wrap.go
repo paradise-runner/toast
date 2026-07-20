@@ -1,5 +1,29 @@
 package editor
 
+import (
+	"strings"
+	"unicode/utf8"
+)
+
+// nonWrapChunks is the immutable single chunk returned by lineChunks in
+// non-wrap mode. Callers only read it, so a shared slice avoids an allocation
+// on every cursor movement.
+var nonWrapChunks = []int{0}
+
+// splitLines splits full into its component lines (without trailing newlines).
+// A trailing newline does not produce an empty final element, matching
+// EditBuffer.LineCount semantics.
+func splitLines(full string) []string {
+	if len(full) == 0 {
+		return nil
+	}
+	lines := strings.Split(full, "\n")
+	if full[len(full)-1] == '\n' {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
 // wrapWidth returns the number of content columns available for wrapped lines.
 // Returns at least 1 to avoid division by zero.
 func (m *Model) wrapWidth() int {
@@ -10,34 +34,54 @@ func (m *Model) wrapWidth() int {
 	return w
 }
 
-// ensureWrapCache rebuilds visualRowCache if the buffer or wrap width has
-// changed since the last build. visualRowCache[i] holds the total number of
-// visual rows occupied by buffer lines 0..i-1 (a prefix-sum array), so
-// visualRowCache[0] == 0 and visualRowCache[lineCount] == total visual rows.
+// ensureWrapCache rebuilds visualRowCache and chunkCache if the buffer or wrap
+// width has changed since the last build.
 //
-// After this call all callers can do O(1) lookups instead of O(n) scans.
+// visualRowCache[i] holds the total number of visual rows occupied by buffer
+// lines 0..i-1 (a prefix-sum array), so visualRowCache[0] == 0 and
+// visualRowCache[lineCount] == total visual rows. chunkCache[l] holds the
+// cached word-wrap chunk start offsets for line l.
+//
+// Both caches are rebuilt in a single O(total) pass over the buffer text via
+// buf.String(), rather than calling LineAt per line — which would be
+// O(lineCount × total) because each LineAt rebuilds the whole rope string.
+// After this call, lineChunks and visual-row lookups are O(1).
+//
+// Cache validity is keyed on buf.Generation() (bumped on every edit) plus the
+// wrap width; cursor-only moves never trigger a rebuild.
 func (m *Model) ensureWrapCache() {
 	if !m.wrapMode {
 		m.visualRowCache = nil
+		m.chunkCache = nil
 		return
 	}
-	lineCount := m.buf.LineCount()
 	gen := m.buf.Generation()
 	w := m.wrapWidth()
-	if m.visualRowCache != nil &&
-		len(m.visualRowCache) == lineCount+1 &&
-		m.wrapCacheGen == gen &&
-		m.wrapCacheWidth == w {
+	if m.visualRowCache != nil && m.chunkCache != nil &&
+		m.wrapCacheGen == gen && m.wrapCacheWidth == w {
 		return // still valid
 	}
+
+	rawLines := splitLines(m.buf.String())
+	lineCount := len(rawLines)
+
 	if cap(m.visualRowCache) >= lineCount+1 {
 		m.visualRowCache = m.visualRowCache[:lineCount+1]
 	} else {
 		m.visualRowCache = make([]int, lineCount+1)
 	}
+	if cap(m.chunkCache) >= lineCount {
+		m.chunkCache = m.chunkCache[:lineCount]
+	} else {
+		m.chunkCache = make([][]int, lineCount)
+	}
+
 	m.visualRowCache[0] = 0
-	for l := 0; l < lineCount; l++ {
-		m.visualRowCache[l+1] = m.visualRowCache[l] + len(m.lineChunks(l))
+	tw := m.cfg.Editor.TabWidth
+	for l, raw := range rawLines {
+		chunks := wordWrapChunksWithTabWidth(raw, w, tw)
+		m.chunkCache[l] = chunks
+		m.visualRowCache[l+1] = m.visualRowCache[l] + len(chunks)
 	}
 	m.wrapCacheGen = gen
 	m.wrapCacheWidth = w
@@ -91,43 +135,63 @@ func wordWrapChunks(line string, width int) []int {
 	return wordWrapChunksWithTabWidth(line, width, defaultTabWidth)
 }
 
+// wordWrapChunksWithTabWidth returns the byte offsets of the start of each
+// visual chunk when line is broken at word boundaries with the given column
+// width. Breaking occurs at the last ASCII space before the width limit; if no
+// space exists in the chunk, the break falls back to the column boundary.
+//
+// The implementation is O(len(line)): it precomputes each rune boundary's
+// absolute display column in a single forward pass, then walks boundaries with
+// O(1) width lookups. It never re-decodes the line from byte 0 and avoids the
+// per-rune string allocation (`len(string(r))`) of the previous version, which
+// made it O(n²) in the line length with one allocation per rune.
+//
+// Display columns are absolute (tab stops computed from byte 0 of the line),
+// matching displayColumnAtByte and the rendering path so that wrap chunks and
+// rendered tab expansion stay consistent.
 func wordWrapChunksWithTabWidth(line string, width, tabWidth int) []int {
+	// offs[k] = byte offset of the k-th rune; offs[total] == len(line).
+	// cols[k] = absolute display column (tab-expanded) at byte offs[k].
+	offs := make([]int, 1, len(line)+1)
+	cols := make([]int, 1, len(line)+1)
+	absCol := 0
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		absCol = nextDisplayColumn(absCol, r, tabWidth)
+		i += size
+		offs = append(offs, i)
+		cols = append(cols, absCol)
+	}
+	total := len(offs) - 1 // number of runes
+
 	chunks := []int{0}
-	start := 0
-	for start < len(line) && displayWidthForByteRange(line, start, len(line), tabWidth) > width {
-		end := start
-		lastSpaceEnd := -1
-		for i, r := range line[start:] {
-			next := start + i + len(string(r))
-			if displayWidthForByteRange(line, start, next, tabWidth) > width {
+	startIdx := 0
+	for startIdx < total && cols[total]-cols[startIdx] > width {
+		endIdx := startIdx
+		lastSpaceIdx := -1
+		for k := startIdx; k < total; k++ {
+			if cols[k+1]-cols[startIdx] > width {
 				break
 			}
-			end = next
-			if r == ' ' {
-				lastSpaceEnd = next
+			endIdx = k + 1
+			// rune k is an ASCII space iff its first byte is 0x20.
+			if line[offs[k]] == ' ' {
+				lastSpaceIdx = k + 1
 			}
 		}
-		if lastSpaceEnd > start {
-			chunks = append(chunks, lastSpaceEnd)
-			start = lastSpaceEnd
-			continue
+		var breakIdx int
+		switch {
+		case lastSpaceIdx > startIdx:
+			breakIdx = lastSpaceIdx
+		case endIdx > startIdx:
+			breakIdx = endIdx
+		default:
+			// A single rune is wider than width: force-break after it so the
+			// chunk always advances at least one rune.
+			breakIdx = startIdx + 1
 		}
-		if end > start {
-			chunks = append(chunks, end)
-			start = end
-			continue
-		}
-		for i := range line[start:] {
-			if i > 0 {
-				end = start + i
-				break
-			}
-		}
-		if end <= start {
-			end = len(line)
-		}
-		chunks = append(chunks, end)
-		start = end
+		chunks = append(chunks, offs[breakIdx])
+		startIdx = breakIdx
 	}
 	return chunks
 }
@@ -144,11 +208,21 @@ func chunkContaining(chunks []int, byteOffset int) int {
 }
 
 // lineChunks returns the word-wrap chunk start offsets for buffer line bufLine.
-// In non-wrap mode it always returns [0] (single chunk).
+// In non-wrap mode it returns nonWrapChunks (a shared, immutable single chunk).
+// In wrap mode the result is served from chunkCache after ensureWrapCache runs,
+// so repeated calls are O(1) and never recompute the wrap.
+//
+// Callers must treat the returned slice as read-only.
 func (m *Model) lineChunks(bufLine int) []int {
 	if !m.wrapMode {
-		return []int{0}
+		return nonWrapChunks
 	}
+	m.ensureWrapCache()
+	if bufLine >= 0 && bufLine < len(m.chunkCache) {
+		return m.chunkCache[bufLine]
+	}
+	// Fallback for an out-of-range line (e.g. an empty buffer): compute the
+	// chunks directly without touching the cache.
 	raw := m.buf.LineAt(bufLine)
 	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
 		raw = raw[:len(raw)-1]

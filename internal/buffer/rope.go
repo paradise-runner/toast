@@ -75,6 +75,142 @@ func nodeString(n *ropeNode) string {
 	return b.String()
 }
 
+// nodeLength returns n.length handling nil.
+func nodeLength(n *ropeNode) int {
+	if n == nil {
+		return 0
+	}
+	return n.length
+}
+
+// byteAt returns the byte at the given absolute byte offset (relative to the
+// subtree rooted at n) by descending the tree in O(log n). Returns 0 for an
+// out-of-range offset (which is a valid byte value only for empty content;
+// callers guard against empty trees before relying on the result).
+func byteAt(n *ropeNode, offset int) byte {
+	for n != nil {
+		if n.isLeaf() {
+			if offset >= 0 && offset < len(n.text) {
+				return n.text[offset]
+			}
+			return 0
+		}
+		leftLen := nodeLength(n.left)
+		if offset < leftLen {
+			n = n.left
+		} else {
+			offset -= leftLen
+			n = n.right
+		}
+	}
+	return 0
+}
+
+// collectSubstring appends the bytes of subtree n in the byte range [start, end)
+// (offsets relative to n) to buf. It descends only the subtrees that intersect
+// the requested range, so it is O(log n + (end-start)).
+func collectSubstring(n *ropeNode, start, end int, buf *strings.Builder) {
+	if n == nil || start >= end || start >= n.length || end <= 0 {
+		return
+	}
+	if n.isLeaf() {
+		if start < 0 {
+			start = 0
+		}
+		if end > n.length {
+			end = n.length
+		}
+		buf.WriteString(n.text[start:end])
+		return
+	}
+	leftLen := nodeLength(n.left)
+	if start < leftLen {
+		collectSubstring(n.left, start, min(end, leftLen), buf)
+	}
+	if end > leftLen {
+		rs := start - leftLen
+		if rs < 0 {
+			rs = 0
+		}
+		collectSubstring(n.right, rs, end-leftLen, buf)
+	}
+}
+
+// indexByteFrom returns the absolute byte offset (relative to subtree n) of
+// the first '\n' at or after offset, or -1 if none. Descends in O(log n + the
+// distance to the next newline within the leaf), matching strings.IndexByte on
+// a single concatenated string without materializing it.
+func indexByteFrom(n *ropeNode, offset int) int {
+	if n == nil || offset >= n.length {
+		return -1
+	}
+	if n.isLeaf() {
+		if offset < 0 {
+			offset = 0
+		}
+		if idx := strings.IndexByte(n.text[offset:], '\n'); idx >= 0 {
+			return offset + idx
+		}
+		return -1
+	}
+	leftLen := nodeLength(n.left)
+	if offset < leftLen {
+		if idx := indexByteFrom(n.left, offset); idx >= 0 {
+			return idx
+		}
+	}
+	rs := offset - leftLen
+	if rs < 0 {
+		rs = 0
+	}
+	if idx := indexByteFrom(n.right, rs); idx >= 0 {
+		return leftLen + idx
+	}
+	return -1
+}
+
+// countNewlinesBefore returns the number of '\n' bytes in subtree n within the
+// byte range [0, offset) (offset relative to n). Uses cached lineCount on
+// internal nodes, so it is O(log n + leafSize).
+func countNewlinesBefore(n *ropeNode, offset int) int {
+	if n == nil || offset <= 0 {
+		return 0
+	}
+	if offset > n.length {
+		offset = n.length
+	}
+	if n.isLeaf() {
+		return strings.Count(n.text[:offset], "\n")
+	}
+	leftLen := nodeLength(n.left)
+	if offset <= leftLen {
+		return countNewlinesBefore(n.left, offset)
+	}
+	return n.left.lineCount + countNewlinesBefore(n.right, offset-leftLen)
+}
+
+// lastNewlineBefore returns the absolute byte offset (relative to subtree n) of
+// the last '\n' strictly before offset, or -1 if none. O(log n + leafSize).
+func lastNewlineBefore(n *ropeNode, offset int) int {
+	if n == nil || offset <= 0 {
+		return -1
+	}
+	if n.isLeaf() {
+		if offset > n.length {
+			offset = n.length
+		}
+		return strings.LastIndexByte(n.text[:offset], '\n')
+	}
+	leftLen := nodeLength(n.left)
+	if offset <= leftLen {
+		return lastNewlineBefore(n.left, offset)
+	}
+	if idx := lastNewlineBefore(n.right, offset-leftLen); idx >= 0 {
+		return leftLen + idx
+	}
+	return lastNewlineBefore(n.left, leftLen)
+}
+
 // splitAt splits the subtree rooted at n at byte offset i.
 // Returns (left, right) where left contains bytes [0,i) and right contains [i,length).
 func splitAt(n *ropeNode, i int) (*ropeNode, *ropeNode) {
@@ -146,24 +282,34 @@ func (r *Rope) Len() int {
 //	"one\n"         -> 1  (one complete line)
 //	"one\ntwo\n"    -> 2
 //	"one\ntwo\nthree" -> 3 (two complete + one partial)
+//
+// LineCount returns the logical number of lines for the rope's content.
+// This matches the test expectations:
+//
+//	""                -> 0
+//	"no newline"      -> 1  (partial line)
+//	"one\n"           -> 1  (one complete line)
+//	"one\ntwo\n"      -> 2
+//	"one\ntwo\nthree" -> 3 (two complete + one partial)
+//
+// This used to call nodeString(root) just to inspect the final byte,
+// materializing the entire buffer string on every call. It now inspects the
+// final byte in O(log n) via byteAt, so callers that poll LineCount on every
+// cursor movement no longer pay O(total bytes) per query.
 func (r *Rope) LineCount() int {
-	if r.root == nil {
+	if r.root == nil || r.root.length == 0 {
 		return 0
 	}
 	newlines := r.root.lineCount
 	if newlines == 0 {
 		// Non-empty content with no newlines: one partial line.
-		if r.root.length > 0 {
-			return 1
-		}
-		return 0
+		return 1
 	}
-	s := nodeString(r.root)
-	if len(s) > 0 && s[len(s)-1] != '\n' {
-		// Trailing partial line.
-		return newlines + 1
+	// A trailing partial line exists iff the final byte is not a newline.
+	if byteAt(r.root, r.root.length-1) == '\n' {
+		return newlines
 	}
-	return newlines
+	return newlines + 1
 }
 
 // String returns the full content of the rope as a string.
@@ -188,23 +334,43 @@ func (r *Rope) Delete(start, end int) {
 
 // Slice returns the substring of the rope between byte offsets [start, end).
 func (r *Rope) Slice(start, end int) string {
-	_, right := splitAt(r.root, start)
-	left, _ := splitAt(right, end-start)
-	return nodeString(left)
+	total := r.Len()
+	if start < 0 {
+		start = 0
+	}
+	if end > total {
+		end = total
+	}
+	if start >= end {
+		return ""
+	}
+	var buf strings.Builder
+	buf.Grow(end - start)
+	collectSubstring(r.root, start, end, &buf)
+	return buf.String()
 }
 
 // LineAt returns the full text of the given zero-based line, including its newline (if any).
 func (r *Rope) LineAt(line int) string {
-	start := r.OffsetForLine(line)
-	s := nodeString(r.root)
-	if start >= len(s) {
+	total := r.Len()
+	if total == 0 {
 		return ""
 	}
-	end := strings.IndexByte(s[start:], '\n')
-	if end == -1 {
-		return s[start:]
+	start := r.OffsetForLine(line)
+	if start < 0 {
+		start = 0
 	}
-	return s[start : start+end+1]
+	if start >= total {
+		return ""
+	}
+	end := total
+	if nl := indexByteFrom(r.root, start); nl >= 0 {
+		end = nl + 1 // include the newline
+	}
+	var buf strings.Builder
+	buf.Grow(end - start)
+	collectSubstring(r.root, start, end, &buf)
+	return buf.String()
 }
 
 // OffsetForLine returns the byte offset of the start of the given zero-based line.
@@ -253,14 +419,19 @@ func offsetForLine(n *ropeNode, targetLine int) int {
 
 // LineColForOffset returns the zero-based line and column for a given byte offset.
 func (r *Rope) LineColForOffset(offset int) (line, col int) {
-	s := nodeString(r.root)
-	if offset > len(s) {
-		offset = len(s)
+	total := r.Len()
+	if total == 0 {
+		return 0, 0
 	}
-	sub := s[:offset]
-	line = strings.Count(sub, "\n")
-	lastNL := strings.LastIndexByte(sub, '\n')
-	if lastNL == -1 {
+	if offset > total {
+		offset = total
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	line = countNewlinesBefore(r.root, offset)
+	lastNL := lastNewlineBefore(r.root, offset)
+	if lastNL < 0 {
 		col = offset
 	} else {
 		col = offset - lastNL - 1
