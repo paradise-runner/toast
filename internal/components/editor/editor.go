@@ -161,11 +161,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, _, active := m.selectionRange(); active {
 				m.deleteSelection()
 			}
+			text := normalizePasteText(msg.Content)
 			offset := m.cursorOffset()
-			m.buf.Insert(offset, msg.Content)
-			lines := strings.Split(msg.Content, "\n")
+			m.buf.Insert(offset, text)
+			lines := strings.Split(text, "\n")
 			if len(lines) == 1 {
-				m.cursor.col += len(msg.Content)
+				m.cursor.col += len(text)
 			} else {
 				m.cursor.line += len(lines) - 1
 				m.cursor.col = len(lines[len(lines)-1])
@@ -304,6 +305,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // openFile reads a file asynchronously and returns a fileLoadedMsg.
+// normalizePasteText converts CRLF and lone CR line endings in pasted text
+// to LF. VTE-based terminals on Linux (GNOME Terminal, etc.) deliver
+// bracketed-paste content with newlines encoded as CR, which would otherwise
+// end up embedded in the buffer and corrupt rendering (a raw CR in a
+// rendered line acts as a carriage return, overwriting the row from
+// column 0).
+func normalizePasteText(s string) string {
+	if !strings.ContainsRune(s, '\r') {
+		return s
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
+}
+
 func openFile(bufferID int, path string) tea.Cmd {
 	return func() tea.Msg {
 		data, err := os.ReadFile(path)
@@ -539,7 +554,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case 'v':
-			text := clipboard.Paste()
+			text := normalizePasteText(clipboard.Paste())
 			if text != "" {
 				if _, _, active := m.selectionRange(); active {
 					m.deleteSelection()
@@ -790,7 +805,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.deleteSelection()
 		}
 	case "ctrl+v":
-		text := clipboard.Paste()
+		text := normalizePasteText(clipboard.Paste())
 		if text != "" {
 			if _, _, active := m.selectionRange(); active {
 				m.deleteSelection()
