@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/yourusername/toast/internal/messages"
@@ -25,6 +26,25 @@ type Client struct {
 	nextID   int
 	pending  map[int]chan json.RawMessage
 	send     func(tea.Msg)
+
+	// Outgoing message queue, drained by writeLoop. All writes to stdin go
+	// through the queue so that callers on the UI goroutine never block on a
+	// slow or stalled language server's pipe. Writes are serialised in queue
+	// order, preserving JSON-RPC notification ordering (important for
+	// textDocument/didOpen, didChange, didClose sequencing).
+	wqMu     sync.Mutex
+	wqCond   *sync.Cond
+	wq       []outJob
+	wqErr    error // sticky write error; once set, no more writes are attempted
+	wqClosed bool  // set by Shutdown to stop writeLoop after it drains the queue
+}
+
+// outJob is a single queued outgoing write. If done is non-nil the job is a
+// flush sentinel: writeLoop closes done once all previously queued jobs (and
+// this one) have been written, without writing anything itself.
+type outJob struct {
+	body []byte
+	done chan struct{}
 }
 
 // NewClient starts the language server subprocess and returns a ready Client.
@@ -55,8 +75,10 @@ func NewClient(language, command string, args []string, send func(tea.Msg)) (*Cl
 		pending:  make(map[int]chan json.RawMessage),
 		send:     send,
 	}
+	c.wqCond = sync.NewCond(&c.wqMu)
 
 	go c.readLoop()
+	go c.writeLoop()
 
 	return c, nil
 }
@@ -341,16 +363,27 @@ func parseDefinitionLocation(raw json.RawMessage) (Location, bool) {
 }
 
 // Shutdown sends a shutdown request and an exit notification, then waits for the process.
+//
+// The shutdown request is given a short timeout so a hung language server
+// cannot block application exit; the exit notification and stdin close only
+// happen after the writer goroutine has flushed all queued messages.
 func (c *Client) Shutdown() error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if _, err := c.call(ctx, "shutdown", nil); err != nil {
-		// Best-effort: still attempt exit.
+		// Best-effort: still attempt exit, then flush and tear down.
 		_ = c.notify("exit", nil)
+		c.flushWrites()
+		c.stopWrites()
+		_ = c.stdin.Close()
+		_ = c.cmd.Wait()
 		return fmt.Errorf("lsp: shutdown: %w", err)
 	}
 	if err := c.notify("exit", nil); err != nil {
 		return fmt.Errorf("lsp: exit: %w", err)
 	}
+	c.flushWrites() // ensure the queued exit notification reaches the server
+	c.stopWrites()  // tell writeLoop to exit once the queue is empty
 	_ = c.stdin.Close()
 	_ = c.cmd.Wait()
 	return nil
@@ -399,18 +432,116 @@ func (c *Client) notify(method string, params interface{}) error {
 	return c.writeMessage(msg)
 }
 
-// writeMessage serialises v as JSON and writes it with a Content-Length header.
+// writeMessage serialises v as JSON and enqueues it for the writer goroutine.
+//
+// It never blocks on the server's stdin pipe: marshalling happens inline, and
+// the framed message is appended to an unbounded queue serviced by writeLoop.
+// This keeps the UI goroutine responsive even when a language server is slow
+// to read its input (e.g. busy computing diagnostics) or its pipe buffer is
+// full, which previously froze the whole editor. Ordering is preserved because
+// writeLoop is the sole writer.
 func (c *Client) writeMessage(v interface{}) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("lsp: marshal: %w", err)
 	}
+	c.enqueueWrite(outJob{body: body})
+	return nil
+}
 
+// enqueueWrite appends a job to the outgoing queue. Unbounded, so it cannot
+// block the caller; backpressure is absorbed by the queue and applied only
+// inside writeLoop (off the UI goroutine).
+func (c *Client) enqueueWrite(job outJob) bool {
+	c.wqMu.Lock()
+	if c.wqClosed || c.wqErr != nil {
+		c.wqMu.Unlock()
+		return false
+	}
+	c.wq = append(c.wq, job)
+	c.wqCond.Signal()
+	c.wqMu.Unlock()
+	return true
+}
+
+// flushWrites blocks until the writer goroutine has flushed every job enqueued
+// so far. Used by Shutdown to guarantee the exit notification reaches the
+// server before stdin is closed.
+func (c *Client) flushWrites() {
+	done := make(chan struct{})
+	c.wqMu.Lock()
+	if c.wqErr != nil {
+		c.wqMu.Unlock()
+		return
+	}
+	c.wq = append(c.wq, outJob{done: done})
+	c.wqCond.Signal()
+	c.wqMu.Unlock()
+	<-done
+}
+
+// stopWrites marks the writer for shutdown: after the queue drains, writeLoop
+// exits. New enqueueWrite calls after this return false.
+func (c *Client) stopWrites() {
+	c.wqMu.Lock()
+	c.wqClosed = true
+	c.wqCond.Signal()
+	c.wqMu.Unlock()
+}
+
+// writeLoop is the sole goroutine that writes framed messages to the server's
+// stdin. It services outJob jobs in FIFO order. On a write error it records
+// the sticky error, drains remaining jobs (signalling their flush dones),
+// and unblocks any callers waiting on responses that will never arrive.
+func (c *Client) writeLoop() {
+	for {
+		c.wqMu.Lock()
+		for len(c.wq) == 0 && c.wqErr == nil && !c.wqClosed {
+			c.wqCond.Wait()
+		}
+		if c.wqErr != nil {
+			// Drain remaining jobs without writing; signal flush dones.
+			remaining := c.wq
+			c.wq = nil
+			c.wqMu.Unlock()
+			for _, job := range remaining {
+				if job.done != nil {
+					close(job.done)
+				}
+			}
+			return
+		}
+		batch := c.wq
+		c.wq = nil
+		closed := c.wqClosed
+		c.wqMu.Unlock()
+
+		for _, job := range batch {
+			if job.done != nil {
+				close(job.done)
+				continue
+			}
+			if err := c.writeRaw(job.body); err != nil {
+				c.failWrites(err)
+				return
+			}
+		}
+
+		if closed {
+			c.wqMu.Lock()
+			empty := len(c.wq) == 0
+			c.wqMu.Unlock()
+			if empty {
+				return
+			}
+		}
+	}
+}
+
+// writeRaw frames body with a Content-Length header and writes it to stdin.
+// Must only be called from writeLoop.
+func (c *Client) writeRaw(body []byte) error {
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if _, err := io.WriteString(c.stdin, header); err != nil {
 		return fmt.Errorf("lsp: write header: %w", err)
 	}
@@ -418,6 +549,37 @@ func (c *Client) writeMessage(v interface{}) error {
 		return fmt.Errorf("lsp: write body: %w", err)
 	}
 	return nil
+}
+
+// failWrites records a sticky write error, drops the remaining queue (signalling
+// any flush dones), and unblocks callers waiting in call() on responses that
+// will never arrive. The read loop will separately surface the server crash
+// (stdout closes) so we do not send a status message here to avoid duplicates.
+func (c *Client) failWrites(err error) {
+	c.wqMu.Lock()
+	c.wqErr = err
+	c.wqClosed = true
+	remaining := c.wq
+	c.wq = nil
+	c.wqMu.Unlock()
+
+	for _, job := range remaining {
+		if job.done != nil {
+			close(job.done)
+		}
+	}
+
+	// Unblock goroutines blocked in call(): deliver a nil result to each.
+	c.mu.Lock()
+	for id, ch := range c.pending {
+		select {
+		case ch <- nil:
+		default:
+			// Channel already has a (real) response buffered; leave it.
+		}
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
 }
 
 // readLoop continuously reads messages from the server until the connection closes.

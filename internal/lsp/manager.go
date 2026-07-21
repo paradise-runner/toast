@@ -194,7 +194,11 @@ func (m *Manager) DidOpen(path, language, text string) {
 		_ = client.DidOpen(path, languageID, text)
 		return
 	}
-	m.EnsureServer(language)
+	// No running server yet: the document is already recorded above, so start
+	// the server asynchronously. EnsureServer blocks on Initialize (a
+	// request/response round-trip that can hang on a slow server), so it must
+	// never run on the UI goroutine.
+	go m.EnsureServer(language)
 }
 
 func languageIDForPath(path, language string, cmd config.LSPCmd) string {
