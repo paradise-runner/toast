@@ -201,3 +201,104 @@ func TestPasteIgnoredWhenClosed(t *testing.T) {
 		t.Fatalf("expected no command when closed, got %T", cmd())
 	}
 }
+
+// ── Word / line deletion ────────────────────────────────────────────────────
+
+func TestCtrlUDeletesToStart(t *testing.T) {
+	m := New(nil).Open("hello world")
+	m.find.cursor = 6 // after 'hello '
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	m = updated
+
+	if m.Query() != "world" {
+		t.Fatalf("query = %q, want %q", m.Query(), "world")
+	}
+	if m.find.cursor != 0 {
+		t.Fatalf("cursor = %d, want 0", m.find.cursor)
+	}
+}
+
+func TestCtrlKDeletesToEnd(t *testing.T) {
+	m := New(nil).Open("hello world")
+	m.find.cursor = 6 // after 'hello '
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = updated
+
+	if m.Query() != "hello " {
+		t.Fatalf("query = %q, want %q", m.Query(), "hello ")
+	}
+}
+
+func TestDeleteWordBackward(t *testing.T) {
+	m := New(nil).Open("hello world")
+	m.find.cursor = 11 // end
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	m = updated
+
+	if m.Query() != "hello " {
+		t.Fatalf("query = %q, want %q", m.Query(), "hello ")
+	}
+}
+
+func TestDeleteWordBackwardWithPunctuation(t *testing.T) {
+	m := New(nil).Open("foo.bar baz")
+	m.find.cursor = 11 // end
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	m = updated
+
+	if m.Query() != "foo.bar " {
+		t.Fatalf("query = %q, want %q", m.Query(), "foo.bar ")
+	}
+}
+
+func TestDeleteWordForward(t *testing.T) {
+	m := New(nil).Open("hello world")
+	m.find.cursor = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt})
+	m = updated
+
+	if m.Query() != " world" {
+		t.Fatalf("query = %q, want %q", m.Query(), " world")
+	}
+}
+
+func TestDeleteWordForwardFromWhitespace(t *testing.T) {
+	m := New(nil).Open("hello world")
+	m.find.cursor = 5 // on the space
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt})
+	m = updated
+
+	if m.Query() != "hello" {
+		t.Fatalf("query = %q, want %q", m.Query(), "hello")
+	}
+}
+
+func TestDeleteWordBackwardAtStartIsNoop(t *testing.T) {
+	m := New(nil).Open("hello")
+	m.find.cursor = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	m = updated
+
+	if m.Query() != "hello" {
+		t.Fatalf("query = %q, want %q", m.Query(), "hello")
+	}
+}
+
+func TestDeleteWordForwardAtEndIsNoop(t *testing.T) {
+	m := New(nil).Open("hello")
+	m.find.cursor = 5
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt})
+	m = updated
+
+	if m.Query() != "hello" {
+		t.Fatalf("query = %q, want %q", m.Query(), "hello")
+	}
+}

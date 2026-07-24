@@ -4,6 +4,7 @@ package findreplace
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -67,8 +68,60 @@ func (t *textInput) insert(text string) {
 	t.cursor += len(in)
 }
 
+// deleteWordBackward deletes from the cursor back to the start of the
+// previous word. Word boundaries follow isWordChar: letters, digits,
+// underscore. Returns true when text was deleted.
+func (t *textInput) deleteWordBackward() bool {
+	if t.cursor == 0 {
+		return false
+	}
+	runes := []rune(t.value)
+	pos := t.cursor
+	// skip trailing non-word chars
+	for pos > 0 && !isWordChar(runes[pos-1]) {
+		pos--
+	}
+	// skip word chars
+	for pos > 0 && isWordChar(runes[pos-1]) {
+		pos--
+	}
+	if pos == t.cursor {
+		return false
+	}
+	t.value = string(runes[:pos]) + string(runes[t.cursor:])
+	t.cursor = pos
+	return true
+}
+
+// deleteWordForward deletes from the cursor forward to the end of the
+// current word (readline / alt+d style). If the cursor sits on non-word
+// characters those are skipped first, then the following word is deleted.
+// Returns true when text was deleted.
+func (t *textInput) deleteWordForward() bool {
+	runes := []rune(t.value)
+	if t.cursor >= len(runes) {
+		return false
+	}
+	pos := t.cursor
+	// If cursor is on a non-word char, skip non-word chars first.
+	if !isWordChar(runes[pos]) {
+		for pos < len(runes) && !isWordChar(runes[pos]) {
+			pos++
+		}
+	}
+	// Skip word chars.
+	for pos < len(runes) && isWordChar(runes[pos]) {
+		pos++
+	}
+	if pos == t.cursor {
+		return false
+	}
+	t.value = string(runes[:t.cursor]) + string(runes[pos:])
+	return true
+}
+
 func (t *textInput) handleKey(msg tea.KeyPressMsg) bool {
-	if msg.Mod.Contains(tea.ModAlt) || msg.Mod.Contains(tea.ModCtrl) || msg.Mod.Contains(tea.ModSuper) {
+	if msg.Mod.Contains(tea.ModSuper) {
 		return false
 	}
 
@@ -95,10 +148,25 @@ func (t *textInput) handleKey(msg tea.KeyPressMsg) bool {
 		if t.cursor < len(runes) {
 			t.cursor++
 		}
-	case "home":
+	case "home", "ctrl+a":
 		t.cursor = 0
-	case "end":
+	case "end", "ctrl+e":
 		t.cursor = len(runes)
+	case "ctrl+u":
+		if t.cursor > 0 {
+			t.value = string(runes[t.cursor:])
+			t.cursor = 0
+			return true
+		}
+	case "ctrl+k":
+		if t.cursor < len(runes) {
+			t.value = string(runes[:t.cursor])
+			return true
+		}
+	case "ctrl+w", "ctrl+backspace", "alt+backspace":
+		return t.deleteWordBackward()
+	case "alt+d":
+		return t.deleteWordForward()
 	default:
 		if msg.Text == "" {
 			return false
@@ -349,6 +417,11 @@ func (m Model) replaceCurrentCmd() tea.Cmd {
 			WholeWord:   wholeWord,
 		}
 	}
+}
+
+// isWordChar returns true for letters, digits, and underscore.
+func isWordChar(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func (m Model) replaceAllCmd() tea.Cmd {
