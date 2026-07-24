@@ -35,7 +35,8 @@ func newSystemTheme(isDark bool) *Theme {
 			"diagnostic_info": "4", "diagnostic_hint": "2",
 			"completion_bg": "", "completion_fg": "", "completion_selected": "",
 			"hover_bg": "", "hover_fg": "", "hover_border": "",
-			"search_match_bg": "3", "search_match_fg": "0",
+			"find_replace_border": "",
+			"search_match_bg":     "3", "search_match_fg": "0",
 			"search_current_bg": "11", "search_current_fg": "0",
 		},
 		Syntax: systemSyntax(),
@@ -102,6 +103,7 @@ func (m *Manager) applySystemBaseColors() {
 	m.theme.UI["hover_bg"] = surface2
 	m.theme.UI["hover_fg"] = fg
 	m.theme.UI["hover_border"] = border
+	m.theme.UI["find_replace_border"] = muted
 }
 
 func systemSyntax() map[string]SyntaxStyle {

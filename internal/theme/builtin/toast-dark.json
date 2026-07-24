@@ -15,6 +15,7 @@
     "diagnostic_info": "#89b4fa", "diagnostic_hint": "#a6e3a1",
     "completion_bg": "#313244", "completion_fg": "#cdd6f4", "completion_selected": "#45475a",
     "hover_bg": "#313244", "hover_fg": "#cdd6f4", "hover_border": "#585b70",
+    "find_replace_border": "#cba6f7",
     "search_match_bg": "#f9e2af", "search_match_fg": "#1e1e2e",
     "search_current_bg": "#fab387", "search_current_fg": "#1e1e2e"
   },

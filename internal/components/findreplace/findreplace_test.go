@@ -126,3 +126,78 @@ func hasUnstyledSpaces(s string) bool {
 	}
 	return false
 }
+
+// ── Paste ────────────────────────────────────────────────────────────────────
+
+func TestPasteInsertsIntoFindField(t *testing.T) {
+	m := New(nil).Open("")
+
+	updated, cmd := m.Update(tea.PasteMsg{Content: "hello"})
+	m = updated
+
+	if m.Query() != "hello" {
+		t.Fatalf("query = %q, want %q", m.Query(), "hello")
+	}
+	if cmd == nil {
+		t.Fatal("expected query changed command for find field")
+	}
+	msg, ok := cmd().(messages.FindReplaceQueryChangedMsg)
+	if !ok {
+		t.Fatalf("expected FindReplaceQueryChangedMsg, got %T", cmd())
+	}
+	if msg.Query != "hello" {
+		t.Fatalf("msg.Query = %q, want %q", msg.Query, "hello")
+	}
+}
+
+func TestPasteInsertsIntoReplaceField(t *testing.T) {
+	m := New(nil).Open("")
+	m.focus = replaceField
+
+	updated, cmd := m.Update(tea.PasteMsg{Content: "world"})
+	m = updated
+
+	if m.Replacement() != "world" {
+		t.Fatalf("replacement = %q, want %q", m.Replacement(), "world")
+	}
+	if cmd != nil {
+		t.Fatalf("expected no command for replace field, got %T", cmd())
+	}
+}
+
+func TestPasteInsertsAtCursor(t *testing.T) {
+	m := New(nil).Open("ab")
+	m.find.cursor = 1
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "X"})
+	m = updated
+
+	if m.Query() != "aXb" {
+		t.Fatalf("query = %q, want %q", m.Query(), "aXb")
+	}
+}
+
+func TestPasteMultilineTakesFirstLine(t *testing.T) {
+	m := New(nil).Open("")
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "foo\nbar\nbaz"})
+	m = updated
+
+	if m.Query() != "foo" {
+		t.Fatalf("query = %q, want %q", m.Query(), "foo")
+	}
+}
+
+func TestPasteIgnoredWhenClosed(t *testing.T) {
+	m := New(nil)
+
+	updated, cmd := m.Update(tea.PasteMsg{Content: "hello"})
+	m = updated
+
+	if m.Query() != "" {
+		t.Fatalf("query = %q, want empty (closed)", m.Query())
+	}
+	if cmd != nil {
+		t.Fatalf("expected no command when closed, got %T", cmd())
+	}
+}

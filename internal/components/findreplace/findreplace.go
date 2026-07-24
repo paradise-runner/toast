@@ -45,6 +45,28 @@ func (t *textInput) SetValue(value string) {
 	t.cursor = len([]rune(value))
 }
 
+// insert inserts text at the cursor, collapsing multi-line input to the first
+// line since the field is single-line.
+func (t *textInput) insert(text string) {
+	if text == "" {
+		return
+	}
+	if idx := strings.IndexAny(text, "\n\r"); idx >= 0 {
+		text = text[:idx]
+	}
+	if text == "" {
+		return
+	}
+	runes := []rune(t.value)
+	in := []rune(text)
+	merged := make([]rune, 0, len(runes)+len(in))
+	merged = append(merged, runes[:t.cursor]...)
+	merged = append(merged, in...)
+	merged = append(merged, runes[t.cursor:]...)
+	t.value = string(merged)
+	t.cursor += len(in)
+}
+
 func (t *textInput) handleKey(msg tea.KeyPressMsg) bool {
 	if msg.Mod.Contains(tea.ModAlt) || msg.Mod.Contains(tea.ModCtrl) || msg.Mod.Contains(tea.ModSuper) {
 		return false
@@ -189,6 +211,27 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case messages.FindReplaceCloseMsg:
 		m.active = false
+
+	case tea.PasteMsg:
+		if !m.active {
+			break
+		}
+		text := msg.Content
+		if idx := strings.IndexAny(text, "\n\r"); idx >= 0 {
+			text = text[:idx]
+		}
+		if text == "" {
+			break
+		}
+		if m.focus == findField {
+			prev := m.find.Value()
+			m.find.insert(text)
+			if m.find.Value() != prev {
+				return m, m.queryChangedCmd()
+			}
+		} else {
+			m.replace.insert(text)
+		}
 
 	case tea.KeyPressMsg:
 		if !m.active {
@@ -378,7 +421,10 @@ func (m Model) View() string {
 		if fg == "" {
 			fg = m.theme.UI("foreground")
 		}
-		border = m.theme.UI("hover_border")
+		border = m.theme.UI("find_replace_border")
+		if border == "" {
+			border = m.theme.UI("hover_border")
+		}
 		muted = m.theme.UI("statusbar_fg")
 		selectedBG = m.theme.UI("sidebar_selected_bg")
 		selectedFG = m.theme.UI("sidebar_selected_fg")
@@ -430,8 +476,8 @@ func (m Model) View() string {
 
 	lines := []string{
 		base.Bold(true).Render(title) + base.Render(strings.Repeat(" ", headerPad)) + mutedStyle.Render(count),
-		base.Render("Find    ") + findStyle.Render(m.find.View(inputWidth, "find", m.focus == findField)),
-		base.Render("Replace ") + replaceStyle.Render(m.replace.View(inputWidth, "replace", m.focus == replaceField)),
+		base.Render("Find    ") + findStyle.Render(m.find.View(inputWidth, "", m.focus == findField)),
+		base.Render("Replace ") + replaceStyle.Render(m.replace.View(inputWidth, "", m.focus == replaceField)),
 		mutedStyle.Render(optionsLine(m.matchCase, m.wholeWord)),
 		mutedStyle.Render("Enter/down next  Up previous  Ctrl+R replace  Ctrl+Shift+R all  Esc close"),
 	}

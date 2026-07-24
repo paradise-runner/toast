@@ -177,7 +177,7 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		editor:     editor.New(tm, cfg),
 		statusBar:  statusbar.New(tm),
 		breadcrumb: breadcrumbs.New(tm, rootDir),
-		search:     search.New(tm, rootDir),
+		search:     search.New(tm, rootDir, cfg.Search),
 		preview:    preview.New(tm),
 	}, nil
 }
@@ -284,6 +284,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handleMouseWheel(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+	case tea.PasteMsg:
+		if m.findReplaceOpen {
+			updated, cmd := m.findReplace.Update(msg)
+			m.findReplace = updated
+			if !m.findReplace.IsOpen() {
+				m.findReplaceOpen = false
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else {
+			cmd := m.updateFocused(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	case messages.FileSelectedMsg:
