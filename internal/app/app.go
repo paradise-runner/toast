@@ -517,7 +517,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.LSPInstallStatusMsg:
-		m.lspInstall, _ = m.lspInstall.Update(msg)
+		var cmd tea.Cmd
+		m.lspInstall, cmd = m.lspInstall.Update(msg)
+		cmds = append(cmds, cmd)
+
+	case messages.LSPInstallTickMsg:
+		var cmd tea.Cmd
+		m.lspInstall, cmd = m.lspInstall.Update(msg)
+		cmds = append(cmds, cmd)
 
 	case messages.SearchOpenMsg:
 		m.openSearch()
@@ -573,7 +580,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messages.LSPServerStatusMsg:
 		m.updateStatusBar(msg)
-		m.lspInstall, _ = m.lspInstall.Update(msg)
+		var cmd tea.Cmd
+		m.lspInstall, cmd = m.lspInstall.Update(msg)
+		cmds = append(cmds, cmd)
 
 	case messages.FileSaveFailedMsg:
 		if m.isSavingPath == msg.Path {

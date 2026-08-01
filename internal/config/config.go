@@ -49,11 +49,25 @@ type LSPCmd struct {
 
 // LSPInstall describes an opt-in language-server installation. Placeholders
 // such as {install_dir} are expanded by the LSP manager at runtime.
+// LSPInstall describes an opt-in language-server installation: either a
+// Command run with Args/Env, or a Download of a prebuilt binary archive.
+// Placeholders such as {install_dir} are expanded by the LSP manager at
+// runtime.
 type LSPInstall struct {
-	Name    string            `json:"name,omitempty"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Env     map[string]string `json:"env,omitempty"`
+	Name     string            `json:"name,omitempty"`
+	Command  string            `json:"command,omitempty"`
+	Args     []string          `json:"args,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Download *LSPDownload      `json:"download,omitempty"`
+}
+
+// LSPDownload downloads and extracts a prebuilt language-server binary. The
+// archive must contain a single executable file at its root (a wrapping
+// top-level directory is tolerated); it is installed to {install_dir}/bin.
+// {target} expands to the platform's Rust target triple (see the LSP
+// manager), for releases that publish per-platform assets.
+type LSPDownload struct {
+	URL string `json:"url"`
 }
 
 type SearchConfig struct {
@@ -105,6 +119,17 @@ func Defaults() Config {
 				LanguageID:     "terraform",
 				ManagedCommand: "{install_dir}/bin/terraform-ls",
 				Install:        &LSPInstall{Name: "Terraform Language Server", Command: "go", Args: []string{"install", "github.com/hashicorp/terraform-ls@latest"}, Env: map[string]string{"GOBIN": "{install_dir}/bin"}},
+			},
+			"markdown": {
+				Command: "harper-ls", Args: []string{"--stdio"},
+				Extensions:     []string{".md", ".markdown", ".mdx", ".txt"},
+				ManagedCommand: "{install_dir}/bin/harper-ls",
+				// harper publishes prebuilt binaries on GitHub releases; the
+				// {target} placeholder expands to the platform's Rust triple.
+				Install: &LSPInstall{
+					Name:     "harper-ls",
+					Download: &LSPDownload{URL: "https://github.com/automattic/harper/releases/latest/download/harper-ls-{target}.tar.gz"},
+				},
 			},
 		},
 		Search:          SearchConfig{Command: "rg", Args: []string{"--json"}},
@@ -182,6 +207,18 @@ func (c *Config) normalize() {
 	// (e.g. only overriding "save") does not erase all other defaults.
 	defaults := Defaults()
 	c.Keybindings = defaults.Keybindings.Merge(c.Keybindings)
+
+	// Add built-in managed servers for languages the user's config does not
+	// mention, so newly shipped servers (e.g. harper for Markdown) reach
+	// existing configs without edits. An explicitly empty lsp object
+	// ("lsp": {}) remains the documented way to disable all language servers.
+	if len(c.LSP) > 0 {
+		for language, builtIn := range defaults.LSP {
+			if _, present := c.LSP[language]; !present {
+				c.LSP[language] = builtIn
+			}
+		}
+	}
 
 	// Preserve managed metadata when loading the older command/args-only shape.
 	// A custom command remains custom and is never assigned a default installer.

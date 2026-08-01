@@ -582,6 +582,20 @@ func (c *Client) failWrites(err error) {
 	c.mu.Unlock()
 }
 
+// respondToServerRequest answers a server-initiated JSON-RPC request with the
+// least information that keeps the server moving: an empty configuration array
+// for workspace/configuration and an explicit null result for everything else.
+// Responses are best-effort and never block the read loop.
+func (c *Client) respondToServerRequest(id int, method string) {
+	var result interface{}
+	if method == "workspace/configuration" {
+		result = []interface{}{}
+	} else {
+		result = json.RawMessage("null")
+	}
+	_ = c.writeMessage(ResponseMessage{JSONRPC: "2.0", ID: &id, Result: result})
+}
+
 // readLoop continuously reads messages from the server until the connection closes.
 func (c *Client) readLoop() {
 	for {
@@ -669,7 +683,14 @@ func (c *Client) dispatch(raw json.RawMessage) {
 			} else {
 				ch <- envelope.Result
 			}
+			return
 		}
+
+		// No pending request with this ID: it is a server-initiated request.
+		// Answer it so servers that await a response during initialization do
+		// not hang (harper-ls blocks on workspace/configuration and
+		// client/registerCapability in its initialized handler).
+		c.respondToServerRequest(*envelope.ID, envelope.Method)
 		return
 	}
 

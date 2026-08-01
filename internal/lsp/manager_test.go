@@ -2,6 +2,9 @@ package lsp
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -72,6 +75,27 @@ func TestLanguageIDForReactFiles(t *testing.T) {
 	}
 }
 
+func TestLanguageForPathDetectsMarkdown(t *testing.T) {
+	for _, path := range []string{"README.md", "notes.markdown", "docs/page.mdx", "notes.txt", "/tmp/x/README.MD"} {
+		if got := LanguageForPath(path); got != "markdown" {
+			t.Fatalf("LanguageForPath(%q) = %q, want markdown", path, got)
+		}
+	}
+}
+
+func TestLanguageIDForMarkdownAndPlainText(t *testing.T) {
+	if got := languageIDForPath("README.md", "markdown", config.LSPCmd{}); got != "markdown" {
+		t.Fatalf("md language id = %q", got)
+	}
+	if got := languageIDForPath("docs/page.mdx", "markdown", config.LSPCmd{}); got != "markdown" {
+		t.Fatalf("mdx language id = %q", got)
+	}
+	// harper-ls parses .txt with its plain-text parser, not the Markdown one.
+	if got := languageIDForPath("notes.txt", "markdown", config.LSPCmd{}); got != "plaintext" {
+		t.Fatalf("txt language id = %q, want plaintext", got)
+	}
+}
+
 func TestEnsureServerPromptsForConfiguredManagedInstall(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.LSP = map[string]config.LSPCmd{
@@ -138,5 +162,51 @@ func TestDidChangeTracksEveryFullDocumentVersion(t *testing.T) {
 	m.mu.Unlock()
 	if doc.version != 3 || doc.text != "three" {
 		t.Fatalf("unexpected tracked document: version=%d text=%q", doc.version, doc.text)
+	}
+}
+
+func TestInstallCapsVerboseFailureOutput(t *testing.T) {
+	// An installer that floods stdout with a megabyte of noise before failing.
+	installer := filepath.Join(t.TempDir(), "noisy-installer")
+	if err := os.WriteFile(installer, []byte("#!/bin/sh\nhead -c 1048576 /dev/zero | tr '\\0' 'x'\necho FAILED >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	cfg.LSP = map[string]config.LSPCmd{
+		"test": {
+			Command: "missing-server",
+			Install: &config.LSPInstall{Name: "Test LS", Command: installer},
+		},
+	}
+	var sent []tea.Msg
+	m := NewManager(cfg, t.TempDir(), func(msg tea.Msg) { sent = append(sent, msg) })
+	m.installRoot = t.TempDir()
+
+	m.Install("test")
+
+	if len(sent) != 2 {
+		t.Fatalf("expected running and failed statuses, got %d messages", len(sent))
+	}
+	status, ok := sent[1].(messages.LSPInstallStatusMsg)
+	if !ok || status.Status != messages.LSPInstallFailed {
+		t.Fatalf("expected failed status, got %#v", sent[1])
+	}
+	if len(status.Message) > maxInstallOutput+100 {
+		t.Fatalf("failure message not capped: %d bytes", len(status.Message))
+	}
+	if !strings.Contains(status.Message, "FAILED") {
+		t.Fatalf("failure message should keep the meaningful tail, got %q", status.Message)
+	}
+}
+
+func TestExpandTargetTriple(t *testing.T) {
+	m := NewManager(config.Defaults(), t.TempDir(), func(tea.Msg) {})
+	triple := rustTargetTriple()
+	if triple == "" {
+		t.Skip("platform has no prebuilt harper binary")
+	}
+	if got := m.expand("markdown", "https://example.com/harper-ls-{target}.tar.gz"); got != "https://example.com/harper-ls-"+triple+".tar.gz" {
+		t.Fatalf("expand({target}) = %q, want triple %q", got, triple)
 	}
 }

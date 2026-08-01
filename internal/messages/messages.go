@@ -254,6 +254,10 @@ type LSPInstallStatusMsg struct {
 	Message  string
 }
 
+// LSPInstallTickMsg advances the install-progress spinner while a managed
+// install is running.
+type LSPInstallTickMsg struct{}
+
 // LSPInstallStatus identifies the current managed installation phase.
 type LSPInstallStatus int
 

@@ -21,7 +21,8 @@ toast is a beatiful developer environment right in your terminal. nvim and emacs
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
 - **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, Markdown)
-- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, and TypeScript, with an extensible config for other languages
+- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, TypeScript, and Markdown (harper), with an extensible config for other languages
+- **Spell checking** — misspelled words in Markdown and plain-text files are underlined in the theme's diagnostic color via harper
 - **Go to definition** — hold `Ctrl` and hover to underline symbols with a target, then `Ctrl`-click to jump to the exact definition
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
 - **Project-wide search** powered by `rg` (ripgrep)
@@ -71,7 +72,7 @@ toast --help
 toast --version
 ```
 
-`rg` is required for project search. When a built-in language server is missing, Toast shows an install prompt in the lower-right corner. Managed installs use the language's standard toolchain (`go`, `npm`, or `rustup`) and only run after you accept the prompt. Toast also uses compatible servers already on your `$PATH`.
+`rg` is required for project search. When a built-in language server is missing, Toast shows an install prompt in the lower-right corner. Managed installs use the language's standard toolchain (`go`, `npm`, or `rustup`) or download a prebuilt binary (harper), and only run after you accept the prompt. Toast also uses compatible servers already on your `$PATH`.
 
 ## Keybindings
 
@@ -142,7 +143,7 @@ All default keybindings can be overridden with the `keybindings` object. Each ac
 
 Available actions: `quit`, `toggle_sidebar`, `save`, `new_file`, `close_tab`, `undo`, `redo`, `next_tab`, `prev_tab`, `search`, `find_replace`, `quick_open`, `go_to_line`, `go_to_definition`, `toggle_focus`, `markdown_preview`, `show_hover`, `trigger_completion`.
 
-Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, and TypeScript; set `"lsp": {}` to disable language servers. Each entry is extension-driven, so other languages can be added without changing Toast. A custom server already installed on `$PATH` only needs a command and its filename suffixes:
+Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, TypeScript, and Markdown; set `"lsp": {}` to disable all language servers. Entries in `lsp` override the managed default for that language, while unlisted managed languages keep their defaults — so a partial config never loses newly shipped servers. Each entry is extension-driven, so other languages can be added without changing Toast. A custom server already installed on `$PATH` only needs a command and its filename suffixes:
 
 ```json
 {
@@ -156,7 +157,7 @@ Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, and
 }
 ```
 
-For an opt-in managed custom server, add `managed_command` (the installed executable path) and an `install` recipe. Recipes support `{install_dir}`, `{install_root}`, `{root_dir}`, and `{home}` placeholders:
+For an opt-in managed custom server, add `managed_command` (the installed executable path) and an `install` recipe. Recipes support `{install_dir}`, `{install_root}`, `{root_dir}`, `{home}`, and `{target}` (the platform's Rust target triple, for per-platform prebuilt binaries) placeholders:
 
 ```json
 {
@@ -171,6 +172,27 @@ For an opt-in managed custom server, add `managed_command` (the installed execut
         "command": "example-package-manager",
         "args": ["install", "--bin-dir", "{install_dir}/bin", "example-language-server"],
         "env": {}
+      }
+    }
+  }
+}
+```
+
+Alternatively, an `install` recipe can download a prebuilt binary archive. The archive must contain a single executable file at its root (a wrapping top-level directory is tolerated); it is installed to `{install_dir}/bin`:
+
+```json
+{
+  "lsp": {
+    "example": {
+      "command": "example-language-server",
+      "args": ["--stdio"],
+      "extensions": [".example"],
+      "managed_command": "{install_dir}/bin/example-language-server",
+      "install": {
+        "name": "Example Language Server",
+        "download": {
+          "url": "https://github.com/org/example/releases/latest/download/example-ls-{target}.tar.gz"
+        }
       }
     }
   }

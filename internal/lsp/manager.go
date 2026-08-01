@@ -1,13 +1,20 @@
 package lsp
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -124,6 +131,11 @@ func (m *Manager) startClient(language, command string, lspCmd config.LSPCmd) {
 	m.send(messages.LSPServerStatusMsg{Language: language, Status: messages.LSPServerReady})
 }
 
+// maxInstallOutput caps how much installer output is shown in a failure
+// message. Installers (cargo, npm, …) can print megabytes on failure, and a
+// giant message would stall the install prompt's renderer.
+const maxInstallOutput = 4000
+
 // Install performs the configured opt-in managed installation, then starts the
 // server and replays any documents that were opened while it was unavailable.
 func (m *Manager) Install(language string) {
@@ -138,14 +150,36 @@ func (m *Manager) Install(language string) {
 	m.mu.Unlock()
 
 	m.send(messages.LSPInstallStatusMsg{Language: language, Status: messages.LSPInstallRunning})
-	installDir := m.installDir(language)
-	if err := os.MkdirAll(installDir, 0o755); err != nil {
-		m.installFailed(language, fmt.Errorf("create install directory: %w", err))
+
+	var err error
+	if install.Download != nil {
+		err = m.installFromDownload(language, install)
+	} else {
+		err = m.runInstallCommand(language, install)
+	}
+	if err != nil {
+		m.installFailed(language, fmt.Errorf("install %s: %w", install.Name, err))
 		return
 	}
+
+	m.mu.Lock()
+	m.installing[language] = false
+	m.prompted[language] = false
+	m.mu.Unlock()
+	m.send(messages.LSPInstallStatusMsg{Language: language, Status: messages.LSPInstallSucceeded})
+	m.EnsureServer(language)
+}
+
+// runInstallCommand executes a toolchain-based install recipe (e.g. `go
+// install`, `npm install --prefix …`) and returns a descriptive error,
+// including a capped tail of the installer's output, on failure.
+func (m *Manager) runInstallCommand(language string, install config.LSPInstall) error {
+	installDir := m.installDir(language)
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("create install directory: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Join(installDir, "bin"), 0o755); err != nil {
-		m.installFailed(language, fmt.Errorf("create binary directory: %w", err))
-		return
+		return fmt.Errorf("create binary directory: %w", err)
 	}
 
 	command := m.expand(language, install.Command)
@@ -161,19 +195,143 @@ func (m *Manager) Install(language string) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(output))
+		if len(detail) > maxInstallOutput {
+			detail = "…" + detail[len(detail)-maxInstallOutput:]
+		}
 		if detail != "" {
 			err = fmt.Errorf("%w: %s", err, detail)
 		}
-		m.installFailed(language, fmt.Errorf("install %s: %w", install.Name, err))
-		return
+		return err
+	}
+	return nil
+}
+
+// installFromDownload downloads a prebuilt binary archive and installs the
+// server executable into {install_dir}/bin. The archive must contain a single
+// executable file (a wrapping top-level directory is tolerated and stripped);
+// a GitHub-style {target} placeholder selects the platform's asset.
+func (m *Manager) installFromDownload(language string, install config.LSPInstall) error {
+	installDir := m.installDir(language)
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("create install directory: %w", err)
+	}
+	binDir := filepath.Join(installDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return fmt.Errorf("create binary directory: %w", err)
 	}
 
-	m.mu.Lock()
-	m.installing[language] = false
-	m.prompted[language] = false
-	m.mu.Unlock()
-	m.send(messages.LSPInstallStatusMsg{Language: language, Status: messages.LSPInstallSucceeded})
-	m.EnsureServer(language)
+	url := m.expand(language, install.Download.URL)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+	}
+	archivePath := filepath.Join(installDir, "download.archive")
+	out, err := os.Create(archivePath)
+	if err != nil {
+		return fmt.Errorf("create archive: %w", err)
+	}
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		out.Close()
+		os.Remove(archivePath)
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(archivePath)
+		return fmt.Errorf("close archive: %w", err)
+	}
+	defer os.Remove(archivePath)
+
+	archive, err := os.ReadFile(archivePath)
+	if err != nil {
+		return fmt.Errorf("read archive: %w", err)
+	}
+	entries, err := readArchiveEntries(archive)
+	if err != nil {
+		return fmt.Errorf("extract archive: %w", err)
+	}
+	exe, err := pickExecutable(entries)
+	if err != nil {
+		return err
+	}
+	binPath := filepath.Join(binDir, exe.name)
+	if err := os.WriteFile(binPath, exe.data, 0o755); err != nil {
+		return fmt.Errorf("write %s: %w", binPath, err)
+	}
+	return nil
+}
+
+// downloadEntry is one regular file found in a downloaded archive.
+type downloadEntry struct {
+	name  string // base name of the file
+	depth int    // path depth inside the archive
+	data  []byte
+}
+
+// readArchiveEntries reads the regular files of a .tar.gz archive.
+func readArchiveEntries(archive []byte) ([]downloadEntry, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	var entries []downloadEntry
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			continue
+		}
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, downloadEntry{
+			name:  filepath.Base(hdr.Name),
+			depth: strings.Count(hdr.Name, "/"),
+			data:  content,
+		})
+	}
+	return entries, nil
+}
+
+// pickExecutable chooses the binary to install from an extracted archive,
+// preferring files at the archive root and tolerating a single wrapping
+// directory. Archives with several candidate executables are rejected.
+func pickExecutable(entries []downloadEntry) (downloadEntry, error) {
+	if len(entries) == 0 {
+		return downloadEntry{}, fmt.Errorf("archive contains no executable file")
+	}
+	minDepth := entries[0].depth
+	for _, e := range entries[1:] {
+		if e.depth < minDepth {
+			minDepth = e.depth
+		}
+	}
+	var shallowest []downloadEntry
+	for _, e := range entries {
+		if e.depth == minDepth {
+			shallowest = append(shallowest, e)
+		}
+	}
+	if len(shallowest) > 1 {
+		names := make([]string, len(shallowest))
+		for i, e := range shallowest {
+			names[i] = e.name
+		}
+		return downloadEntry{}, fmt.Errorf("archive has multiple executables: %s", strings.Join(names, ", "))
+	}
+	return shallowest[0], nil
 }
 
 func (m *Manager) installFailed(language string, err error) {
@@ -210,6 +368,9 @@ func languageIDForPath(path, language string, cmd config.LSPCmd) string {
 		return "typescriptreact"
 	case ".jsx":
 		return "javascriptreact"
+	case ".txt":
+		// harper-ls parses plain text with its prose parser rather than Markdown.
+		return "plaintext"
 	default:
 		return language
 	}
@@ -317,7 +478,27 @@ func (m *Manager) expand(language, value string) string {
 		"{install_root}", m.installRoot,
 		"{root_dir}", m.rootDir,
 		"{home}", home,
+		"{target}", rustTargetTriple(),
 	).Replace(value)
+}
+
+// rustTargetTriple returns the Rust target triple for the current platform,
+// used to download prebuilt language-server binaries from GitHub releases.
+// Unsupported platforms return "" and the download then fails with a clear
+// HTTP 404.
+func rustTargetTriple() string {
+	switch {
+	case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
+		return "aarch64-apple-darwin"
+	case runtime.GOOS == "darwin" && runtime.GOARCH == "amd64":
+		return "x86_64-apple-darwin"
+	case runtime.GOOS == "linux" && runtime.GOARCH == "arm64":
+		return "aarch64-unknown-linux-gnu"
+	case runtime.GOOS == "linux" && runtime.GOARCH == "amd64":
+		return "x86_64-unknown-linux-gnu"
+	default:
+		return ""
+	}
 }
 
 func defaultInstallRoot() string {
@@ -371,6 +552,8 @@ func LanguageForPath(path string) string {
 		return "javascript"
 	case strings.HasSuffix(lower, ".rs"):
 		return "rust"
+	case strings.HasSuffix(lower, ".md"), strings.HasSuffix(lower, ".markdown"), strings.HasSuffix(lower, ".mdx"), strings.HasSuffix(lower, ".txt"):
+		return "markdown"
 	case strings.HasSuffix(lower, ".tf"), strings.HasSuffix(lower, ".tfvars"):
 		return "terraform"
 	default:

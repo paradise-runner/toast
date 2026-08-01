@@ -4,6 +4,8 @@ package lspinstall
 import (
 	"fmt"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -12,7 +14,12 @@ import (
 	"github.com/yourusername/toast/internal/theme"
 )
 
-const promptWidth = 42
+const (
+	promptWidth     = 42
+	spinnerInterval = 100 * time.Millisecond
+)
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // Model holds the currently visible install prompt.
 type Model struct {
@@ -23,6 +30,7 @@ type Model struct {
 	visible    bool
 	installing bool
 	failed     bool
+	spinner    int
 	queue      []installPrompt
 }
 
@@ -91,6 +99,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
+	case messages.LSPInstallTickMsg:
+		if m.visible && m.installing {
+			m.spinner = (m.spinner + 1) % len(spinnerFrames)
+			return m, spinnerTick()
+		}
+
 	case messages.LSPInstallStatusMsg:
 		if msg.Language != m.language {
 			return m, nil
@@ -98,7 +112,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch msg.Status {
 		case messages.LSPInstallRunning:
 			m.installing = true
+			m.spinner = 0
 			m.message = "Installing…"
+			return m, spinnerTick()
 		case messages.LSPInstallSucceeded:
 			m.installing = false
 			m.message = "Installed; starting server…"
@@ -126,6 +142,13 @@ func (m *Model) advance() {
 	m.show(next.language, next.name)
 }
 
+// spinnerTick returns the command that advances the install-progress spinner.
+func spinnerTick() tea.Cmd {
+	return tea.Tick(spinnerInterval, func(time.Time) tea.Msg {
+		return messages.LSPInstallTickMsg{}
+	})
+}
+
 // Dimensions returns the rendered outer dimensions.
 func (m Model) Dimensions() (int, int) { return promptWidth + 2, 6 }
 
@@ -146,6 +169,8 @@ func (m Model) Render() string {
 	status := m.message
 	if status == "" {
 		status = "Ctrl-hover symbols, then Ctrl-click to jump."
+	} else if m.installing {
+		status = " " + spinnerFrames[m.spinner] + " " + status
 	}
 	buttons := action.Render(" [I] Install ") + base.Render("  [N] Not now")
 	lines := []string{pad(title, promptWidth), pad(detail, promptWidth), pad(status, promptWidth), pad(buttons, promptWidth)}
@@ -155,13 +180,38 @@ func (m Model) Render() string {
 }
 
 func pad(s string, width int) string {
-	if lipgloss.Width(s) > width {
-		runes := []rune(s)
-		for len(runes) > 1 && lipgloss.Width(string(runes)+"…") > width {
-			runes = runes[:len(runes)-1]
+	// Only the first width runes can survive truncation, so bound the input
+	// before any width measurement: huge messages (e.g. installer output) must
+	// cost O(width), not O(len(s)). Trim the slice to a rune boundary.
+	if len(s) > width*4 {
+		s = s[:width*4]
+		for len(s) > 0 && !utf8.RuneStart(s[len(s)-1]) {
+			s = s[:len(s)-1]
 		}
-		s = string(runes) + "…"
 	}
+
+	// Fast path: the string already fits.
+	if w := lipgloss.Width(s); w <= width {
+		if n := width - w; n > 0 {
+			s += strings.Repeat(" ", n)
+		}
+		return s
+	}
+	// Truncate with an ellipsis, scanning runes once. Never rebuild the whole
+	// string per rune: the previous rune-by-rune rebuild was O(n²), freezing
+	// the UI.
+	var sb strings.Builder
+	sb.Grow(width)
+	w := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if w+rw+1 > width { // +1 for the ellipsis
+			break
+		}
+		sb.WriteRune(r)
+		w += rw
+	}
+	s = sb.String() + "…"
 	if n := width - lipgloss.Width(s); n > 0 {
 		s += strings.Repeat(" ", n)
 	}

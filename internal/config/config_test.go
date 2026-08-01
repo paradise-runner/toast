@@ -28,7 +28,7 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
 		t.Errorf("expected default file icon color mode accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
 	}
-	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform"} {
+	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform", "markdown"} {
 		server, ok := cfg.LSP[language]
 		if !ok || len(server.Extensions) == 0 || server.Install == nil {
 			t.Fatalf("expected managed default LSP metadata for %s, got %#v", language, server)
@@ -86,6 +86,32 @@ func TestLoadLegacyLSPEntryAddsManagedMetadata(t *testing.T) {
 	server := cfg.LSP["go"]
 	if server.Install == nil || server.ManagedCommand == "" || len(server.Extensions) == 0 {
 		t.Fatalf("expected legacy go entry to gain managed metadata, got %#v", server)
+	}
+}
+
+func TestPartialLSPConfigKeepsUnlistedManagedDefaults(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	// A config saved by an older toast: it snapshots the built-in servers that
+	// existed at the time, so newly shipped defaults (markdown/harper) must be
+	// merged in rather than lost.
+	if err := os.WriteFile(cfgPath, []byte(`{"lsp": {"go": {"command": "gopls", "args": ["serve"]}}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	markdown, ok := cfg.LSP["markdown"]
+	if !ok {
+		t.Fatal("expected unlisted managed default markdown to be merged into partial lsp config")
+	}
+	if markdown.Command != "harper-ls" || len(markdown.Extensions) == 0 || markdown.Install == nil {
+		t.Fatalf("expected full managed markdown default, got %#v", markdown)
+	}
+	// The user's own entry still wins for the languages it mentions.
+	if cfg.LSP["go"].Command != "gopls" {
+		t.Fatalf("go entry should keep the user's command, got %#v", cfg.LSP["go"])
 	}
 }
 

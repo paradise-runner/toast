@@ -1,7 +1,10 @@
 package editor
 
 import (
+	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/yourusername/toast/internal/buffer"
 	"github.com/yourusername/toast/internal/config"
@@ -542,4 +545,63 @@ func TestBufPosFromVisualRow(t *testing.T) {
 	if bufLine != 2 || bufCol != 0 {
 		t.Fatalf("visualRow 3 → (%d,%d), want (2,0)", bufLine, bufCol)
 	}
+}
+
+func TestWrapModeWheelScrollUpAfterMidSentenceClick(t *testing.T) {
+	// Regression: clicking mid-sentence in a wrapped (markdown) paragraph set
+	// preferredCol to a large raw byte offset. Wheel-up then clamped the
+	// cursor to the chunk boundary (the next chunk's start), which maps back
+	// to the same visual row — so scrolling up stalled forever.
+	long := strings.Repeat("word ", 300)
+	m := newThemedTestModel(t, "# Title\n\n"+long+"\n")
+	m.wrapMode = true
+
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 6 + 20, Y: 7})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft})
+	m = updated.(Model)
+
+	viewportMoved := false
+	for i := 0; i < 40; i++ {
+		before := m.viewportTop
+		updated, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+		m = updated.(Model)
+		if m.viewportTop != before {
+			viewportMoved = true
+		}
+	}
+	if !viewportMoved {
+		t.Fatalf("wheel-up never scrolled: viewportTop=%d cursor=(%d,%d)", m.viewportTop, m.cursor.line, m.cursor.col)
+	}
+	if m.viewportTop != 0 {
+		t.Fatalf("expected viewport to scroll back to 0, got %d", m.viewportTop)
+	}
+}
+
+func TestWrapModeKeyboardUpDoesNotStallAtChunkBoundary(t *testing.T) {
+	// Same stall could happen with keyboard vertical moves from a mid-chunk
+	// cursor (preferredCol is a raw byte offset there too).
+	long := strings.Repeat("word ", 300)
+	m := newThemedTestModel(t, "# Title\n\n"+long+"\n")
+	m.wrapMode = true
+	m.cursor = cursorPos{line: 2, col: 197}
+	m.preferredCol = 197
+
+	prevRow := m.visualRowOfCursor()
+	for i := 0; i < 30; i++ {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+		m = updated.(Model)
+		row := m.visualRowOfCursor()
+		if row > prevRow {
+			t.Fatalf("cursor moved down at step %d: row %d -> %d, col=%d", i, prevRow, row, m.cursor.col)
+		}
+		if row == prevRow && row > 0 {
+			t.Fatalf("cursor stalled at row %d (step %d, col=%d)", row, i, m.cursor.col)
+		}
+		if row == 0 {
+			return // reached the top; staying here is correct
+		}
+		prevRow = row
+	}
+	t.Fatal("cursor never reached the first visual row")
 }

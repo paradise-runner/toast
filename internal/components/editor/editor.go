@@ -69,6 +69,8 @@ type Model struct {
 	mouseDragging   bool
 	mouseDragAnchor cursorPos
 	definitionLink  definitionLinkState
+	hover           hoverState
+	hoverX, hoverY  int // last mouse position, for tooltip placement
 
 	// Multi-click detection
 	lastClickTime time.Time
@@ -130,6 +132,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		if m.focused {
 			m.completion.hide()
+			m.hover.hide()
 			return m.handleMouseClick(msg)
 		}
 
@@ -142,12 +145,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		if m.focused {
 			m.completion.hide()
+			m.hover.hide()
 			return m.handleMouseRelease(msg)
 		}
 
 	case tea.MouseWheelMsg:
 		if m.focused {
 			m.completion.hide()
+			m.hover.hide()
 			return m.handleMouseWheel(msg)
 		}
 
@@ -493,6 +498,7 @@ func (m Model) BufferGeneration() int {
 
 // handleKey routes all key events to the appropriate handler.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.hover.hide()
 	if m.cannotDisplayFile() {
 		return m, nil
 	}
@@ -978,6 +984,16 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		default: // single click
 			m.cursor = newPos
 			m.preferredCol = newPos.col
+			if m.wrapMode {
+				// Remember the visual column within the wrapped chunk rather
+				// than the raw byte offset, so vertical moves and wheel
+				// scrolling keep the cursor at the clicked column.
+				if chunks := m.lineChunks(newPos.line); len(chunks) > 0 {
+					if start := chunks[chunkContaining(chunks, newPos.col)]; newPos.col >= start {
+						m.preferredCol = newPos.col - start
+					}
+				}
+			}
 			m.clearSelection()
 			m.mouseDragAnchor = newPos
 			m.mouseDragging = true
@@ -987,10 +1003,29 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleMouseMotion handles mouse drag for selection.
+// handleMouseMotion handles mouse drag for selection and the diagnostic
+// hover tooltip.
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.cannotDisplayFile() {
 		return m, nil
+	}
+	if msg.Mod.Contains(tea.ModCtrl) {
+		// Ctrl-hover drives the definition link; hide the diagnostic tooltip.
+		m.hover.hide()
+	} else if !m.mouseDragging && msg.X >= m.gutterWidth {
+		// Show harper's (or any LSP's) diagnostic message when hovering a
+		// diagnostic span.
+		line, col := m.screenToBuffer(msg.X, msg.Y)
+		if diag := m.diagnosticAt(line, col); diag != nil {
+			m.hoverX, m.hoverY = msg.X, msg.Y
+			contents := diag.Message
+			if diag.Source != "" {
+				contents = diag.Source + ": " + contents
+			}
+			m.hover.show(contents)
+		} else {
+			m.hover.hide()
+		}
 	}
 	if msg.Mod.Contains(tea.ModCtrl) && !m.mouseDragging && msg.X >= m.gutterWidth {
 		line, col := m.screenToBuffer(msg.X, msg.Y)
@@ -1070,8 +1105,15 @@ func (m *Model) moveCursorUp(n int) {
 			chunkEnd = chunks[chunkIdx+1]
 		}
 		targetCol := chunkStart + m.preferredCol
-		if targetCol > chunkEnd {
+		if targetCol >= chunkEnd {
 			targetCol = chunkEnd
+			// The chunk end is also the next chunk's start. Land just inside
+			// this chunk so the cursor's visual row actually changes; landing
+			// on the boundary pins the cursor there and vertical scrolling
+			// stalls (the boundary always maps to the next chunk's row).
+			if chunkIdx+1 < len(chunks) && targetCol > chunkStart {
+				targetCol--
+			}
 		}
 		m.cursor.line = bufLine
 		m.cursor.col = targetCol
@@ -1110,8 +1152,13 @@ func (m *Model) moveCursorDown(n int) {
 			chunkEnd = chunks[chunkIdx+1]
 		}
 		targetCol := chunkStart + m.preferredCol
-		if targetCol > chunkEnd {
+		if targetCol >= chunkEnd {
 			targetCol = chunkEnd
+			// Keep the cursor inside this chunk (see moveCursorUp): the chunk
+			// end is the next chunk's start and would not move the visual row.
+			if chunkIdx+1 < len(chunks) && targetCol > chunkStart {
+				targetCol--
+			}
 		}
 		m.cursor.line = bufLine
 		m.cursor.col = targetCol
@@ -1828,12 +1875,13 @@ func (m Model) View() tea.View {
 		// rendering a wrapped chunk or a horizontally scrolled slice.
 		lineSelRange := m.selectionRangeForLine(bufLine, lineOffset, lineOffset+len(lineContent))
 		findRanges := m.findRangesForLineRange(bufLine, lineOffset, lineOffset+len(lineContent))
+		diagRanges := m.diagRangesForLine(bufLine, lineOffset, lineOffset+len(lineContent))
 
 		var renderedContent string
 		if isCurrentLine && m.focused {
-			renderedContent = m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, lineOffset, findRanges)
+			renderedContent = m.renderHighlightedLine(bufLine, lineContent, lineHighlight, contentWidth, lineSelRange, lineOffset, findRanges, diagRanges)
 		} else {
-			renderedContent = m.renderHighlightedLine(bufLine, lineContent, bgColor, contentWidth, lineSelRange, lineOffset, findRanges)
+			renderedContent = m.renderHighlightedLine(bufLine, lineContent, bgColor, contentWidth, lineSelRange, lineOffset, findRanges, diagRanges)
 		}
 
 		if screenRow > 0 {
@@ -1860,6 +1908,10 @@ func (m Model) View() tea.View {
 			menu := renderCompletion(m.completion, m.viewWidth, m.theme)
 			content = overlayCompletion(content, menu, cursorScreenX, cursorScreenY, m.viewWidth, m.viewHeight)
 		}
+		if m.hover.visible && m.theme != nil {
+			tooltip := renderHover(m.hover, m.hoverX, m.hoverY, m.viewHeight, m.theme)
+			content = overlayHover(content, tooltip, m.hoverX, m.hoverY, m.viewWidth, m.viewHeight)
+		}
 	}
 
 	v := tea.NewView(content)
@@ -1878,7 +1930,9 @@ func (m Model) View() tea.View {
 // selRange, if non-nil, is a [start, end) pair of raw line-relative byte offsets
 // (before lineOffset adjustment) indicating the selected region.
 // lineOffset is the raw line-relative byte index where `text` starts (normally m.viewportLeft).
-func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, padWidth int, selRange *[2]int, lineOffset int, findRanges []lineFindMatch) string {
+// diagRanges are diagnostic spans in the same raw line-relative coordinate
+// system; they are rendered as underlines in the severity's theme color.
+func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, padWidth int, selRange *[2]int, lineOffset int, findRanges []lineFindMatch, diagRanges []lineDiagRange) string {
 	// Determine selection background.
 	var selBg color.Color = lipgloss.Color("#45475a") // default
 	if m.theme != nil {
@@ -1943,17 +1997,29 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 		return nil
 	}
 
+	// diagAt returns the severity of the diagnostic covering rawPos, or 0.
+	diagAt := func(rawPos int) int {
+		for _, r := range diagRanges {
+			if rawPos >= r.start && rawPos < r.end {
+				return r.severity
+			}
+		}
+		return 0
+	}
+
 	// renderSegment renders textSlice (a substring of `text`) where segStart is
 	// the raw line-relative byte offset of textSlice[0]. It splits the slice at
-	// selection boundaries so each sub-chunk gets the right background.
+	// selection, find-match, and diagnostic boundaries so each sub-chunk gets
+	// the right background and underline.
 	renderSegment := func(textSlice string, segStart int, fgStyle lipgloss.Style) string {
 		if len(textSlice) == 0 {
 			return ""
 		}
 		type chunk struct {
-			s  string
-			bg color.Color
-			fg color.Color
+			s   string
+			bg  color.Color
+			fg  color.Color
+			sev int // diagnostic severity containing this chunk, 0 if none
 		}
 		var chunks []chunk
 		pos := segStart
@@ -1977,6 +2043,14 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 					nextBoundary = r.end
 				}
 			}
+			for _, r := range diagRanges {
+				if r.start > pos && r.start < nextBoundary {
+					nextBoundary = r.start
+				}
+				if r.end > pos && r.end < nextBoundary {
+					nextBoundary = r.end
+				}
+			}
 			if m.definitionLink.visible && m.definitionLink.line == bufLine {
 				if m.definitionLink.start > pos && m.definitionLink.start < nextBoundary {
 					nextBoundary = m.definitionLink.start
@@ -1989,7 +2063,7 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 			if chunkLen <= 0 || chunkLen > len(remaining) {
 				chunkLen = len(remaining)
 			}
-			chunks = append(chunks, chunk{s: remaining[:chunkLen], bg: bgAt(pos), fg: fgAt(pos)})
+			chunks = append(chunks, chunk{s: remaining[:chunkLen], bg: bgAt(pos), fg: fgAt(pos), sev: diagAt(pos)})
 			remaining = remaining[chunkLen:]
 			pos += chunkLen
 		}
@@ -2001,6 +2075,12 @@ func (m Model) renderHighlightedLine(bufLine int, text string, bg color.Color, p
 			style := fgStyle.Background(c.bg)
 			if c.fg != nil {
 				style = style.Foreground(c.fg)
+			}
+			if c.sev > 0 {
+				style = style.Underline(true)
+				if col := m.diagColor(c.sev); col != "" {
+					style = style.UnderlineColor(lipgloss.Color(col))
+				}
 			}
 			if m.definitionLink.visible && m.definitionLink.line == bufLine &&
 				renderPos >= m.definitionLink.start && renderPos < m.definitionLink.end {
@@ -2091,6 +2171,66 @@ func fitRenderedLine(rendered string, width int, style lipgloss.Style) string {
 	return rendered
 }
 
+// lineDiagRange is a diagnostic span on a single rendered line, in raw
+// line-relative byte offsets.
+type lineDiagRange struct {
+	start, end int
+	severity   int
+}
+
+// diagRangesForLine returns the diagnostic spans intersecting the byte range
+// [rangeStart, rangeEnd) of bufLine, in raw line-relative byte offsets. LSP
+// columns are UTF-16 code units, so they are converted to byte offsets before
+// clamping to the visible slice.
+func (m Model) diagRangesForLine(bufLine, rangeStart, rangeEnd int) []lineDiagRange {
+	if bufLine < 0 || rangeEnd <= rangeStart || len(m.diagnostics) == 0 {
+		return nil
+	}
+	raw := m.lineContent(bufLine)
+	var ranges []lineDiagRange
+	for _, d := range m.diagnostics {
+		if d.EndLine < bufLine || d.Line > bufLine {
+			continue
+		}
+		start, end := 0, len(raw)
+		if d.Line == bufLine {
+			start = utf16ColToByte(raw, d.Col)
+		}
+		if d.EndLine == bufLine {
+			end = utf16ColToByte(raw, d.EndCol)
+		}
+		if start < rangeStart {
+			start = rangeStart
+		}
+		if end > rangeEnd {
+			end = rangeEnd
+		}
+		if start < end {
+			ranges = append(ranges, lineDiagRange{start: start, end: end, severity: d.Severity})
+		}
+	}
+	return ranges
+}
+
+// diagColor returns the theme color for a diagnostic severity, or "" when no
+// theme is available (e.g. in tests). Severity follows the LSP convention:
+// 1=error, 2=warning, 3=info, 4=hint.
+func (m Model) diagColor(severity int) string {
+	if m.theme == nil {
+		return ""
+	}
+	key := "diagnostic_hint"
+	switch severity {
+	case 1:
+		key = "diagnostic_error"
+	case 2:
+		key = "diagnostic_warning"
+	case 3:
+		key = "diagnostic_info"
+	}
+	return m.theme.UI(key)
+}
+
 // ── Public accessors ─────────────────────────────────────────────────────────
 
 // CursorLine returns the zero-based cursor line.
@@ -2106,6 +2246,7 @@ func (m *Model) Focus() { m.focused = true }
 func (m *Model) Blur() {
 	m.focused = false
 	m.completion.hide()
+	m.hover.hide()
 }
 
 // IsModified returns true if the current buffer has unsaved changes.
