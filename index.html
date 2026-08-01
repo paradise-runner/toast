@@ -3,1363 +3,1687 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>toast - terminal IDE</title>
-  <meta name="description" content="Toast is a lightweight terminal IDE with file tree, tabs, syntax highlighting, LSP support, search, git status, and markdown preview.">
+  <title>toast — an IDE for your terminal</title>
+  <meta name="description" content="Toast is a lightweight IDE that lives in your terminal. Managed language servers, tree-sitter highlighting, tabs, search, and markdown preview — out of the box, in a single ~28 MB binary.">
+  <meta property="og:title" content="toast — an IDE for your terminal">
+  <meta property="og:description" content="Code at terminal speed. A lightweight IDE in your terminal — managed LSPs, tree-sitter highlighting, tabs, search, and markdown preview out of the box.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://github.com/paradise-runner/toast">
+  <meta property="og:image" content="./toast-example.png">
+  <meta name="theme-color" content="#08080a">
   <link rel="icon" type="image/png" href="./toast-logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    /* ── Tokens ─────────────────────────── */
     :root {
       color-scheme: dark;
-      --ink: #060607;
-      --frame: #2f2f37;
-      --frame-high: #3a3a42;
-      --panel: #23232b;
-      --panel-low: #1d1d25;
-      --editor: #20202a;
-      --rail: #292932;
-      --tab: #34343d;
-      --line: #353541;
-      --text: #d7d0b8;
-      --soft: #aaa69a;
-      --muted: #7d7a75;
-      --blue: #91b4ff;
-      --violet: #a78bd3;
-      --gold: #c8ad68;
-      --green: #84ad6d;
+      --bg: #08080a;
+      --panel: #101015;
+      --panel-2: #14141b;
+      --line: rgba(255, 255, 255, .08);
+      --line-strong: rgba(255, 255, 255, .14);
+      --text: #ece7d9;
+      --soft: #a8a296;
+      --muted: #6f6b63;
+      --gold: #d8b46a;
+      --green: #8fc77e;
       --red: #ff6469;
-      --yellow: #f6c84e;
-      --cyan: #79c7bf;
-      --shadow: rgba(0, 0, 0, .58);
-      --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --blue: #8fb3ff;
+      --violet: #b18cd9;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      /* rainbow — from toast-logo.png */
+      --accent: #f96c3f;
+      --r-red: #f96c3f;
+      --r-orange: #faad1a;
+      --r-lime: #bdc522;
+      --r-green: #45c35d;
+      --r-cyan: #0499c9;
+      --r-blue: #335abe;
+      --r-violet: #6e338f;
+      --r-pink: #ef4c66;
+      --grad-accent: linear-gradient(100deg,
+        #f96c3f 0%, #faad1a 16%, #bdc522 31%, #45c35d 46%,
+        #0499c9 61%, #335abe 76%, #6e338f 88%, #ef4c66 100%);
+      --shadow-window: 0 40px 120px rgba(0, 0, 0, .65), 0 0 0 1px rgba(255, 255, 255, .06) inset, 0 0 90px rgba(249, 108, 63, .08);
+      --radius: 16px;
+      /* demo window frame */
+      --frame: #1a1a22;
+      --titlebar: #21212b;
     }
 
-    * {
-      box-sizing: border-box;
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 88px;
     }
 
-    html,
     body {
       margin: 0;
-      min-height: 100%;
-      overflow-x: hidden;
-      background:
-        linear-gradient(180deg, #000 0%, #09090b 36%, #050506 100%);
+      background: var(--bg);
       color: var(--text);
-      font-family: var(--mono);
-      letter-spacing: 0;
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
-    body::before {
+    ::selection {
+      background: rgba(249, 108, 63, .35);
+      color: #fff;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; color: inherit; }
+    img { max-width: 100%; }
+
+    /* ── Background layers ───────────────── */
+    .bg {
       position: fixed;
       inset: 0;
       z-index: 0;
       pointer-events: none;
+      background:
+        radial-gradient(56% 42% at 50% 0%, rgba(249, 108, 63, .09) 0%, transparent 70%),
+        radial-gradient(38% 30% at 12% 32%, rgba(4, 153, 201, .05) 0%, transparent 70%),
+        radial-gradient(42% 34% at 88% 62%, rgba(110, 51, 143, .07) 0%, transparent 70%),
+        var(--bg);
+    }
+
+    .bg::after {
+      position: absolute;
+      inset: 0;
       content: "";
       background:
-        repeating-linear-gradient(
-          0deg,
-          rgba(255, 255, 255, .025) 0,
-          rgba(255, 255, 255, .025) 1px,
-          transparent 1px,
-          transparent 4px
-        );
-      mix-blend-mode: screen;
-      opacity: .55;
+        linear-gradient(rgba(255, 255, 255, .028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .028) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(70% 52% at 50% 0%, #000 0%, transparent 100%);
     }
 
-    a {
-      color: inherit;
-      text-decoration: none;
-    }
-
-    button,
-    input {
-      font: inherit;
-    }
-
-    .site {
+    .wrap {
       position: relative;
       z-index: 1;
-      width: 100%;
-      min-height: 100vh;
-      min-height: 100svh;
-      padding: 26px;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    /* ── Nav ─────────────────────────────── */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+      transition: background .25s ease, border-color .25s ease, backdrop-filter .25s ease;
+      border-bottom: 1px solid transparent;
+    }
+
+    .nav.scrolled {
+      background: rgba(8, 8, 10, .78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom-color: var(--line);
+    }
+
+    .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 17px;
+      letter-spacing: -.01em;
+      flex: 0 0 auto;
+    }
+
+    .brand img {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+      margin-left: 8px;
+    }
+
+    .nav-links a {
+      color: var(--soft);
+      font-size: 14.5px;
+      font-weight: 500;
+      transition: color .15s ease;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .icon-link {
+      width: 38px;
+      height: 38px;
       display: grid;
       place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--soft);
+      transition: color .15s ease, border-color .15s ease, background .15s ease;
+    }
+
+    .icon-link:hover {
+      color: var(--text);
+      border-color: var(--line-strong);
+      background: rgba(255, 255, 255, .04);
+    }
+
+    .icon-link svg { width: 18px; height: 18px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 11px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease, filter .15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:active { transform: translateY(1px); }
+
+    .btn-primary {
+      padding: 12px 22px;
+      background: var(--grad-accent);
+      color: #160b12;
+      box-shadow: 0 6px 24px rgba(249, 108, 63, .28), 0 1px 0 rgba(255, 255, 255, .3) inset;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.07);
+      transform: translateY(-1px);
+      box-shadow: 0 10px 34px rgba(249, 108, 63, .4), 0 1px 0 rgba(255, 255, 255, .3) inset;
+    }
+
+    .btn-ghost {
+      padding: 12px 22px;
+      border: 1px solid var(--line-strong);
+      color: var(--text);
+      background: rgba(255, 255, 255, .02);
+    }
+
+    .btn-ghost:hover {
+      background: rgba(255, 255, 255, .06);
+      border-color: rgba(255, 255, 255, .24);
+      transform: translateY(-1px);
+    }
+
+    .btn-sm {
+      padding: 8px 16px;
+      font-size: 13.5px;
+      border-radius: 9px;
+    }
+
+    .btn-sm.btn-primary { padding: 9px 18px; }
+
+    /* ── Hero ────────────────────────────── */
+    .hero {
+      padding: 168px 0 0;
+      text-align: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 100%;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .03);
+      font-family: var(--mono);
+      font-size: 13.5px;
+      color: var(--soft);
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+
+    .eyebrow:hover {
+      border-color: var(--line-strong);
+      background: rgba(255, 255, 255, .05);
+    }
+
+    .eyebrow .prompt { color: var(--green); font-weight: 600; }
+    .eyebrow code { color: var(--text); }
+
+    .copy-check {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: transparent;
+      transition: background .2s ease;
+      flex: 0 0 auto;
+    }
+
+    .copy-check.on { background: var(--green); box-shadow: 0 0 10px rgba(143, 199, 126, .8); }
+
+    h1 {
+      margin: 30px 0 0;
+      font-size: clamp(44px, 7.4vw, 84px);
+      font-weight: 900;
+      letter-spacing: -.045em;
+      line-height: 1.02;
+    }
+
+    .h1-accent {
+      background: var(--grad-accent);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .sub {
+      max-width: 640px;
+      margin: 26px auto 0;
+      font-size: clamp(16.5px, 2vw, 19px);
+      line-height: 1.6;
+      color: var(--soft);
+    }
+
+    .sub strong { color: var(--text); font-weight: 600; }
+
+    .hero-ctas {
+      margin-top: 38px;
+      display: flex;
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .spec {
+      margin-top: 22px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--muted);
+      letter-spacing: .01em;
+    }
+
+    .spec .sep { margin: 0 9px; opacity: .5; }
+
+    /* ── Demo window (real gif) ──────────── */
+    .demo {
+      margin: 72px auto 0;
+      max-width: 1060px;
+      text-align: left;
     }
 
     .ide {
-      width: min(1560px, 100%);
-      max-width: 100%;
-      height: min(930px, calc(100vh - 52px));
-      height: min(930px, calc(100svh - 52px));
-      min-height: 680px;
-      display: flex;
-      flex-direction: column;
       overflow: hidden;
       background: var(--frame);
-      border: 1px solid rgba(204, 206, 221, .3);
+      border: 1px solid rgba(255, 255, 255, .1);
       border-radius: 18px;
-      box-shadow:
-        0 30px 90px var(--shadow),
-        0 0 0 1px rgba(255, 255, 255, .07) inset,
-        0 0 56px rgba(145, 180, 255, .08);
+      box-shadow: var(--shadow-window);
     }
 
     .titlebar {
-      min-height: 58px;
-      padding: 12px 16px 10px;
+      min-height: 52px;
+      padding: 11px 16px 9px;
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
       gap: 14px;
       align-items: center;
-      background: linear-gradient(180deg, #34343c 0%, #2e2e36 100%);
-      border-bottom: 1px solid rgba(0, 0, 0, .18);
+      background: linear-gradient(180deg, var(--titlebar) 0%, #1e1e27 100%);
+      border-bottom: 1px solid rgba(0, 0, 0, .4);
     }
 
-    .traffic {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
+    .traffic { display: flex; gap: 9px; align-items: center; }
 
     .dot {
-      width: 16px;
-      height: 16px;
+      width: 13px;
+      height: 13px;
       border-radius: 50%;
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, .25) inset;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, .3) inset;
     }
 
-    .dot.red { background: var(--red); }
-    .dot.yellow { background: var(--yellow); }
-    .dot.green { background: #61cf72; }
+    .dot.red { background: #ff5f57; }
+    .dot.yellow { background: #febc2e; }
+    .dot.green { background: #28c840; }
 
     .project-title {
       min-width: 0;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 10px;
       color: var(--soft);
-      font-weight: 800;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .project-title span:last-child {
-      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
     .folder-mark {
-      width: 22px;
-      height: 16px;
+      width: 20px;
+      height: 15px;
       position: relative;
       flex: 0 0 auto;
       border-radius: 3px;
-      background: linear-gradient(180deg, #73bee8 0%, #529dcc 100%);
-      box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset;
+      background: linear-gradient(100deg, #f96c3f 0%, #faad1a 25%, #bdc522 50%, #45c35d 75%, #0499c9 100%);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .3) inset;
     }
 
     .folder-mark::before {
       position: absolute;
-      top: -4px;
+      top: -3px;
       left: 2px;
-      width: 10px;
-      height: 6px;
+      width: 9px;
+      height: 5px;
       content: "";
       border-radius: 3px 3px 0 0;
-      background: #6fb4de;
+      background: linear-gradient(100deg, #f96c3f 0%, #faad1a 25%, #bdc522 50%, #45c35d 75%, #0499c9 100%);
     }
 
-    .window-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .titlebar-spacer { width: 45px; }
+
+    .demo-gif {
+      border-top: 1px solid rgba(0, 0, 0, .4);
+      background: #0b0b0f;
     }
 
-    .glyph-button {
-      width: 32px;
-      height: 32px;
-      display: grid;
-      place-items: center;
-      border: 0;
-      border-radius: 50%;
-      color: var(--text);
-      background: #25252d;
-      cursor: pointer;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, .08) inset;
+    .demo-gif img {
+      display: block;
+      width: 100%;
+      height: auto;
+      margin: 0 auto;
     }
 
-    .glyph-button:hover,
-    .tool-button:hover,
-    .file-button:hover,
-    .tab:hover {
-      filter: brightness(1.12);
-    }
-
-    .top-tabs {
-      min-width: 0;
-      min-height: 44px;
-      padding: 0 12px;
-      display: flex;
-      align-items: stretch;
-      gap: 1px;
-      overflow-x: auto;
-      overflow-y: hidden;
-      overscroll-behavior-x: contain;
-      -webkit-overflow-scrolling: touch;
-      background: var(--frame);
-      border-bottom: 1px solid #292931;
-    }
-
-    .tab {
-      min-width: 142px;
-      max-width: 220px;
-      flex: 0 0 auto;
-      padding: 0 14px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      border: 0;
-      border-left: 1px solid rgba(0, 0, 0, .2);
-      color: var(--soft);
-      background: transparent;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .tab:first-child {
-      border-left: 0;
-    }
-
-    .tab.active {
-      color: #f0ead2;
-      background: #4a4a53;
-      border-radius: 16px;
-      margin: 6px 2px;
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, .12) inset;
-    }
-
-    .tab-name {
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .dirty {
-      width: 8px;
-      height: 8px;
-      flex: 0 0 auto;
-      border-radius: 50%;
-      background: var(--gold);
-      box-shadow: 0 0 12px rgba(200, 173, 104, .45);
-    }
-
-    .workspace {
-      min-width: 0;
-      min-height: 0;
-      flex: 1;
-      display: grid;
-      grid-template-columns: 300px minmax(0, 1fr);
-      background: var(--editor);
-    }
-
-    .sidebar {
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      background: var(--rail);
-      border-right: 1px solid rgba(0, 0, 0, .24);
-    }
-
-    .active-file {
-      min-height: 30px;
-      padding: 6px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      color: var(--text);
-      background: #22222a;
-      border-bottom: 1px solid rgba(0, 0, 0, .18);
-      white-space: nowrap;
-      overflow: hidden;
-    }
-
-    .active-file span:first-child {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .close-mark {
+    .demo-caption {
+      margin: 18px 0 0;
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 12.5px;
       color: var(--muted);
     }
 
-    .tree {
-      min-height: 0;
-      padding: 8px 0 18px;
-      overflow: auto;
+    /* ── Tech marquee ────────────────────── */
+    .marquee {
+      margin-top: 84px;
+      padding: 20px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      overflow: hidden;
+      mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
     }
 
-    .tree-root,
-    .tree-folder,
-    .file-button {
-      min-height: 28px;
+    .marquee-track {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 14px;
+      width: max-content;
+      animation: marquee 36s linear infinite;
+    }
+
+    .marquee:hover .marquee-track { animation-play-state: paused; }
+
+    .marquee-chip {
+      padding: 7px 16px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, .02);
+      font-family: var(--mono);
+      font-size: 13px;
       white-space: nowrap;
     }
 
-    .tree-root,
-    .tree-folder {
-      padding: 0 14px;
-      color: var(--soft);
-      font-weight: 800;
+    .marquee-chip b { color: var(--soft); font-weight: 600; }
+
+    .marquee-chip.hot b {
+      background: var(--grad-accent);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
 
-    .tree-folder {
-      color: #928f88;
+    @keyframes marquee { to { transform: translateX(-50%); } }
+
+    /* ── Sections ────────────────────────── */
+    section { padding: 108px 0 0; }
+
+    .sec-head { text-align: center; max-width: 640px; margin: 0 auto; }
+
+    .sec-tag {
+      display: inline-block;
+      padding: 5px 12px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .03);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      background-image: var(--grad-accent);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .sec-head h2 {
+      margin: 20px 0 0;
+      font-size: clamp(30px, 4.4vw, 46px);
+      font-weight: 900;
+      letter-spacing: -.035em;
+      line-height: 1.1;
+    }
+
+    .sec-head h2 .h1-accent { background: var(--grad-accent); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+    .sec-head p {
+      margin: 16px 0 0;
+      font-size: 16.5px;
+      line-height: 1.6;
+      color: var(--soft);
+    }
+
+    /* ── Feature bento ───────────────────── */
+    .bento {
+      margin-top: 52px;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+
+    .card {
+      grid-column: span 5;
+      padding: 26px 26px 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255, 255, 255, .028), rgba(255, 255, 255, .012)), var(--panel);
+      transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      border-color: rgba(255, 255, 255, .16);
+      transform: translateY(-2px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, .4);
+    }
+
+    .card.wide { grid-column: span 7; }
+
+    .card::after {
+      position: absolute;
+      inset: 0;
+      content: "";
+      pointer-events: none;
+      background: radial-gradient(70% 60% at 85% -10%, rgba(249, 108, 63, .07), transparent 65%);
+      opacity: 0;
+      transition: opacity .25s ease;
+    }
+
+    .card:hover::after { opacity: 1; }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .card-tag {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--r-red);
+    }
+
+    /* rainbow tag cycle across the bento */
+    .card:nth-child(2) .card-tag { color: var(--r-green); }
+    .card:nth-child(3) .card-tag { color: var(--r-cyan); }
+    .card:nth-child(4) .card-tag { color: var(--r-blue); }
+    .card:nth-child(5) .card-tag { color: var(--r-violet); }
+    .card:nth-child(6) .card-tag { color: var(--r-pink); }
+    .card:nth-child(7) .card-tag { color: var(--r-orange); }
+    .card:nth-child(8) .card-tag { color: var(--r-lime); }
+    .card:nth-child(9) .card-tag { color: var(--r-cyan); }
+
+    .card-badge {
+      padding: 4px 10px;
+      border: 1px solid rgba(143, 199, 126, .35);
+      border-radius: 999px;
+      color: var(--green);
+      background: rgba(143, 199, 126, .08);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .card h3 {
+      margin: 14px 0 0;
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -.02em;
+      position: relative;
+      z-index: 1;
+    }
+
+    .card p {
+      margin: 9px 0 0;
+      font-size: 14.5px;
+      line-height: 1.62;
+      color: var(--soft);
+      position: relative;
+      z-index: 1;
+    }
+
+    .card p code { font-family: var(--mono); font-size: 13px; color: var(--blue); }
+
+    .card-visual {
+      margin: 20px 0 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* LSP table */
+    .lsp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+
+    .lsp-table td {
+      padding: 8px 4px;
+      border-top: 1px solid var(--line);
+      color: var(--soft);
+      white-space: nowrap;
+    }
+
+    .lsp-table tr:first-child td { border-top: 0; }
+
+    .lsp-table td:first-child { color: var(--text); font-weight: 600; width: 34%; }
+    .lsp-table td:last-child { text-align: right; }
+
+    .lsp-table .ok { color: var(--green); }
+    .lsp-table .hint { color: var(--muted); font-size: 11.5px; text-align: right; }
+
+    /* mini tabs */
+    .mini-tabs {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 11.5px;
+    }
+
+    .mini-tab {
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, .02);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .mini-tab.active {
+      color: var(--text);
+      background: var(--panel-2);
+      border-color: var(--line-strong);
+    }
+
+    .mini-tab .dirty {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 8px rgba(216, 180, 106, .6);
+    }
+
+    /* mini search */
+    .mini-search {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      overflow: hidden;
+    }
+
+    .mini-search-bar {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 13px;
+      border-bottom: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+
+    .mini-search-bar .prompt { color: var(--green); font-weight: 700; }
+    .mini-search-bar .q { color: var(--text); }
+
+    .mini-search-results {
+      padding: 8px 13px 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      display: grid;
+      gap: 6px;
+    }
+
+    .mini-search-results .hit b {
+      color: var(--gold);
+      background: rgba(216, 180, 106, .14);
+      border-radius: 3px;
+      font-weight: 600;
+    }
+
+    .mini-search-results .file { color: var(--blue); }
+
+    /* mini preview */
+    .mini-preview {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      padding: 14px 16px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .mini-preview .mp-head {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 13.5px;
+      color: var(--blue);
+    }
+
+    .mini-preview .mp-line {
+      height: 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .08);
+    }
+
+    .mini-preview .mp-line.w60 { width: 60%; }
+    .mini-preview .mp-line.w82 { width: 82%; }
+    .mini-preview .mp-line.w45 { width: 45%; }
+
+    .mini-preview .mp-chip {
+      justify-self: start;
+      margin-top: 3px;
+      padding: 4px 9px;
+      border: 1px solid rgba(216, 180, 106, .35);
+      border-radius: 6px;
+      color: var(--gold);
+      background: rgba(216, 180, 106, .07);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    /* mini git */
+    .mini-git {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      display: grid;
+      gap: 7px;
+      color: var(--soft);
+    }
+
+    .mini-git .row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .mini-git .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .mini-git .badge {
+      flex: 0 0 auto;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10.5px;
       font-weight: 700;
     }
 
-    .caret {
-      width: 14px;
-      color: #b6b39f;
-      text-align: center;
-    }
+    .mini-git .badge.m { color: var(--gold); background: rgba(216, 180, 106, .12); }
+    .mini-git .badge.a { color: var(--green); background: rgba(143, 199, 126, .12); }
 
-    .file-button {
-      width: 100%;
-      min-width: 0;
-      padding: 0 14px 0 34px;
-      border: 0;
-      color: var(--soft);
-      background: transparent;
-      cursor: pointer;
-      text-align: left;
-    }
+    .mini-git .ignored { color: var(--muted); opacity: .55; text-decoration: line-through; }
+    .mini-git .caret2 { color: var(--muted); font-size: 10px; width: 10px; flex: 0 0 auto; }
 
-    .file-button .name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+    /* mini themes */
+    .mini-themes { display: grid; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--soft); }
+    .mini-theme { display: flex; align-items: center; gap: 12px; }
 
-    .file-button .ext {
-      color: var(--green);
-    }
-
-    .file-button.active {
-      color: #f3edcf;
-      background: #43434a;
-    }
-
-    .file-button.preview-file .name {
-      color: var(--gold);
-    }
-
-    .git-dot {
-      width: 8px;
-      height: 8px;
+    .mini-theme .swatch {
+      height: 22px;
       flex: 0 0 auto;
-      border-radius: 50%;
-      background: var(--gold);
-      box-shadow: 0 0 12px rgba(200, 173, 104, .5);
-    }
-
-    .editor-shell {
-      min-width: 0;
-      min-height: 0;
-      display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
-      background: var(--editor);
-    }
-
-    .crumbs {
-      min-height: 40px;
-      padding: 0 14px;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 12px;
-      background: #24242c;
-      border-bottom: 1px solid rgba(0, 0, 0, .16);
-    }
-
-    .crumb-path {
-      min-width: 0;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      display: flex;
       overflow: hidden;
+      width: 120px;
+    }
+
+    .mini-theme .swatch i { display: block; height: 100%; }
+    .mini-theme .swatch i:nth-child(1) { width: 46%; }
+    .mini-theme .swatch i:nth-child(2) { width: 27%; }
+    .mini-theme .swatch i:nth-child(3) { width: 27%; }
+
+    .mini-theme.system .swatch i:nth-child(1) { background: #1a1a20; }
+    .mini-theme.system .swatch i:nth-child(2) { background: #8fb3ff; }
+    .mini-theme.system .swatch i:nth-child(3) { background: #d8b46a; }
+    .mini-theme.dark .swatch i:nth-child(1) { background: #14141a; }
+    .mini-theme.dark .swatch i:nth-child(2) { background: #8fb3ff; }
+    .mini-theme.dark .swatch i:nth-child(3) { background: #8fc77e; }
+    .mini-theme.light .swatch i:nth-child(1) { background: #e8e4d8; }
+    .mini-theme.light .swatch i:nth-child(2) { background: #3d5fc7; }
+    .mini-theme.light .swatch i:nth-child(3) { background: #4a8f3d; }
+
+    .mini-theme .label { color: var(--text); }
+
+    /* mini definition */
+    .mini-def {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      padding: 13px 15px;
+      font-family: var(--mono);
+      font-size: 12.5px;
       color: var(--soft);
-      text-overflow: ellipsis;
+      display: grid;
+      gap: 5px;
+      position: relative;
+    }
+
+    .mini-def .sym {
+      color: var(--blue);
+      font-weight: 700;
+      border-bottom: 1px dashed var(--blue);
+      cursor: pointer;
+    }
+
+    .mini-def .tooltip {
+      position: absolute;
+      right: 14px;
+      top: -34px;
+      padding: 6px 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 11.5px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+      display: flex;
+      align-items: center;
+      gap: 7px;
       white-space: nowrap;
     }
 
-    .crumb-path strong {
-      color: #efe8cd;
+    .mini-def .tooltip kbd {
+      padding: 1px 6px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      color: var(--gold);
+      font-size: 10.5px;
+      background: rgba(255, 255, 255, .04);
     }
 
-    .tools {
-      min-width: 0;
-      max-width: 100%;
+    /* mini config */
+    .mini-config {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      overflow: hidden;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .mini-config .mc-top {
       display: flex;
       align-items: center;
       gap: 8px;
-      overflow-x: auto;
-      overscroll-behavior-x: contain;
-      -webkit-overflow-scrolling: touch;
+      padding: 8px 13px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
     }
 
-    .tool-button,
-    .command-link {
-      min-height: 30px;
-      padding: 0 12px;
-      border: 1px solid rgba(231, 224, 194, .22);
-      border-radius: 4px;
+    .mini-config .mc-top .path { color: var(--blue); }
+
+    .mini-config pre {
+      margin: 0;
+      padding: 11px 13px 13px;
+      overflow-x: auto;
+      color: var(--soft);
+    }
+
+    .mini-config .k { color: var(--violet); }
+    .mini-config .v { color: var(--green); }
+    .mini-config .s { color: var(--gold); }
+
+    /* language chips card */
+    .lang-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .lang-chip {
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--soft);
+      background: rgba(255, 255, 255, .02);
+      font-family: var(--mono);
+      font-size: 12px;
+      transition: border-color .15s ease, color .15s ease;
+    }
+
+    .lang-chip:hover { border-color: var(--line-strong); color: var(--text); }
+
+    /* ── Keyboard section ────────────────── */
+    .keys-grid {
+      margin-top: 52px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .key-card {
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      min-width: 0;
+      transition: border-color .2s ease, transform .2s ease;
+    }
+
+    .key-card:hover {
+      border-color: rgba(255, 255, 255, .16);
+      transform: translateY(-2px);
+    }
+
+    .key-combo {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 5px;
+      font-family: var(--mono);
+      font-size: 12px;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    kbd {
+      padding: 5px 9px;
+      border: 1px solid var(--line-strong);
+      border-bottom-width: 2px;
+      border-radius: 7px;
       color: var(--text);
-      background: #34343c;
+      background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .02));
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      box-shadow: 0 2px 0 rgba(0, 0, 0, .35);
+      white-space: nowrap;
+    }
+
+    .key-combo .plus { color: var(--muted); }
+
+    .key-card .desc {
+      min-width: 0;
+      max-width: 100%;
+      font-size: 14.5px;
+      color: var(--soft);
+      line-height: 1.45;
+    }
+
+    .key-card .desc b { color: var(--text); font-weight: 600; }
+
+    .keys-note {
+      margin-top: 26px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .keys-note code { font-family: var(--mono); font-size: 13px; color: var(--blue); }
+    .keys-note a { color: var(--blue); }
+    .keys-note a:hover { text-decoration: underline; }
+
+    /* ── Install section ─────────────────── */
+    .install-card {
+      max-width: 780px;
+      margin: 52px auto 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255, 255, 255, .028), rgba(255, 255, 255, .012)), var(--panel);
+      overflow: hidden;
+    }
+
+    .install-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 12px 14px 0;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+    }
+
+    .install-tab {
+      padding: 9px 16px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
-      flex: 0 0 auto;
+      transition: color .15s ease;
     }
 
-    .tool-button.primary {
-      color: #24242c;
-      background: #d9d0ae;
-      border-color: rgba(255, 255, 255, .25);
-    }
+    .install-tab:hover { color: var(--soft); }
 
-    .command-link {
-      display: inline-flex;
-      align-items: center;
-      color: var(--blue);
-      background: transparent;
-    }
-
-    .rename-bar {
-      min-height: 46px;
-      padding: 7px 14px;
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 10px;
-      background: var(--panel-low);
-      border-bottom: 1px solid rgba(0, 0, 0, .18);
-    }
-
-    .prompt {
-      color: var(--green);
-      font-weight: 800;
-    }
-
-    .filename-input {
-      width: 100%;
-      min-width: 0;
-      height: 30px;
-      padding: 0 10px;
-      border: 0;
-      border-radius: 3px;
-      outline: 1px solid rgba(255, 255, 255, .08);
-      color: #ede6ca;
-      background: #282831;
-    }
-
-    .filename-input:focus {
-      outline-color: rgba(145, 180, 255, .65);
-      box-shadow: 0 0 0 3px rgba(145, 180, 255, .12);
-    }
-
-    .buffer-meta {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    .viewport {
-      min-height: 0;
-      overflow: auto;
-      position: relative;
-      background:
-        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px) 0 0 / 24px 24px,
-        linear-gradient(180deg, rgba(255, 255, 255, .018) 1px, transparent 1px) 0 0 / 24px 24px,
-        var(--editor);
-    }
-
-    .code {
-      min-width: 760px;
-      padding: 22px 0 80px;
-    }
-
-    .code-line {
-      min-height: 27px;
-      display: grid;
-      grid-template-columns: 62px minmax(0, 1fr);
-      align-items: baseline;
+    .install-tab.active {
       color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    .code-block {
+      position: relative;
+      padding: 22px 24px;
+      background: #0b0b0f;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .code-block pre {
+      margin: 0;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 13.5px;
+      line-height: 1.75;
+      color: var(--text);
+    }
+
+    .code-block pre .cmt { color: var(--muted); font-style: italic; }
+    .code-block pre .cmd { color: var(--green); font-weight: 600; }
+
+    .code-block .copy-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, .04);
+      color: var(--soft);
+      font-family: var(--mono);
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+
+    .code-block .copy-btn:hover {
+      background: rgba(255, 255, 255, .08);
+      color: var(--text);
+      border-color: var(--line-strong);
+    }
+
+    .code-block .copy-btn.copied {
+      color: var(--green);
+      border-color: rgba(143, 199, 126, .4);
+      background: rgba(143, 199, 126, .08);
+    }
+
+    .install-hint {
+      padding: 14px 24px;
+      font-size: 13.5px;
+      color: var(--muted);
       line-height: 1.55;
     }
 
-    .code-line:hover {
-      background: rgba(255, 255, 255, .025);
+    .install-hint code {
+      padding: 2px 6px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, .03);
+      color: var(--soft);
+      font-family: var(--mono);
+      font-size: 12px;
     }
 
-    .gutter {
-      padding-right: 14px;
-      color: #5e5c64;
-      text-align: right;
-      user-select: none;
+    .usage-row {
+      margin-top: 26px;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 12.5px;
     }
 
-    code {
-      min-width: 0;
-      padding-right: 24px;
-      white-space: pre-wrap;
-      word-break: break-word;
+    .usage-chip {
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: var(--soft);
+      background: rgba(255, 255, 255, .02);
     }
 
-    .tok-blue { color: var(--blue); font-weight: 800; }
-    .tok-violet { color: var(--violet); font-weight: 800; }
-    .tok-gold { color: var(--gold); font-weight: 800; }
-    .tok-green { color: var(--green); font-weight: 800; }
-    .tok-cyan { color: var(--cyan); font-weight: 800; }
-    .tok-muted { color: var(--muted); font-style: italic; }
-    .line-heading code { color: var(--blue); font-weight: 900; }
-    .line-subhead code { color: var(--violet); font-weight: 900; }
-    .line-comment code { color: var(--muted); font-style: italic; }
+    .usage-chip .prompt { color: var(--green); }
 
-    .markdown-image-line {
-      min-height: 0;
-      padding: 10px 0 14px;
-      align-items: start;
+    .early-note {
+      max-width: 560px;
+      margin: 34px auto 0;
+      padding: 13px 18px;
+      border: 1px solid rgba(216, 180, 106, .25);
+      border-radius: 11px;
+      background: rgba(216, 180, 106, .05);
+      text-align: center;
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--soft);
     }
 
-    .markdown-image {
-      min-width: 0;
-      margin: 0;
-      padding-right: 24px;
+    .early-note a { color: var(--gold); }
+    .early-note a:hover { text-decoration: underline; }
+
+    /* ── Footer ──────────────────────────── */
+    footer {
+      margin-top: 120px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, .012);
     }
 
-    .markdown-image img {
-      width: min(100%, 920px);
-      max-height: min(420px, 46vh);
-      display: block;
-      object-fit: contain;
-    }
-
-    .preview-stage {
-      min-height: 100%;
-      padding: 30px;
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 52px 28px 40px;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      gap: 16px;
-      background:
-        linear-gradient(90deg, rgba(200, 173, 104, .06), transparent 24%),
-        var(--editor);
+      grid-template-columns: minmax(0, 1.4fr) 1fr 1fr;
+      gap: 40px;
     }
 
-    .preview-header {
+    .footer-brand p {
+      margin: 14px 0 0;
+      max-width: 300px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .footer-col h4 {
+      margin: 0 0 14px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .footer-col a {
+      display: block;
+      padding: 5px 0;
+      font-size: 14.5px;
+      color: var(--soft);
+      transition: color .15s ease;
+    }
+
+    .footer-col a:hover { color: var(--text); }
+
+    .footer-bottom {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 20px 28px 30px;
+      border-top: 1px solid var(--line);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      color: var(--soft);
+      gap: 14px;
+      flex-wrap: wrap;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
     }
 
-    .preview-title {
-      min-width: 0;
-      overflow: hidden;
-      color: #f0ead2;
-      font-size: 18px;
-      font-weight: 900;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .footer-bottom .heart { color: var(--red); }
+
+    /* ── Reveal animations ───────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity .65s ease, transform .65s ease;
     }
 
-    .preview-chip {
-      flex: 0 0 auto;
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      padding: 6px 10px;
-      border: 1px solid rgba(200, 173, 104, .32);
-      border-radius: 4px;
-      color: var(--gold);
-      background: rgba(200, 173, 104, .08);
+    .reveal.in { opacity: 1; transform: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .reveal { opacity: 1; transform: none; transition: none; }
+      .marquee-track { animation: none; }
     }
 
-    .image-frame {
-      margin: 0;
-      max-width: 100%;
-      min-height: 0;
-      display: grid;
-      align-items: center;
+    /* ── Responsive ──────────────────────── */
+    @media (max-width: 1024px) {
+      .card, .card.wide { grid-column: span 12; }
     }
 
-    .image-frame img {
-      width: min(100%, 1240px);
-      max-height: min(720px, 68vh);
-      display: block;
-      object-fit: contain;
+    @media (max-width: 860px) {
+      .nav-links { display: none; }
     }
 
-    .caption-line {
-      max-width: 1240px;
-      margin: 14px 0 0;
-      color: var(--soft);
-      line-height: 1.6;
-    }
-
-    .statusbar {
-      min-height: 34px;
-      padding: 0 12px;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 10px;
-      color: var(--soft);
-      background: #2a2a32;
-      border-top: 1px solid rgba(255, 255, 255, .04);
-    }
-
-    .status-path {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .status-right {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: 18px;
-      white-space: nowrap;
-      overflow-x: auto;
-      overscroll-behavior-x: contain;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    .branch {
-      color: var(--gold);
-    }
-
-    .toast-cursor {
-      position: absolute;
-      width: 2px;
-      height: 22px;
-      left: 78px;
-      top: 24px;
-      background: #f1e8c5;
-      animation: blink 1.05s steps(1) infinite;
-      box-shadow: 0 0 12px rgba(241, 232, 197, .55);
-    }
-
-    .saved-flash {
-      color: var(--green);
-    }
-
-    @keyframes blink {
-      50% { opacity: 0; }
-    }
-
-    @media (max-width: 940px) {
-      .site {
-        padding: 12px;
-        align-items: start;
-      }
-
-      .ide {
-        min-height: 0;
-        height: auto;
-      }
-
-      .workspace {
-        grid-template-columns: 1fr;
-      }
-
-      .sidebar {
-        max-height: 230px;
-        overflow: hidden;
-        border-right: 0;
-        border-bottom: 1px solid rgba(0, 0, 0, .24);
-      }
-
-      .editor-shell {
-        min-height: 640px;
-      }
-
-      .titlebar {
-        grid-template-columns: auto minmax(0, 1fr);
-      }
-
-      .window-actions {
-        display: none;
-      }
-
-      .top-tabs {
-        padding-left: 6px;
-      }
-
-      .tab {
-        min-width: 128px;
-        max-width: 180px;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .site {
-        padding: 0;
-      }
-
-      .ide {
-        width: 100%;
-        border-radius: 0;
-        border-left: 0;
-        border-right: 0;
-        box-shadow: none;
-      }
-
-      .titlebar {
-        min-height: 50px;
-        padding: 10px;
-      }
-
-      .traffic {
-        gap: 7px;
-      }
-
-      .dot {
-        width: 13px;
-        height: 13px;
-      }
-
-      .rename-bar,
-      .crumbs,
-      .statusbar {
-        grid-template-columns: 1fr;
-        align-items: stretch;
-      }
-
-      .crumbs {
-        padding: 8px 10px;
-      }
-
-      .rename-bar {
-        padding: 8px 10px;
-      }
-
-      .statusbar {
-        padding: 7px 10px;
-      }
-
-      .tools,
-      .status-right {
-        overflow-x: auto;
-        padding-bottom: 2px;
-      }
-
-      .code {
-        min-width: 0;
-      }
-
-      .code-line {
-        grid-template-columns: 44px minmax(0, 1fr);
-        font-size: 13px;
-      }
-
-      .gutter {
-        padding-right: 9px;
-      }
-
-      code {
-        padding-right: 12px;
-      }
-
-      .preview-stage {
-        padding: 18px;
-      }
-
-      .preview-header {
-        align-items: start;
-        flex-direction: column;
-      }
-
-      .image-frame img {
-        max-height: none;
-      }
-    }
-
-    @media (max-width: 420px) {
-      .project-title {
-        gap: 7px;
-        font-size: 13px;
-      }
-
-      .folder-mark {
-        width: 18px;
-        height: 14px;
-      }
-
-      .top-tabs {
-        min-height: 40px;
-        padding: 0 6px;
-      }
-
-      .tab {
-        min-width: 106px;
-        max-width: 136px;
-        padding: 0 10px;
-        font-size: 12px;
-      }
-
-      .sidebar {
-        max-height: 190px;
-      }
-
-      .tree-root,
-      .tree-folder,
-      .file-button {
-        min-height: 26px;
-        font-size: 13px;
-      }
-
-      .file-button {
-        padding-left: 30px;
-      }
-
-      .editor-shell {
-        min-height: 560px;
-      }
-
-      .tool-button,
-      .command-link,
-      .filename-input {
-        min-height: 34px;
-      }
-
-      .preview-title {
-        font-size: 16px;
-      }
-
-      .caption-line,
-      .buffer-meta,
-      .statusbar {
-        font-size: 12px;
-      }
+    @media (max-width: 600px) {
+      .wrap { padding: 0 18px; }
+      .nav-inner { padding: 0 18px; height: 60px; }
+      .hero { padding-top: 128px; }
+      .hero-ctas .btn { width: 100%; }
+      .eyebrow { font-size: 12px; padding: 8px 11px; }
+      .spec { font-size: 11.5px; }
+      .demo { margin-top: 52px; }
+      .ide { border-radius: 13px; }
+      .titlebar { padding: 10px 12px 8px; }
+      .project-title { font-size: 12px; }
+      .titlebar-spacer { width: 39px; }
+      section { padding-top: 84px; }
+      .code-block { padding: 18px 16px; }
+      .code-block pre { font-size: 12.3px; }
+      .install-hint { padding: 12px 16px; }
+      .footer-inner { grid-template-columns: 1fr; gap: 28px; }
+      .footer-bottom { justify-content: center; text-align: center; }
     }
   </style>
 </head>
 <body>
-  <main class="site">
-    <section class="ide" aria-label="Interactive Toast IDE landing page">
-      <header class="titlebar">
-        <div class="traffic" aria-hidden="true">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-        </div>
-        <div class="project-title">
-          <span class="folder-mark" aria-hidden="true"></span>
-          <span>toast . ~/g/toast</span>
-        </div>
-        <div class="window-actions">
-          <button class="glyph-button" type="button" id="sidebarToggle" aria-label="Toggle sidebar">+</button>
-        </div>
-      </header>
+  <div class="bg" aria-hidden="true"></div>
 
-      <nav class="top-tabs" id="tabs" aria-label="Open files"></nav>
+  <!-- ── Nav ─────────────────────────────── -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top">
+        <img src="./toast-logo.png" alt="" width="26" height="26">
+        toast
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#keyboard">Keyboard</a>
+        <a href="#install">Install</a>
+      </div>
+      <div class="nav-right">
+        <a class="icon-link" href="https://github.com/paradise-runner/toast" aria-label="toast on GitHub" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        </a>
+        <a class="btn btn-primary btn-sm" href="#install">Install</a>
+      </div>
+    </div>
+  </nav>
 
-      <div class="workspace">
-        <aside class="sidebar" id="sidebar">
-          <div class="active-file">
-            <span id="activeFileLabel">README.md</span>
-            <span class="close-mark" aria-hidden="true">x</span>
-          </div>
-          <div class="tree" aria-label="Project files">
-            <div class="tree-root"><span class="caret">v</span><span>toast</span></div>
-            <div class="tree-folder"><span class="caret">&gt;</span><span>.github</span></div>
-            <div class="tree-folder"><span class="caret">&gt;</span><span>cmd</span></div>
-            <div class="tree-folder"><span class="caret">v</span><span>internal</span></div>
-            <button class="file-button" type="button" data-file="internal/features.go">
-              <span class="name">features<span class="ext">.go</span></span>
-            </button>
-            <button class="file-button" type="button" data-file="internal/theme.json">
-              <span class="name">theme<span class="ext">.json</span></span>
-            </button>
-            <div class="tree-folder"><span class="caret">v</span><span>docs</span></div>
-            <button class="file-button" type="button" data-file="README.md">
-              <span class="name">README<span class="ext">.md</span></span>
-              <span class="git-dot" aria-hidden="true"></span>
-            </button>
-            <button class="file-button" type="button" data-file="docs/install.sh">
-              <span class="name">install<span class="ext">.sh</span></span>
-            </button>
-            <button class="file-button preview-file" type="button" data-file="preview/toast-example.png">
-              <span class="name">toast-example<span class="ext">.png</span></span>
-              <span class="git-dot" aria-hidden="true"></span>
-            </button>
-            <button class="file-button" type="button" data-file="docs/release-notes.md">
-              <span class="name">release-notes<span class="ext">.md</span></span>
-            </button>
-          </div>
-        </aside>
+  <main id="top">
 
-        <section class="editor-shell" aria-label="Editor">
-          <div class="crumbs">
-            <div class="crumb-path">toast / <strong id="editorTitle">README.md</strong></div>
-            <div class="tools">
-              <button class="tool-button primary" type="button" id="previewButton">Preview</button>
-              <a class="command-link" href="https://github.com/paradise-runner/toast">GitHub</a>
-              <a class="command-link" href="https://github.com/paradise-runner/toast/releases">Releases</a>
+    <!-- ── Hero ───────────────────────────── -->
+    <header class="hero">
+      <div class="wrap">
+        <button class="eyebrow" type="button" data-copy="brew install paradise-runner/tap/toast" title="Copy install command">
+          <span class="prompt">$</span>
+          <code>brew install paradise-runner/tap/toast</code>
+          <span class="copy-check" aria-hidden="true"></span>
+        </button>
+
+        <h1>Code at <span class="h1-accent">terminal speed</span>.</h1>
+
+        <p class="sub">
+          Toast is a lightweight IDE that lives in your terminal —
+          <strong>managed language servers</strong>, <strong>tree-sitter highlighting</strong>,
+          <strong>tabs</strong>, <strong>search</strong>, and <strong>markdown preview</strong>
+          out of the box. No Electron. No setup marathon.
+        </p>
+
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="#install">Get Toast</a>
+          <a class="btn btn-ghost" href="https://github.com/paradise-runner/toast" target="_blank" rel="noopener">View on GitHub</a>
+        </div>
+
+        <p class="spec">macOS · Linux<span class="sep">/</span>single ~28 MB binary<span class="sep">/</span>MIT license</p>
+      </div>
+
+      <!-- Real product recording -->
+      <div class="demo wrap">
+        <section class="ide" aria-label="toast running in a terminal">
+          <header class="titlebar">
+            <div class="traffic" aria-hidden="true">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
             </div>
-          </div>
-
-          <div class="rename-bar">
-            <span class="prompt">toast:open</span>
-            <input class="filename-input" id="filenameInput" value="README.md" aria-label="Active filename">
-            <span class="buffer-meta" id="bufferMeta">markdown / UTF-8</span>
-          </div>
-
-          <div class="viewport" id="viewport" aria-live="polite">
-            <span class="toast-cursor" aria-hidden="true"></span>
-          </div>
-
-          <footer class="statusbar">
-            <div class="status-path" id="statusPath">/Users/paradise-runner/git/toast/README.md</div>
-            <div class="status-right">
-              <span>UTF-8</span>
-              <span id="cursorReadout">Ln 1, Col 1</span>
-              <span class="branch">main</span>
-              <button class="tool-button" type="button" id="themeButton">theme</button>
+            <div class="project-title">
+              <span class="folder-mark" aria-hidden="true"></span>
+              <span>toast — ~/g/toast</span>
             </div>
-          </footer>
+            <div class="titlebar-spacer" aria-hidden="true"></div>
+          </header>
+          <div class="demo-gif">
+            <img src="./toast-demo.gif" alt="Screen recording of toast, the terminal IDE: file tree, tabs, syntax highlighting, and markdown preview" width="1080" height="1020" fetchpriority="high">
+          </div>
         </section>
+        <p class="demo-caption">No mockup — this is toast running for real: tree-sitter highlighting, tabs, search, and markdown preview in a live terminal recording.</p>
+      </div>
+    </header>
+
+    <!-- ── Tech marquee ───────────────────── -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track" id="marqueeTrack">
+        <span class="marquee-chip"><b>tree-sitter</b> syntax</span>
+        <span class="marquee-chip hot"><b>managed LSPs</b></span>
+        <span class="marquee-chip"><b>ripgrep</b> search</span>
+        <span class="marquee-chip hot"><b>harper</b> spell check</span>
+        <span class="marquee-chip"><b>git</b> status</span>
+        <span class="marquee-chip hot"><b>markdown</b> preview</span>
+        <span class="marquee-chip"><b>fuzzy</b> find</span>
+        <span class="marquee-chip hot"><b>themes</b></span>
+        <span class="marquee-chip"><b>Go</b></span>
+        <span class="marquee-chip"><b>Python</b></span>
+        <span class="marquee-chip"><b>JavaScript</b></span>
+        <span class="marquee-chip"><b>TypeScript</b></span>
+        <span class="marquee-chip"><b>Rust</b></span>
+        <span class="marquee-chip"><b>CSS</b></span>
+        <span class="marquee-chip"><b>HTML</b></span>
+        <span class="marquee-chip"><b>YAML</b></span>
+        <span class="marquee-chip"><b>Bash</b></span>
+        <span class="marquee-chip"><b>Markdown</b></span>
+      </div>
+    </div>
+
+    <!-- ── Features ───────────────────────── -->
+    <section id="features">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-tag">Features</span>
+          <h2>Everything an IDE needs.<br><span class="h1-accent">Nothing to set up.</span></h2>
+          <p>nvim and emacs make you build your editor from scratch. Toast ships with the parts that matter, so you can start editing the moment it opens.</p>
+        </div>
+
+        <div class="bento">
+          <!-- LSP -->
+          <article class="card wide reveal">
+            <div class="card-head">
+              <span class="card-tag">LSP</span>
+              <span class="card-badge">installs missing servers for you</span>
+            </div>
+            <h3>Managed language servers</h3>
+            <p>Toast offers to install the language server you need — gopls, rust-analyzer, pyright, typescript-language-server, harper — using the toolchain you already have. Accept the prompt, keep coding. Servers on your <code>$PATH</code> are picked up automatically.</p>
+            <div class="card-visual">
+              <table class="lsp-table">
+                <tr><td>Go</td><td class="hint">gopls</td><td class="ok">✓ managed</td></tr>
+                <tr><td>Rust</td><td class="hint">rust-analyzer</td><td class="ok">✓ managed</td></tr>
+                <tr><td>Python</td><td class="hint">pyright</td><td class="ok">✓ managed</td></tr>
+                <tr><td>JS / TS</td><td class="hint">typescript-language-server</td><td class="ok">✓ managed</td></tr>
+                <tr><td>Markdown</td><td class="hint">harper (spell check)</td><td class="ok">✓ managed</td></tr>
+              </table>
+            </div>
+          </article>
+
+          <!-- tree-sitter -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Syntax</span>
+            </div>
+            <h3>Tree-sitter highlighting</h3>
+            <p>Accurate, incremental syntax coloring for eleven languages — no regex guessing, no half-baked grammars.</p>
+            <div class="card-visual lang-chips">
+              <span class="lang-chip">Go</span>
+              <span class="lang-chip">Python</span>
+              <span class="lang-chip">JavaScript</span>
+              <span class="lang-chip">TypeScript</span>
+              <span class="lang-chip">Rust</span>
+              <span class="lang-chip">CSS</span>
+              <span class="lang-chip">HTML</span>
+              <span class="lang-chip">YAML</span>
+              <span class="lang-chip">Bash</span>
+              <span class="lang-chip">Markdown</span>
+            </div>
+          </article>
+
+          <!-- search -->
+          <article class="card wide reveal">
+            <div class="card-head">
+              <span class="card-tag">Search</span>
+              <span class="card-badge">powered by ripgrep</span>
+            </div>
+            <h3>Project-wide search</h3>
+            <p>Find anything across the whole tree with <code>rg</code>-speed search — plus in-file find &amp; replace with match case, whole word, and next/previous navigation.</p>
+            <div class="card-visual mini-search">
+              <div class="mini-search-bar">
+                <span class="prompt">$</span>
+                <span class="q">rg "TODO" internal/</span>
+              </div>
+              <div class="mini-search-results">
+                <div class="hit"><span class="file">internal/editor/editor.go</span> · line 421 — <b>TODO</b>: handle empty buffer on save</div>
+                <div class="hit"><span class="file">internal/lsp/manager.go</span> · line 88 — <b>TODO</b>: retry with backoff</div>
+              </div>
+            </div>
+          </article>
+
+          <!-- preview -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Preview</span>
+            </div>
+            <h3>Markdown preview</h3>
+            <p><code>.md</code>, <code>.markdown</code>, and <code>.mdx</code> render side by side with your code — images included. The editor stays the focus.</p>
+            <div class="card-visual mini-preview">
+              <span class="mp-head"># release notes</span>
+              <span class="mp-line w82"></span>
+              <span class="mp-line w60"></span>
+              <span class="mp-line w45"></span>
+              <span class="mp-chip">rendered · .md / UTF-8</span>
+            </div>
+          </article>
+
+          <!-- tabs -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Tabs</span>
+            </div>
+            <h3>Multi-buffer tabs</h3>
+            <p>Open files stay visible and closable — with unsaved-changes indicators, mouse-close buttons, and quit confirmation so nothing slips away.</p>
+            <div class="card-visual mini-tabs">
+              <span class="mini-tab">editor.go</span>
+              <span class="mini-tab active">README.md<span class="dirty"></span></span>
+              <span class="mini-tab">theme.json</span>
+            </div>
+          </article>
+
+          <!-- git -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Git</span>
+            </div>
+            <h3>Git-aware file tree</h3>
+            <p>Modified and new files marked right in the tree, ignored files dimmed, current branch in the status bar.</p>
+            <div class="card-visual mini-git">
+              <div class="row"><span class="caret2">v</span><span class="name">internal</span></div>
+              <div class="row"><span class="caret2">·</span><span class="name">editor/editor.go</span><span class="badge m">M</span></div>
+              <div class="row"><span class="caret2">·</span><span class="name">lsp/manager.go</span><span class="badge a">A</span></div>
+              <div class="row"><span class="caret2">·</span><span class="name ignored">node_modules</span></div>
+            </div>
+          </article>
+
+          <!-- definition -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Navigation</span>
+            </div>
+            <h3>Go to definition</h3>
+            <p>Hold <kbd style="font-size:10.5px;padding:3px 7px">Ctrl</kbd>, hover to peek, click to jump to the exact definition. Or smash <kbd style="font-size:10.5px;padding:3px 7px">F12</kbd> at the cursor.</p>
+            <div class="card-visual mini-def">
+              <div class="tooltip"><kbd>Ctrl</kbd> + click to follow</div>
+              <div><span style="color:var(--muted);font-style:italic">// </span>jump to the real thing</div>
+              <div>app.<span class="sym">OpenTree</span>()</div>
+            </div>
+          </article>
+
+          <!-- themes -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Themes</span>
+            </div>
+            <h3>Your palette, respected</h3>
+            <p>The <code>system</code> theme derives from your terminal colors at runtime. Or pick toast-dark, toast-light — or import any VSCode theme.</p>
+            <div class="card-visual mini-themes">
+              <div class="mini-theme system"><span class="swatch"><i></i><i></i><i></i></span><span class="label">system</span><span style="color:var(--muted)">from $TERM</span></div>
+              <div class="mini-theme dark"><span class="swatch"><i></i><i></i><i></i></span><span class="label">toast-dark</span></div>
+              <div class="mini-theme light"><span class="swatch"><i></i><i></i><i></i></span><span class="label">toast-light</span><span style="color:var(--muted)">+ vscode import</span></div>
+            </div>
+          </article>
+
+          <!-- config -->
+          <article class="card reveal">
+            <div class="card-head">
+              <span class="card-tag">Config</span>
+            </div>
+            <h3>Remappable everything</h3>
+            <p>Keybindings, LSP servers, tabs, sidebar, and themes — all in one small JSON file at <code>~/.config/toast/config.json</code>.</p>
+            <div class="card-visual mini-config">
+              <div class="mc-top">config <span class="path">~/.config/toast/config.json</span></div>
+              <pre>{<span class="k">  "theme"</span>: <span class="s">"toast-dark"</span>,
+  <span class="k">"keybindings"</span>: { <span class="k">"save"</span>: [<span class="s">"ctrl+s"</span>] },
+  <span class="k">"lsp"</span>: { <span class="k">"zig"</span>: { <span class="k">"command"</span>: <span class="s">"zls"</span> } }
+}</pre>
+            </div>
+          </article>
+        </div>
       </div>
     </section>
+
+    <!-- ── Keyboard ───────────────────────── -->
+    <section id="keyboard">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-tag">Keyboard</span>
+          <h2>Fast by <span class="h1-accent">default</span>.</h2>
+          <p>Keyboard-first, mouse-friendly. The chords you need most are one keystroke away — no plugin hunting.</p>
+        </div>
+
+        <div class="keys-grid">
+          <div class="key-card reveal">
+            <div class="key-combo"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>P</kbd></div>
+            <div class="desc"><b>Quick open</b> — fuzzy-find any file in the project</div>
+          </div>
+          <div class="key-card reveal">
+            <div class="key-combo"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>F</kbd></div>
+            <div class="desc"><b>Search</b> — ripgrep across the whole tree</div>
+          </div>
+          <div class="key-card reveal">
+            <div class="key-combo"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>M</kbd></div>
+            <div class="desc"><b>Markdown preview</b> — render next to your code</div>
+          </div>
+          <div class="key-card reveal">
+            <div class="key-combo"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>B</kbd></div>
+            <div class="desc"><b>Toggle sidebar</b> — the file tree, on demand</div>
+          </div>
+          <div class="key-card reveal">
+            <div class="key-combo"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>G</kbd></div>
+            <div class="desc"><b>Go to line</b> — jump anywhere in the buffer</div>
+          </div>
+          <div class="key-card reveal">
+            <div class="key-combo"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>W</kbd></div>
+            <div class="desc"><b>Close tab</b> — with a clean unsaved-check</div>
+          </div>
+        </div>
+
+        <p class="keys-note reveal">Every binding is remappable — or unbind it entirely — in <code>config.json</code>. See the <a href="https://github.com/paradise-runner/toast#keybindings">full list on GitHub</a>.</p>
+      </div>
+    </section>
+
+    <!-- ── Install ────────────────────────── -->
+    <section id="install">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-tag">Install</span>
+          <h2>One command to <span class="h1-accent">install</span>.</h2>
+          <p>No Electron download, no dependency tree. A single ~28 MB binary that opens a working IDE.</p>
+        </div>
+
+        <div class="install-card reveal">
+          <div class="install-tabs" role="tablist">
+            <button class="install-tab active" type="button" data-panel="tab-brew" role="tab">Homebrew</button>
+            <button class="install-tab" type="button" data-panel="tab-release" role="tab">Release</button>
+            <button class="install-tab" type="button" data-panel="tab-source" role="tab">Source</button>
+          </div>
+
+          <div class="code-block" id="tab-brew">
+            <button class="copy-btn" type="button" data-copy="brew install paradise-runner/tap/toast">copy</button>
+            <pre><span class="cmt"># macOS &amp; Linux (formula auto-updated on every release)</span>
+<span class="cmd">$</span> brew install paradise-runner/tap/toast</pre>
+          </div>
+
+          <div class="code-block" id="tab-release" hidden>
+            <button class="copy-btn" type="button" data-copy="curl -Lo toast.zip https://github.com/paradise-runner/toast/releases/latest/download/toast-darwin-arm64.zip
+unzip toast.zip
+install -m755 toast-darwin-arm64 /usr/local/bin/toast">copy</button>
+            <pre><span class="cmt"># macOS (Apple Silicon) — also: toast-darwin-amd64.zip, toast-linux-amd64.zip</span>
+<span class="cmd">$</span> curl -Lo toast.zip https://github.com/paradise-runner/toast/releases/latest/download/toast-darwin-arm64.zip
+<span class="cmd">$</span> unzip toast.zip
+<span class="cmd">$</span> install -m755 toast-darwin-arm64 /usr/local/bin/toast</pre>
+          </div>
+
+          <div class="code-block" id="tab-source" hidden>
+            <button class="copy-btn" type="button" data-copy="git clone https://github.com/paradise-runner/toast
+cd toast
+make build">copy</button>
+            <pre><span class="cmt"># requires Go 1.25+; binary lands in bin/toast</span>
+<span class="cmd">$</span> git clone https://github.com/paradise-runner/toast
+<span class="cmd">$</span> cd toast
+<span class="cmd">$</span> make build</pre>
+          </div>
+
+          <div class="install-hint">
+            Then point it at anything — a directory, a file, or nothing at all. Toast auto-detects the git root.
+          </div>
+        </div>
+
+        <div class="usage-row">
+          <span class="usage-chip"><span class="prompt">$</span> toast</span>
+          <span class="usage-chip"><span class="prompt">$</span> toast path/to/dir</span>
+          <span class="usage-chip"><span class="prompt">$</span> toast path/to/file</span>
+        </div>
+
+        <p class="early-note">
+          ⚠️ toast is in early development — expect rough edges. Bugs and feature requests are welcome in
+          <a href="https://github.com/paradise-runner/toast/issues">Issues</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── Footer ─────────────────────────── -->
+    <footer>
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <a class="brand" href="#top">
+            <img src="./toast-logo.png" alt="" width="26" height="26">
+            toast
+          </a>
+          <p>A lightweight IDE that lives in your terminal. Edit at terminal speed, keep the whole project in view.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <a href="#features">Features</a>
+          <a href="#keyboard">Keyboard</a>
+          <a href="#install">Install</a>
+          <a href="https://github.com/paradise-runner/toast#readme">README</a>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <a href="https://github.com/paradise-runner/toast" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/paradise-runner/toast/releases" target="_blank" rel="noopener">Releases</a>
+          <a href="https://github.com/paradise-runner/toast/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="https://github.com/paradise-runner/toast/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2025 toast — made with <span class="heart">♥</span>, Go &amp; bubbletea</span>
+        <span>tree-sitter · LSP · ripgrep · harper</span>
+      </div>
+    </footer>
   </main>
 
   <script>
-    const seedFiles = {
-      "README.md": {
-        kind: "markdown",
-        meta: "markdown / UTF-8",
-        dirty: true,
-        lines: [
-          "# toast",
-          "",
-          "A lightweight, in-terminal IDE for quick file edits.",
-          "Toast keeps a familiar editor shape inside the terminal: file tree, tabs, syntax highlighting, LSP support, project search, git status, and markdown preview.",
-          "",
-          "![Toast terminal IDE preview](toast-example.png)",
-          "",
-          "## design notes",
-          "",
-          "- built for short jumps between files without leaving the shell",
-          "- project-wide search powered by rg",
-          "- tree-sitter highlighting for Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, and Markdown",
-          "- markdown preview for .md, .markdown, and .mdx buffers",
-          "- rope-backed editing with undo and redo",
-          "- themes pulled from the same dark, warm terminal palette shown in the preview image",
-          "",
-          "## install",
-          "",
-          "brew install paradise-runner/tap/toast",
-          "",
-          "toast .",
-          "toast path/to/file",
-          "",
-          "> edit at terminal speed, keep the whole project in view"
-        ]
-      },
-      "internal/features.go": {
-        kind: "go",
-        meta: "go / UTF-8",
-        lines: [
-          "package internal",
-          "",
-          "type Feature struct {",
-          "    Name string",
-          "    Signal string",
-          "}",
-          "",
-          "var Toast = []Feature{",
-          "    {Name: \"file tree\", Signal: \"project context without a GUI shell\"},",
-          "    {Name: \"tabs\", Signal: \"open buffers stay visible and close\"},",
-          "    {Name: \"LSP\", Signal: \"completions, hover docs, diagnostics\"},",
-          "    {Name: \"search\", Signal: \"rg across the project\"},",
-          "    {Name: \"preview\", Signal: \"markdown and image buffers side by side with code\"},",
-          "}",
-          "",
-          "func Run() string {",
-          "    return \"toast .\"",
-          "}"
-        ]
-      },
-      "internal/theme.json": {
-        kind: "json",
-        meta: "json / UTF-8",
-        lines: [
-          "{",
-          "  \"name\": \"toast-dark-terminal\",",
-          "  \"base\": \"system\",",
-          "  \"ui\": {",
-          "    \"background\": \"#20202a\",",
-          "    \"sidebar\": \"#292932\",",
-          "    \"tab\": \"#34343d\",",
-          "    \"text\": \"#d7d0b8\",",
-          "    \"muted\": \"#7d7a75\",",
-          "    \"blue\": \"#91b4ff\",",
-          "    \"violet\": \"#a78bd3\",",
-          "    \"gold\": \"#c8ad68\",",
-          "    \"green\": \"#84ad6d\"",
-          "  }",
-          "}"
-        ]
-      },
-      "docs/install.sh": {
-        kind: "shell",
-        meta: "bash / UTF-8",
-        lines: [
-          "#!/usr/bin/env bash",
-          "set -euo pipefail",
-          "",
-          "brew install paradise-runner/tap/toast",
-          "",
-          "# or build from source",
-          "git clone https://github.com/paradise-runner/toast",
-          "cd toast",
-          "make build",
-          "bin/toast ."
-        ]
-      },
-      "docs/release-notes.md": {
-        kind: "markdown",
-        meta: "markdown / UTF-8",
-        lines: [
-          "# terminal-first IDE",
-          "",
-          "Toast is for the edit loop where opening another application would break flow.",
-          "",
-          "## what feels different",
-          "",
-          "- the landing page is also the product metaphor",
-          "- files are real navigation, not decoration",
-          "- the screenshot opens like a preview buffer",
-          "- renaming the active file reshapes the editor content by extension",
-          "- the palette comes from Toast itself: graphite panels, parchment text, blue headings, violet sections, green commands, and gold git markers"
-        ]
-      },
-      "preview/toast-example.png": {
-        kind: "image",
-        meta: "png / 2464 x 1622",
-        image: "toast-example.png",
-        caption: "The preview buffer uses the Toast IDE screenshot as the visual source for the page palette and layout proportions."
-      }
-    };
-
-    const openedFiles = ["README.md", "internal/features.go", "preview/toast-example.png"];
-    let activeKey = "README.md";
-    let themeStep = 0;
-
-    const tabs = document.getElementById("tabs");
-    const viewport = document.getElementById("viewport");
-    const editorTitle = document.getElementById("editorTitle");
-    const filenameInput = document.getElementById("filenameInput");
-    const bufferMeta = document.getElementById("bufferMeta");
-    const activeFileLabel = document.getElementById("activeFileLabel");
-    const statusPath = document.getElementById("statusPath");
-    const cursorReadout = document.getElementById("cursorReadout");
-    const sidebar = document.getElementById("sidebar");
-
-    function basename(path) {
-      return path.split("/").pop();
+    // ── Marquee: duplicate track for a seamless loop ──────
+    const track = document.getElementById("marqueeTrack");
+    if (track) {
+      track.innerHTML += track.innerHTML;
     }
 
-    function extension(name) {
-      const base = basename(name);
-      const dot = base.lastIndexOf(".");
-      return dot === -1 ? "" : base.slice(dot + 1).toLowerCase();
-    }
-
-    function escapeHtml(value) {
-      return value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
-
-    function colorize(line) {
-      let output = escapeHtml(line);
-      const replacements = [
-        [/\b(toast|Toast|Preview|markdown|terminal|IDE)\b/g, "tok-blue"],
-        [/\b(LSP|tree-sitter|syntax|themes|tabs|search|file tree)\b/g, "tok-violet"],
-        [/\b(brew|install|make|build|rg|git|clone|return)\b/g, "tok-green"],
-        [/\b(main|UTF-8|gold|palette|preview image)\b/g, "tok-gold"],
-        [/\b(system|dark|light|json|go|bash)\b/g, "tok-cyan"]
-      ];
-
-      replacements.forEach(([pattern, className]) => {
-        output = output.replace(pattern, `<span class="${className}">$1</span>`);
-      });
-
-      if (line.trim().startsWith("#") || line.trim().startsWith("//")) {
-        output = `<span class="tok-muted">${output}</span>`;
-      }
-
-      return output;
-    }
-
-    function lineClass(line) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("# ")) return "line-heading";
-      if (trimmed.startsWith("## ")) return "line-subhead";
-      if (trimmed.startsWith("#") || trimmed.startsWith("//")) return "line-comment";
-      return "";
-    }
-
-    function generatedBuffer(name) {
-      const ext = extension(name);
-
-      if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) {
-        return {
-          kind: "image",
-          meta: `${ext || "image"} / preview`,
-          image: "toast-example.png",
-          caption: `${basename(name)} opens as an image buffer and keeps the same Toast screenshot in view.`
-        };
-      }
-
-      if (ext === "go") {
-        return {
-          kind: "go",
-          meta: "go / generated",
-          lines: [
-            "package main",
-            "",
-            "func main() {",
-            "    app := toast.New(\"" + basename(name) + "\")",
-            "    app.OpenTree()",
-            "    app.FocusEditor()",
-            "}"
-          ]
-        };
-      }
-
-      if (ext === "json") {
-        return {
-          kind: "json",
-          meta: "json / generated",
-          lines: [
-            "{",
-            "  \"file\": \"" + basename(name) + "\",",
-            "  \"theme\": \"toast-dark\",",
-            "  \"preview\": true,",
-            "  \"sidebar\": \"visible\"",
-            "}"
-          ]
-        };
-      }
-
-      if (ext === "sh") {
-        return {
-          kind: "shell",
-          meta: "bash / generated",
-          lines: [
-            "#!/usr/bin/env bash",
-            "set -euo pipefail",
-            "",
-            "toast " + basename(name),
-            "rg \"TODO\" .",
-            "make test"
-          ]
-        };
-      }
-
-      return {
-        kind: "markdown",
-        meta: "markdown / generated",
-        lines: [
-          "# " + basename(name || "untitled.md"),
-          "",
-          "Toast treats the filename as part of the buffer state.",
-          "",
-          "- change the extension to .go for a Go buffer",
-          "- change it to .json for a config buffer",
-          "- change it to .png for the screenshot preview",
-          "",
-          "The page mirrors the IDE by letting file selection and filename changes redraw the editor."
-        ]
-      };
-    }
-
-    function resolveBuffer(key) {
-      if (seedFiles[key]) return seedFiles[key];
-
-      const matchedKey = Object.keys(seedFiles).find((candidate) => basename(candidate) === key);
-      if (matchedKey) {
-        activeKey = matchedKey;
-        return seedFiles[matchedKey];
-      }
-
-      return generatedBuffer(key);
-    }
-
-    function renderTabs() {
-      tabs.innerHTML = openedFiles.map((key) => {
-        const file = seedFiles[key] || generatedBuffer(key);
-        const active = key === activeKey ? " active" : "";
-        const dirty = file.dirty ? '<span class="dirty" aria-hidden="true"></span>' : "";
-        return `<button class="tab${active}" type="button" data-tab="${escapeHtml(key)}"><span class="tab-name">${escapeHtml(basename(key))}</span>${dirty}</button>`;
-      }).join("");
-
-      tabs.querySelectorAll("[data-tab]").forEach((button) => {
-        button.addEventListener("click", () => selectFile(button.dataset.tab));
-      });
-    }
-
-    function renderTree() {
-      document.querySelectorAll("[data-file]").forEach((button) => {
-        const isActive = button.dataset.file === activeKey || basename(button.dataset.file) === basename(activeKey);
-        button.classList.toggle("active", isActive);
-      });
-    }
-
-    function renderText(file) {
-      const lines = file.lines || [];
-      const rows = lines.map((line, index) => {
-        const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-        if (image) {
-          const [, alt, src] = image;
-          return `
-            <div class="code-line markdown-image-line">
-              <span class="gutter">${index + 1}</span>
-              <figure class="markdown-image">
-                <img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">
-              </figure>
-            </div>
-          `;
+    // ── Copy buttons ──────────────────────────────────────
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const text = button.dataset.copy;
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (err) {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
         }
-
-        return `<div class="code-line ${lineClass(line)}"><span class="gutter">${index + 1}</span><code>${colorize(line)}</code></div>`;
-      }).join("");
-
-      viewport.innerHTML = '<span class="toast-cursor" aria-hidden="true"></span><div class="code">' + rows + "</div>";
-      cursorReadout.textContent = "Ln 1, Col 1";
-    }
-
-    function renderImage(file) {
-      viewport.innerHTML = `
-        <div class="preview-stage">
-          <div class="preview-header">
-            <div class="preview-title">${escapeHtml(basename(activeKey))}</div>
-            <div class="preview-chip">${escapeHtml(file.meta)}</div>
-          </div>
-          <figure class="image-frame">
-            <img src="${escapeHtml(file.image)}" alt="Toast terminal IDE screenshot with file tree, tabs, markdown editor, and preview controls">
-            <figcaption class="caption-line">${escapeHtml(file.caption || "")}</figcaption>
-          </figure>
-        </div>
-      `;
-      cursorReadout.textContent = "Preview";
-    }
-
-    function renderBuffer(options = {}) {
-      const file = resolveBuffer(activeKey);
-      const title = basename(activeKey);
-
-      editorTitle.textContent = title;
-      activeFileLabel.textContent = title;
-      if (!options.keepInput) filenameInput.value = title;
-      bufferMeta.textContent = file.meta || `${file.kind} / UTF-8`;
-      statusPath.textContent = "/Users/paradise-runner/git/toast/" + activeKey;
-
-      if (file.kind === "image") {
-        renderImage(file);
-      } else {
-        renderText(file);
-      }
-
-      renderTabs();
-      renderTree();
-    }
-
-    function selectFile(key) {
-      activeKey = key;
-      if (!openedFiles.includes(key)) openedFiles.push(key);
-      renderBuffer();
-    }
-
-    document.querySelectorAll("[data-file]").forEach((button) => {
-      button.addEventListener("click", () => selectFile(button.dataset.file));
-    });
-
-    document.getElementById("previewButton").addEventListener("click", () => {
-      selectFile("preview/toast-example.png");
-    });
-
-    filenameInput.addEventListener("input", () => {
-      const previousKey = activeKey;
-      const typed = filenameInput.value.trim() || "untitled.md";
-      const matchedKey = Object.keys(seedFiles).find((key) => basename(key) === typed);
-      activeKey = matchedKey || typed;
-
-      if (!openedFiles.includes(activeKey)) {
-        const openIndex = openedFiles.indexOf(previousKey);
-        if (openIndex === -1) {
-          openedFiles.push(activeKey);
-        } else {
-          openedFiles[openIndex] = activeKey;
+        const check = button.querySelector(".copy-check");
+        if (check) check.classList.add("on");
+        if (button.classList.contains("copy-btn")) {
+          const original = button.textContent;
+          button.textContent = "copied ✓";
+          button.classList.add("copied");
+          window.setTimeout(() => {
+            button.textContent = original;
+            button.classList.remove("copied");
+          }, 1600);
         }
-      }
-
-      renderBuffer({ keepInput: true });
+        if (check) {
+          window.setTimeout(() => check.classList.remove("on"), 1600);
+        }
+      });
     });
 
-    document.getElementById("sidebarToggle").addEventListener("click", () => {
-      const hidden = sidebar.style.display === "none";
-      sidebar.style.display = hidden ? "" : "none";
+    // ── Install tabs ──────────────────────────────────────
+    document.querySelectorAll(".install-tab").forEach((tabButton) => {
+      tabButton.addEventListener("click", () => {
+        document.querySelectorAll(".install-tab").forEach((b) => b.classList.remove("active"));
+        document.querySelectorAll(".code-block").forEach((block) => { block.hidden = true; });
+        tabButton.classList.add("active");
+        document.getElementById(tabButton.dataset.panel).hidden = false;
+      });
     });
 
-    document.getElementById("themeButton").addEventListener("click", (event) => {
-      themeStep = (themeStep + 1) % 3;
-      const root = document.documentElement;
-      const themes = [
-        ["#20202a", "#292932", "#91b4ff", "#c8ad68"],
-        ["#191f25", "#20292d", "#79c7bf", "#d2b764"],
-        ["#231f28", "#2d2634", "#a78bd3", "#84ad6d"]
-      ];
-      const [editor, rail, blue, gold] = themes[themeStep];
-      root.style.setProperty("--editor", editor);
-      root.style.setProperty("--rail", rail);
-      root.style.setProperty("--blue", blue);
-      root.style.setProperty("--gold", gold);
-      event.currentTarget.classList.add("saved-flash");
-      window.setTimeout(() => event.currentTarget.classList.remove("saved-flash"), 420);
-    });
+    // ── Nav background on scroll ──────────────────────────
+    const nav = document.getElementById("nav");
+    const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 12);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
 
-    document.addEventListener("keydown", (event) => {
-      const mod = event.metaKey || event.ctrlKey;
-      if (mod && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        bufferMeta.textContent = "saved / " + (seedFiles[activeKey]?.kind || extension(activeKey) || "buffer");
-        bufferMeta.classList.add("saved-flash");
-        window.setTimeout(() => bufferMeta.classList.remove("saved-flash"), 520);
-      }
-
-      if (mod && event.key.toLowerCase() === "p") {
-        event.preventDefault();
-        selectFile("preview/toast-example.png");
-      }
-    });
-
-    renderBuffer();
+    // ── Scroll reveal ─────────────────────────────────────
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reveals = document.querySelectorAll(".reveal");
+    if (reduceMotion || !("IntersectionObserver" in window)) {
+      reveals.forEach((el) => el.classList.add("in"));
+    } else {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("in");
+            io.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.12 });
+      reveals.forEach((el) => io.observe(el));
+    }
   </script>
 </body>
 </html>
