@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# pre-push hook: ensure RELEASE_NOTES.md has a "## <tag>" section for every
+# local tag that isn't on the remote yet, so releases never ship without
+# notes.
+#
+# Note: prek (unlike pre-commit) doesn't forward the pre-push ref list on
+# stdin to `language: system` hooks, so instead of parsing stdin we compare
+# local tags against the remote and fail if any unpushed tag lacks notes.
+set -u
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+notes="RELEASE_NOTES.md"
+if [ ! -f "$notes" ]; then
+    echo "error: $notes not found" >&2
+    exit 1
+fi
+
+# Determine the remote to compare against (defaults to origin).
+remote="$(git config --get remote.origin.url 2>/dev/null)"
+if [ -z "$remote" ]; then
+    remote="$(git remote 2>/dev/null | head -1)"
+fi
+if [ -z "$remote" ]; then
+    exit 0 # no remote configured; nothing to block
+fi
+
+# Tags that exist locally but not yet on the remote.
+new_tags="$(comm -23 \
+    <(git tag | sort) \
+    <(git ls-remote --tags "$remote" 2>/dev/null | sed 's|.*refs/tags/||; s/\^{}//' | sort -u))"
+[ -n "$new_tags" ] || exit 0
+
+fail=0
+for tag in $new_tags; do
+    if ! grep -Eq "^## $tag([[:space:]]|$)" "$notes"; then
+        echo "error: RELEASE_NOTES.md has no section for tag '$tag' (add a '## $tag' heading)" >&2
+        fail=1
+    fi
+done
+exit $fail

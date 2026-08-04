@@ -1,0 +1,9 @@
+#:schema https://www.schemastore.org/prek.json
+
+default_install_hook_types = ["pre-commit", "pre-push"]
+
+[[repos]]
+repo = "local"
+hooks = [
+    { id = "check-release-notes", name = "ensure RELEASE_NOTES.md covers every pushed tag", entry = ".githooks/check-release-notes", language = "system", stages = ["pre-push"], always_run = true },
+]
