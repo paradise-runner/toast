@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -604,4 +605,52 @@ func TestWrapModeKeyboardUpDoesNotStallAtChunkBoundary(t *testing.T) {
 		prevRow = row
 	}
 	t.Fatal("cursor never reached the first visual row")
+}
+
+func TestBottomPadding_WrapMode_LastLineNotGluedToBottomEdge(t *testing.T) {
+	// 25 short lines → 25 visual rows in a 10-row viewport with 3 rows of
+	// padding. Cursor on the last line must end up at screen row 6 (3 rows
+	// above the bottom edge): viewportTop = line 18.
+	var sb strings.Builder
+	for i := 0; i < 25; i++ {
+		fmt.Fprintf(&sb, "line%d\n", i)
+	}
+	m := newWrapModel(sb.String())
+	m.cfg.Editor.BottomPadding = 3
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 24, col: 5}
+
+	m.clampViewport()
+
+	if m.viewportTop != 18 {
+		t.Fatalf("viewportTop = %d, want 18", m.viewportTop)
+	}
+	topVR := m.visualRowFromTop(m.viewportTop)
+	cursorVR := m.visualRowOfCursor()
+	if got := cursorVR - topVR; got != 10-1-3 {
+		t.Fatalf("cursor screen row = %d, want %d", got, 10-1-3)
+	}
+}
+
+func TestBottomPadding_WrapMode_ZeroPreservesOldBehavior(t *testing.T) {
+	// 25 short lines, padding=0 (the default test config): last line must sit
+	// at the bottom edge, viewportTop = 25 - 10 = 15.
+	var sb strings.Builder
+	for i := 0; i < 25; i++ {
+		fmt.Fprintf(&sb, "line%d\n", i)
+	}
+	m := newWrapModel(sb.String())
+	m.viewHeight = 10
+	m.cursor = cursorPos{line: 24, col: 5}
+
+	m.clampViewport()
+
+	if m.viewportTop != 15 {
+		t.Fatalf("viewportTop = %d, want 15", m.viewportTop)
+	}
+	topVR := m.visualRowFromTop(m.viewportTop)
+	cursorVR := m.visualRowOfCursor()
+	if got := cursorVR - topVR; got != 10-1 {
+		t.Fatalf("cursor screen row = %d, want %d", got, 10-1)
+	}
 }

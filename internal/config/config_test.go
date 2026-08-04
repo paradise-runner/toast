@@ -16,6 +16,9 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Editor.TabWidth != 4 {
 		t.Errorf("expected default tab width 4, got %d", cfg.Editor.TabWidth)
 	}
+	if cfg.Editor.BottomPadding != 3 {
+		t.Errorf("expected default bottom padding 3, got %d", cfg.Editor.BottomPadding)
+	}
 	if !cfg.Editor.AutoIndent {
 		t.Error("expected auto_indent true by default")
 	}

@@ -24,6 +24,10 @@ type EditorConfig struct {
 	AutoIndent                   bool `json:"auto_indent"`
 	TrimTrailingWhitespaceOnSave bool `json:"trim_trailing_whitespace_on_save"`
 	InsertFinalNewlineOnSave     bool `json:"insert_final_newline_on_save"`
+	// BottomPadding is the number of blank rows reserved below the last line of
+	// content when scrolled to the bottom of a file, so the last line is not
+	// glued to the bottom edge of the editor. Set to 0 to disable.
+	BottomPadding int `json:"bottom_padding"`
 }
 
 type SidebarConfig struct {
@@ -82,6 +86,7 @@ func Defaults() Config {
 		Editor: EditorConfig{
 			TabWidth: 4, AutoIndent: true,
 			TrimTrailingWhitespaceOnSave: true, InsertFinalNewlineOnSave: true,
+			BottomPadding: 3,
 		},
 		Sidebar: SidebarConfig{
 			Visible:       true,

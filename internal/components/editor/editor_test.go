@@ -1947,3 +1947,105 @@ func TestTabStillIndentsWithoutVisibleCompletion(t *testing.T) {
 		t.Fatalf("buffer = %q, want ordinary Tab indentation", got)
 	}
 }
+
+// ── Bottom padding (issue #46) ──────────────────────────────────────────────
+
+// newPaddedTestModel builds a model with the given content, viewport and
+// bottom-padding configured.
+func newPaddedTestModel(content string, viewHeight, padding int) Model {
+	m := New(nil, config.Config{Editor: config.EditorConfig{BottomPadding: padding}})
+	m.buf = buffer.NewEditBuffer(content)
+	m.viewHeight = viewHeight
+	m.viewWidth = 40
+	m.recomputeGutterWidth()
+	return m
+}
+
+func TestBottomPadding_LastLineNotGluedToBottomEdge(t *testing.T) {
+	// 20 lines in a 10-row viewport with 3 rows of padding. When the cursor is
+	// on the last line, the viewport must scroll so the last line sits 3 rows
+	// above the bottom edge: viewportTop = 19 - 10 + 3 + 1 = 13.
+	m := newPaddedTestModel("line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\n", 10, 3)
+	m.cursor = cursorPos{line: 19, col: 5}
+
+	m.clampViewport()
+
+	want := 19 - 10 + 3 + 1
+	if m.viewportTop != want {
+		t.Fatalf("viewportTop = %d, want %d", m.viewportTop, want)
+	}
+	// The last line must render `padding` rows above the bottom edge.
+	if got := m.cursor.line - m.viewportTop; got != 10-1-3 {
+		t.Fatalf("cursor screen row = %d, want %d", got, 10-1-3)
+	}
+}
+
+func TestBottomPadding_CursorStaysAbovePaddingWhileScrollingDown(t *testing.T) {
+	// Moving the cursor down through a long file keeps it `padding` rows above
+	// the bottom edge once the padding kicks in, then relaxes only at the top.
+	m := newPaddedTestModel("line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\n", 10, 3)
+	m.cursor = cursorPos{line: 12, col: 5}
+	m.clampViewport()
+	// 12 >= 0+10-3 → viewportTop = 12 - 10 + 3 + 1 = 6; cursor at row 6.
+	if m.viewportTop != 6 {
+		t.Fatalf("viewportTop = %d, want 6", m.viewportTop)
+	}
+	if got := m.cursor.line - m.viewportTop; got != 10-1-3 {
+		t.Fatalf("cursor screen row = %d, want %d", got, 10-1-3)
+	}
+
+	// Cursor near the top: the viewport follows up only when the cursor
+	// leaves the viewport; there is no top-side padding.
+	m.cursor = cursorPos{line: 2, col: 5}
+	m.clampViewport()
+	if m.viewportTop != 2 {
+		t.Fatalf("viewportTop = %d, want 2 (cursor pinned to top row, no top padding)", m.viewportTop)
+	}
+	if got := m.cursor.line - m.viewportTop; got != 0 {
+		t.Fatalf("cursor screen row = %d, want 0", got)
+	}
+
+	m.cursor = cursorPos{line: 0, col: 5}
+	m.clampViewport()
+	if m.viewportTop != 0 {
+		t.Fatalf("viewportTop = %d, want 0 at top of file", m.viewportTop)
+	}
+}
+
+func TestBottomPadding_FileShorterThanViewportStaysAtTop(t *testing.T) {
+	// A short file leaves the content at the top with blank space below; the
+	// viewport must not scroll.
+	m := newPaddedTestModel("a\nb\nc\n", 10, 3)
+	m.cursor = cursorPos{line: 2, col: 1}
+	m.clampViewport()
+	if m.viewportTop != 0 {
+		t.Fatalf("viewportTop = %d, want 0 for short file", m.viewportTop)
+	}
+}
+
+func TestBottomPadding_ZeroDisablesPadding(t *testing.T) {
+	// padding=0 must preserve the original behavior: last line at the bottom edge.
+	m := newPaddedTestModel("line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\n", 5, 0)
+	m.cursor = cursorPos{line: 9, col: 5}
+	m.clampViewport()
+	if m.viewportTop != 9-5+1 {
+		t.Fatalf("viewportTop = %d, want %d", m.viewportTop, 9-5+1)
+	}
+}
+
+func TestBottomPadding_ScrollingWheelToBottomRevealsPadding(t *testing.T) {
+	// Wheel-down at the bottom of a long file keeps the cursor on the last
+	// line; clampViewport must then reveal the reserved padding.
+	m := newPaddedTestModel("line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\n", 10, 3)
+	m.cursor = cursorPos{line: 0, col: 5}
+	for i := 0; i < 40; i++ {
+		m.moveCursorDown(1)
+		m.clampViewport()
+	}
+	if m.cursor.line != 19 {
+		t.Fatalf("cursor line = %d, want 19", m.cursor.line)
+	}
+	if want := 19 - 10 + 3 + 1; m.viewportTop != want {
+		t.Fatalf("viewportTop = %d, want %d", m.viewportTop, want)
+	}
+}

@@ -110,7 +110,8 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
     "tab_width": 4,
     "auto_indent": true,
     "trim_trailing_whitespace_on_save": true,
-    "insert_final_newline_on_save": true
+    "insert_final_newline_on_save": true,
+    "bottom_padding": 3
   },
   "sidebar": {
     "visible": true,

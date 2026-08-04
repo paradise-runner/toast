@@ -2525,8 +2525,31 @@ func abs(n int) int {
 	return n
 }
 
-// clampViewport scrolls the viewport so the cursor is visible.
+// bottomPadding returns the number of blank rows to reserve below the last
+// line of content when scrolled to the bottom of a file. It is read from the
+// editor config; negative values are treated as zero (no padding).
+func (m Model) bottomPadding() int {
+	pad := m.cfg.Editor.BottomPadding
+	if pad < 0 {
+		return 0
+	}
+	return pad
+}
+
+// clampViewport scrolls the viewport so the cursor is visible and, when the
+// buffer is taller than the viewport, keeps a few blank rows (`bottomPadding`)
+// below the last line of content so it is not glued to the bottom edge.
 func (m *Model) clampViewport() {
+	pad := m.bottomPadding()
+	// The padding can never exceed the viewport height: clamp it so the
+	// cursor-visible trigger below still fires on tiny viewports.
+	if pad >= m.viewHeight {
+		pad = m.viewHeight - 1
+	}
+	if pad < 0 {
+		pad = 0
+	}
+
 	if m.wrapMode {
 		m.viewportLeft = 0
 		if m.viewHeight <= 0 {
@@ -2555,9 +2578,11 @@ func (m *Model) clampViewport() {
 			return
 		}
 
-		// Cursor below viewport: find first buffer line whose first visual row >= targetTopVR.
-		if cursorVR >= topVR+m.viewHeight {
-			targetTopVR := cursorVR - m.viewHeight + 1
+		// Cursor too close to the bottom edge (or below the viewport): find the
+		// first buffer line whose first visual row >= targetTopVR, so the cursor
+		// ends up at least `pad` rows above the bottom edge.
+		if cursorVR >= topVR+m.viewHeight-pad {
+			targetTopVR := cursorVR - m.viewHeight + pad + 1
 			// Smallest l such that visualRowCache[l] >= targetTopVR.
 			lo, hi := 0, lineCount
 			for lo < hi {
@@ -2573,6 +2598,29 @@ func (m *Model) clampViewport() {
 			}
 			m.viewportTop = lo
 		}
+
+		// Never scroll so far that the end of the buffer can sit closer than
+		// `pad` rows to the bottom edge.
+		if m.viewHeight > 0 {
+			minTopVR := m.visualRowFromTop(lineCount) - m.viewHeight + pad
+			if minTopVR > 0 {
+				lo, hi := 0, lineCount
+				for lo < hi {
+					mid := (lo + hi) / 2
+					if mid < len(m.visualRowCache) && m.visualRowCache[mid] >= minTopVR {
+						hi = mid
+					} else {
+						lo = mid + 1
+					}
+				}
+				if lo >= lineCount {
+					lo = lineCount - 1
+				}
+				if m.viewportTop > lo {
+					m.viewportTop = lo
+				}
+			}
+		}
 		return
 	}
 
@@ -2581,8 +2629,23 @@ func (m *Model) clampViewport() {
 	if m.cursor.line < m.viewportTop {
 		m.viewportTop = m.cursor.line
 	}
-	if m.viewHeight > 0 && m.cursor.line >= m.viewportTop+m.viewHeight {
-		m.viewportTop = m.cursor.line - m.viewHeight + 1
+	// Keep the cursor at least `pad` rows above the bottom edge: when it gets
+	// within `pad` rows of the bottom (or below the viewport), scroll down so
+	// the reserved padding stays visible.
+	if m.viewHeight > 0 && m.cursor.line >= m.viewportTop+m.viewHeight-pad {
+		m.viewportTop = m.cursor.line - m.viewHeight + pad + 1
+	}
+	// Never scroll past the end of the buffer: the last line may sit at most
+	// `pad` rows above the bottom edge. When the buffer fits the viewport this
+	// clamps to 0, keeping the content at the top.
+	if m.viewHeight > 0 {
+		maxTop := m.buf.LineCount() - m.viewHeight + pad
+		if maxTop < 0 {
+			maxTop = 0
+		}
+		if m.viewportTop > maxTop {
+			m.viewportTop = maxTop
+		}
 	}
 	if m.viewportTop < 0 {
 		m.viewportTop = 0
