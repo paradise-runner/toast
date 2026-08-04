@@ -25,6 +25,12 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.Width != 30 {
 		t.Errorf("expected default sidebar width 30, got %d", cfg.Sidebar.Width)
 	}
+	if cfg.Editor.AutoSave != "auto" {
+		t.Errorf("expected auto_save to default to 'auto', got %q", cfg.Editor.AutoSave)
+	}
+	if cfg.Editor.AutoSaveDelayMs != 300 {
+		t.Errorf("expected default auto_save_delay_ms 300, got %d", cfg.Editor.AutoSaveDelayMs)
+	}
 	if !cfg.Sidebar.FileIcons.Enabled {
 		t.Error("expected sidebar file icons enabled by default")
 	}
@@ -58,6 +64,45 @@ func TestLoadFromFile(t *testing.T) {
 	}
 	if !cfg.Editor.AutoIndent {
 		t.Error("expected auto_indent to default to true even when not in file")
+	}
+	if cfg.Editor.AutoSave != "auto" {
+		t.Errorf("expected auto_save to default to 'auto' when absent, got %q", cfg.Editor.AutoSave)
+	}
+}
+
+func TestLoadFrom_NormalizesAutoSave(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"editor": {"auto_save": "sometimes", "auto_save_delay_ms": 0}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if cfg.Editor.AutoSave != "auto" {
+		t.Errorf("expected invalid auto_save to normalize to 'auto', got %q", cfg.Editor.AutoSave)
+	}
+	if cfg.Editor.AutoSaveDelayMs != 300 {
+		t.Errorf("expected auto_save_delay_ms 0 to normalize to 300, got %d", cfg.Editor.AutoSaveDelayMs)
+	}
+}
+
+func TestLoadFrom_AcceptsManualAutoSave(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"editor": {"auto_save": "manual", "auto_save_delay_ms": 1000}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if cfg.Editor.AutoSave != "manual" {
+		t.Errorf("expected auto_save 'manual' to be preserved, got %q", cfg.Editor.AutoSave)
+	}
+	if cfg.Editor.AutoSaveDelayMs != 1000 {
+		t.Errorf("expected auto_save_delay_ms 1000 to be preserved, got %d", cfg.Editor.AutoSaveDelayMs)
 	}
 }
 

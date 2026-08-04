@@ -124,6 +124,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampViewport()
 		return m, nil
 
+	case messages.SaveBufferMsg:
+		// Auto-save request: only act when this buffer is still the active one.
+		if m.bufferID != msg.BufferID || m.path != msg.Path {
+			return m, nil
+		}
+		preModified := false
+		if m.buf != nil {
+			preModified = m.buf.Modified()
+		}
+		saveCmd := m.save()
+		if saveCmd == nil {
+			return m, nil
+		}
+		// save() calls buf.MarkSaved() synchronously, so emit Modified=false to
+		// clear the dirty indicator, matching the ctrl+s handler.
+		if preModified {
+			return m, tea.Batch(saveCmd, m.emitModified())
+		}
+		return m, saveCmd
+
 	case tea.WindowSizeMsg:
 		m.viewHeight = msg.Height
 		m.viewWidth = msg.Width

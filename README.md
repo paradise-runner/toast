@@ -29,6 +29,7 @@ toast is a beatiful developer environment right in your terminal. nvim and emacs
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
 - **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
 - **Theme system** — built-in `system` (derived from terminal colors at runtime), `toast-dark`, and `toast-light`, plus a VSCode theme importer
+- **Auto-save** — dirty files are written to disk after a configurable inactivity delay (default 300 ms), with an optional manual-save mode
 - **Configurable** via `~/.config/toast/config.json`
 
 ## Installation
@@ -111,6 +112,8 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
     "auto_indent": true,
     "trim_trailing_whitespace_on_save": true,
     "insert_final_newline_on_save": true,
+    "auto_save": "auto",
+    "auto_save_delay_ms": 300,
     "bottom_padding": 3
   },
   "sidebar": {
@@ -125,6 +128,10 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
   "ignored_patterns": [".git", "node_modules", "__pycache__", ".DS_Store"]
 }
 ```
+
+`auto_save` selects the save mode: `"auto"` (default) writes dirty buffers to
+disk after `auto_save_delay_ms` milliseconds of inactivity, while `"manual"`
+requires an explicit save (`ctrl+s` / `super+s`).
 
 ### Keybindings
 

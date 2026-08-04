@@ -24,6 +24,13 @@ type EditorConfig struct {
 	AutoIndent                   bool `json:"auto_indent"`
 	TrimTrailingWhitespaceOnSave bool `json:"trim_trailing_whitespace_on_save"`
 	InsertFinalNewlineOnSave     bool `json:"insert_final_newline_on_save"`
+	// AutoSave selects the save mode: "auto" saves dirty buffers after
+	// AutoSaveDelayMs of inactivity; "manual" requires an explicit save
+	// (ctrl+s / super+s).
+	AutoSave string `json:"auto_save"`
+	// AutoSaveDelayMs is the inactivity delay (in milliseconds) before a dirty
+	// buffer is written to disk when AutoSave is "auto".
+	AutoSaveDelayMs int `json:"auto_save_delay_ms"`
 	// BottomPadding is the number of blank rows reserved below the last line of
 	// content when scrolled to the bottom of a file, so the last line is not
 	// glued to the bottom edge of the editor. Set to 0 to disable.
@@ -86,6 +93,7 @@ func Defaults() Config {
 		Editor: EditorConfig{
 			TabWidth: 4, AutoIndent: true,
 			TrimTrailingWhitespaceOnSave: true, InsertFinalNewlineOnSave: true,
+			AutoSave: "auto", AutoSaveDelayMs: 300,
 			BottomPadding: 3,
 		},
 		Sidebar: SidebarConfig{
@@ -199,6 +207,18 @@ func LoadFrom(path string) (Config, error) {
 }
 
 func (c *Config) normalize() {
+	switch c.Editor.AutoSave {
+	case "", "auto", "manual":
+	default:
+		c.Editor.AutoSave = "auto"
+	}
+	if c.Editor.AutoSave == "" {
+		c.Editor.AutoSave = "auto"
+	}
+	if c.Editor.AutoSaveDelayMs <= 0 {
+		c.Editor.AutoSaveDelayMs = 300
+	}
+
 	switch c.Sidebar.FileIcons.ColorMode {
 	case "", "accent", "semantic", "none":
 	default:

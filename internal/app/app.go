@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -103,6 +104,11 @@ type Model struct {
 	// It is non-empty while a save is in-flight and suppresses the
 	// watcher-triggered reload for that specific path on FileChangedOnDiskMsg.
 	isSavingPath string
+
+	// autoSaveGen is bumped for every edit while auto-save is enabled. A
+	// firing AutoSaveTickMsg is only acted on when its generation is current,
+	// which debounces saves to the configured inactivity window.
+	autoSaveGen int
 
 	// Mapping of path -> bufferID for open files.
 	openBuffers map[string]int
@@ -592,6 +598,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.isSavingPath = ""
 		}
 		fmt.Fprintf(os.Stderr, "toast: save failed for %s: %v\n", msg.Path, msg.Err)
+
+	case messages.AutoSaveTickMsg:
+		// Ignore stale debounce ticks — a newer edit superseded this one.
+		if msg.Generation != m.autoSaveGen {
+			break
+		}
+		cmds = append(cmds, m.autoSaveDirtyBuffers()...)
 
 	case messages.FileChangedOnDiskMsg:
 		// Skip git status and reload when this is our own save write.
@@ -1718,6 +1731,9 @@ func (m *Model) updateFocused(msg tea.Msg) tea.Cmd {
 		updated, cmd := m.editor.Update(msg)
 		m.editor = updated.(editor.Model)
 		m.syncLSPChange(beforePath, beforeContent)
+		if autoCmd := m.scheduleAutoSave(beforePath, beforeContent); autoCmd != nil {
+			return tea.Batch(cmd, autoCmd)
+		}
 		return cmd
 	case FocusFileTree:
 		var cmd tea.Cmd
@@ -1738,7 +1754,53 @@ func (m *Model) updateEditor(msg tea.Msg) tea.Cmd {
 	updated, cmd := m.editor.Update(msg)
 	m.editor = updated.(editor.Model)
 	m.syncLSPChange(beforePath, beforeContent)
+	if autoCmd := m.scheduleAutoSave(beforePath, beforeContent); autoCmd != nil {
+		return tea.Batch(cmd, autoCmd)
+	}
 	return cmd
+}
+
+// scheduleAutoSave returns a debounced auto-save tick when a message just
+// changed the editor content and auto-save is enabled. beforePath and
+// beforeContent capture the editor state prior to the message that triggered
+// the change, so cursor-only and reload messages never schedule a save.
+func (m *Model) scheduleAutoSave(beforePath, beforeContent string) tea.Cmd {
+	if m.cfg.Editor.AutoSave != "auto" || beforePath == "" || beforePath != m.editor.Path() || beforeContent == m.editor.Content() {
+		return nil
+	}
+	if !m.editor.IsModified() || m.editor.Path() == "" {
+		return nil
+	}
+	m.autoSaveGen++
+	gen := m.autoSaveGen
+	delay := time.Duration(m.cfg.Editor.AutoSaveDelayMs) * time.Millisecond
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return messages.AutoSaveTickMsg{Generation: gen}
+	})
+}
+
+// autoSaveDirtyBuffers saves the active buffer and any dirty background tab
+// snapshots when auto-save is enabled. Returns the save commands, or nil when
+// auto-save is off or nothing is dirty.
+func (m *Model) autoSaveDirtyBuffers() []tea.Cmd {
+	if m.cfg.Editor.AutoSave != "auto" {
+		return nil
+	}
+	var cmds []tea.Cmd
+	if m.editor.IsModified() && m.editor.Path() != "" {
+		if cmd := m.updateEditor(messages.SaveBufferMsg{BufferID: m.editor.BufferID(), Path: m.editor.Path()}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	for bufID, snap := range m.bufferSnapshots {
+		if snap.Modified() {
+			if saveCmd := snap.SaveToDisk(bufID, snap.Path, m.cfg); saveCmd != nil {
+				m.bufferSnapshots[bufID] = snap
+				cmds = append(cmds, saveCmd)
+			}
+		}
+	}
+	return cmds
 }
 
 func (m *Model) syncLSPChange(beforePath, beforeContent string) {

@@ -9,6 +9,7 @@ package settings
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -28,7 +29,7 @@ const (
 	// controlWidth is the right-aligned control column width in the right pane.
 	controlWidth = 24
 	// contentRows is the number of setting rows (max group size).
-	contentRows = 5
+	contentRows = 7
 	// Row layout (dialog-local coordinates, Y=0 is the top border):
 	headerY  = 1
 	firstRow = 2
@@ -452,6 +453,38 @@ func truncateRune(s string, n int) string {
 	return string(runes[:n])
 }
 
+// autoSaveDelayOptions lists the selectable inactivity delays for auto-save.
+var autoSaveDelayOptions = []string{"100ms", "250ms", "300ms", "500ms", "1s", "2s", "5s", "10s"}
+
+// autoSaveDelayLabel renders an AutoSaveDelayMs value as a setting option.
+// Values that are not one of the presets fall back to the default label.
+func autoSaveDelayLabel(ms int) string {
+	switch ms {
+	case 100, 250, 300, 500:
+		return fmt.Sprintf("%dms", ms)
+	}
+	if ms >= 1000 && ms%1000 == 0 {
+		return fmt.Sprintf("%ds", ms/1000)
+	}
+	return "300ms"
+}
+
+// autoSaveDelayMS parses a delay option label back into milliseconds.
+// Unrecognized labels fall back to the default delay.
+func autoSaveDelayMS(label string) int {
+	if strings.HasSuffix(label, "ms") {
+		if n, err := strconv.Atoi(strings.TrimSuffix(label, "ms")); err == nil {
+			return n
+		}
+	}
+	if strings.HasSuffix(label, "s") {
+		if n, err := strconv.Atoi(strings.TrimSuffix(label, "s")); err == nil {
+			return n * 1000
+		}
+	}
+	return 300
+}
+
 // buildGroups defines the editable settings. Only config fields that are
 // wired into the editor/sidebar today are exposed.
 func buildGroups(themes []string) []group {
@@ -483,6 +516,17 @@ func buildGroups(themes []string) []group {
 					label: "Bottom Padding", kind: kindStepper, min: 0, max: 20,
 					getInt: func(c *config.Config) int { return c.Editor.BottomPadding },
 					setInt: func(c *config.Config, v int) { c.Editor.BottomPadding = v },
+				},
+				{
+					label: "Auto Save", kind: kindCycle,
+					options:  []string{"auto", "manual"},
+					getCycle: func(c *config.Config) string { return c.Editor.AutoSave },
+					setCycle: func(c *config.Config, v string) { c.Editor.AutoSave = v },
+				},
+				{
+					label: "Auto Save Delay", kind: kindCycle, options: autoSaveDelayOptions,
+					getCycle: func(c *config.Config) string { return autoSaveDelayLabel(c.Editor.AutoSaveDelayMs) },
+					setCycle: func(c *config.Config, v string) { c.Editor.AutoSaveDelayMs = autoSaveDelayMS(v) },
 				},
 			},
 		},

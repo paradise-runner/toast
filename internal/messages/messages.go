@@ -47,6 +47,20 @@ type FileSaveFailedMsg struct {
 	Err      error
 }
 
+// SaveBufferMsg - requests the editor to save the buffer for path to disk
+// (used by auto-save; the editor no-ops when the active buffer does not match).
+type SaveBufferMsg struct {
+	BufferID int
+	Path     string
+}
+
+// AutoSaveTickMsg - a debounce timer fired after the auto-save inactivity
+// delay. Generation identifies which edit the timer was started for; stale
+// ticks (an edit arrived since) are ignored by the app.
+type AutoSaveTickMsg struct {
+	Generation int
+}
+
 // DiagnosticsUpdatedMsg - emitted when LSP publishes diagnostics
 type DiagnosticsUpdatedMsg struct {
 	Path        string

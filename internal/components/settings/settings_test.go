@@ -393,3 +393,81 @@ func TestDimensionsMatchRender(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoSaveCycleTogglesMode(t *testing.T) {
+	m := newTestModel()
+	if m.cfg.Editor.AutoSave != "auto" {
+		t.Fatalf("expected default auto_save 'auto', got %q", m.cfg.Editor.AutoSave)
+	}
+	// Editor group rows: ... 4 Bottom Padding, 5 Auto Save, 6 Auto Save Delay.
+	m = moveRight(m)
+	for i := 0; i < 5; i++ {
+		m, _ = m.Update(keyMsg("down"))
+	}
+	// Cursor 5: Auto Save. 'l' cycles auto -> manual.
+	m, cmd := m.Update(keyMsg("l"))
+	if m.cfg.Editor.AutoSave != "manual" {
+		t.Fatalf("expected auto_save 'manual' after cycle, got %q", m.cfg.Editor.AutoSave)
+	}
+	if changedConfig(t, cmd).Editor.AutoSave != "manual" {
+		t.Fatal("expected SettingsChangedMsg with auto_save 'manual'")
+	}
+	// Cycles back to auto.
+	m, _ = m.Update(keyMsg("l"))
+	if m.cfg.Editor.AutoSave != "auto" {
+		t.Fatalf("expected auto_save to wrap back to 'auto', got %q", m.cfg.Editor.AutoSave)
+	}
+}
+
+func TestAutoSaveDelayCycleSetsMs(t *testing.T) {
+	m := newTestModel()
+	if m.cfg.Editor.AutoSaveDelayMs != 300 {
+		t.Fatalf("expected default delay 300, got %d", m.cfg.Editor.AutoSaveDelayMs)
+	}
+	m = moveRight(m)
+	for i := 0; i < 6; i++ {
+		m, _ = m.Update(keyMsg("down"))
+	}
+	// Cursor 6: Auto Save Delay. 300ms -> 500ms.
+	m, cmd := m.Update(keyMsg("l"))
+	if m.cfg.Editor.AutoSaveDelayMs != 500 {
+		t.Fatalf("expected delay 500 after cycle, got %d", m.cfg.Editor.AutoSaveDelayMs)
+	}
+	if changedConfig(t, cmd).Editor.AutoSaveDelayMs != 500 {
+		t.Fatal("expected SettingsChangedMsg with delay 500")
+	}
+	// 500ms -> 1s.
+	m, _ = m.Update(keyMsg("l"))
+	if m.cfg.Editor.AutoSaveDelayMs != 1000 {
+		t.Fatalf("expected delay 1000 after second cycle, got %d", m.cfg.Editor.AutoSaveDelayMs)
+	}
+	// 1s -> 2s.
+	m, _ = m.Update(keyMsg("l"))
+	if m.cfg.Editor.AutoSaveDelayMs != 2000 {
+		t.Fatalf("expected delay 2000 after third cycle, got %d", m.cfg.Editor.AutoSaveDelayMs)
+	}
+	// Cycle backwards past the first option wraps to the last (10s).
+	for i := 0; i < 6; i++ {
+		m, _ = m.Update(keyMsg("h"))
+	}
+	if m.cfg.Editor.AutoSaveDelayMs != 10000 {
+		t.Fatalf("expected delay to wrap to 10000, got %d", m.cfg.Editor.AutoSaveDelayMs)
+	}
+}
+
+func TestAutoSaveDelayLabelRoundTrip(t *testing.T) {
+	for _, label := range autoSaveDelayOptions {
+		if got := autoSaveDelayLabel(autoSaveDelayMS(label)); got != label {
+			t.Fatalf("round trip %q -> %d -> %q", label, autoSaveDelayMS(label), got)
+		}
+	}
+	if autoSaveDelayLabel(1234) != "300ms" {
+		t.Fatalf("unexpected label for non-preset value: %q", autoSaveDelayLabel(1234))
+	}
+	if autoSaveDelayMS("7s") != 7000 {
+		t.Fatalf("expected 7s -> 7000, got %d", autoSaveDelayMS("7s"))
+	}
+	if autoSaveDelayMS("nonsense") != 300 {
+		t.Fatalf("expected fallback 300 for nonsense label, got %d", autoSaveDelayMS("nonsense"))
+	}
+}
