@@ -1366,6 +1366,22 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 
 	contentY := y - tabBarHeight
 
+	// Context menu hover: route motion to the file tree whenever the pointer is
+	// inside the open menu's box, even if it extends past the sidebar edge.
+	if menuX, menuY, menuW, menuH, ok := m.fileTree.ContextMenuBounds(); ok {
+		if x >= menuX && x < menuX+menuW && contentY >= menuY && contentY < menuY+menuH {
+			adjustedMsg := tea.MouseMotionMsg{
+				Button: msg.Button,
+				Mod:    msg.Mod,
+				X:      x,
+				Y:      contentY,
+			}
+			var cmd tea.Cmd
+			m.fileTree, cmd = m.fileTree.Update(adjustedMsg)
+			return cmd
+		}
+	}
+
 	if m.sidebarVisible && x < sidebarW {
 		adjustedMsg := tea.MouseMotionMsg{
 			Button: msg.Button,

@@ -106,6 +106,13 @@ func (c ContextMenu) Render() string {
 	return boxStyle.Render(body)
 }
 
+// HoverItem returns the index of the item under filetree-local (x, y),
+// or -1 if the pointer is not over an item (outside the box or on a border row).
+// Used for mouseover highlighting; geometry matches HandleClick.
+func (c *ContextMenu) HoverItem(x, y int) int {
+	return c.HandleClick(x, y)
+}
+
 // moveUp moves focus up, clamped to 0.
 func (c *ContextMenu) moveUp() {
 	if c.focused > 0 {

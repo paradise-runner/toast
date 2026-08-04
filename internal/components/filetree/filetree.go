@@ -184,6 +184,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
+	case tea.MouseMotionMsg:
+		// Context menu hover: highlight the item under the mouse.
+		if m.ctxMenu != nil {
+			if idx := m.ctxMenu.HoverItem(msg.X, msg.Y); idx >= 0 {
+				m.ctxMenu.focused = idx
+			}
+			return m, nil
+		}
+
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelUp:
@@ -377,6 +386,22 @@ func (m Model) ContextMenuOverlay() (rendered string, x, y int, ok bool) {
 		return "", 0, 0, false
 	}
 	return m.ctxMenu.Render(), m.ctxMenu.X, m.ctxMenu.Y, true
+}
+
+// HasContextMenu returns true when a context menu is open.
+func (m Model) HasContextMenu() bool {
+	return m.ctxMenu != nil
+}
+
+// ContextMenuBounds returns the filetree-local bounding box of the open context
+// menu (X, Y, width, height) and ok=true. Coordinates match those used for mouse
+// routing; ok=false when no menu is open.
+func (m Model) ContextMenuBounds() (x, y, w, h int, ok bool) {
+	if m.ctxMenu == nil {
+		return 0, 0, 0, 0, false
+	}
+	c := m.ctxMenu
+	return c.X, c.Y, contextMenuInnerW + 4, len(c.items) + 2, true
 }
 
 func (m Model) renderNodeLabel(node *TreeNode, indent, prefix string, maxWidth int, labelStyle, markerStyle lipgloss.Style) (string, int) {

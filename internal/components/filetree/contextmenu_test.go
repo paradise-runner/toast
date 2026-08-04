@@ -175,6 +175,26 @@ func TestContextMenu_HandleClick_HitsItem(t *testing.T) {
 	}
 }
 
+func TestContextMenu_HoverItem_Geometry(t *testing.T) {
+	tm := newTestTheme(t)
+	// Menu at (5, 3), 2 items. Item 0 is at row 3+1=4, item 1 at row 5.
+	cm := &ContextMenu{X: 5, Y: 3, items: []string{"New File", "New Folder"}, focused: 0, theme: tm}
+	if got := cm.HoverItem(6, 4); got != 0 {
+		t.Errorf("hover item 0: expected 0, got %d", got)
+	}
+	if got := cm.HoverItem(6, 5); got != 1 {
+		t.Errorf("hover item 1: expected 1, got %d", got)
+	}
+	// Hover on the top border row is not an item.
+	if got := cm.HoverItem(6, 3); got != -1 {
+		t.Errorf("hover top border: expected -1, got %d", got)
+	}
+	// Hover outside the box entirely.
+	if got := cm.HoverItem(30, 30); got != -1 {
+		t.Errorf("hover far outside: expected -1, got %d", got)
+	}
+}
+
 func TestContextMenu_HandleClick_MissesOutside(t *testing.T) {
 	tm := newTestTheme(t)
 	cm := &ContextMenu{X: 5, Y: 3, items: []string{"New File", "New Folder"}, focused: 0, theme: tm}
@@ -296,5 +316,86 @@ func TestContextMenu_RightClickEmptySpace_NoDeleteItem(t *testing.T) {
 	}
 	if len(m.ctxMenu.items) != 2 {
 		t.Errorf("expected 2 items for empty-space right-click, got %d", len(m.ctxMenu.items))
+	}
+}
+
+func TestContextMenu_MouseMotionHover_HighlightsItem(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir)
+	// Open context menu at (2, 0). Item 0 = New File (row 1), item 1 = New Folder (row 2).
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 0})
+	if m.ctxMenu == nil {
+		t.Fatal("expected ctxMenu after right-click")
+	}
+	if m.ctxMenu.focused != 0 {
+		t.Fatalf("expected initial focused=0, got %d", m.ctxMenu.focused)
+	}
+
+	// Hover over item 1 (New Folder).
+	m, _ = m.Update(tea.MouseMotionMsg{X: m.ctxMenu.X + 2, Y: m.ctxMenu.Y + 2})
+	if m.ctxMenu == nil || m.ctxMenu.focused != 1 {
+		t.Fatalf("expected focused=1 after hovering item 1, got %d", m.ctxMenu.focused)
+	}
+
+	// Hover back over item 0.
+	m, _ = m.Update(tea.MouseMotionMsg{X: m.ctxMenu.X + 2, Y: m.ctxMenu.Y + 1})
+	if m.ctxMenu == nil || m.ctxMenu.focused != 0 {
+		t.Fatalf("expected focused=0 after hovering item 0, got %d", m.ctxMenu.focused)
+	}
+}
+
+func TestContextMenu_MouseMotionHover_OutsideLeavesFocus(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir)
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 0})
+	if m.ctxMenu == nil {
+		t.Fatal("expected ctxMenu after right-click")
+	}
+
+	// Hover over item 1.
+	m, _ = m.Update(tea.MouseMotionMsg{X: m.ctxMenu.X + 2, Y: m.ctxMenu.Y + 2})
+	// Move the mouse far outside the menu: focus should stay where it was.
+	m, _ = m.Update(tea.MouseMotionMsg{X: 0, Y: 30})
+	if m.ctxMenu == nil || m.ctxMenu.focused != 1 {
+		t.Fatalf("expected focused to stay 1 after hovering outside, got %d", m.ctxMenu.focused)
+	}
+}
+
+func TestContextMenu_MouseMotionHover_NoMenu_NoOp(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir)
+	// Motion without a menu open must not crash or change state.
+	m, _ = m.Update(tea.MouseMotionMsg{X: 2, Y: 1})
+	if m.ctxMenu != nil {
+		t.Error("expected no ctxMenu from plain mouse motion")
+	}
+}
+
+func TestContextMenu_Bounds(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir)
+	if _, _, _, _, ok := m.ContextMenuBounds(); ok {
+		t.Error("expected ContextMenuBounds ok=false with no menu open")
+	}
+	if m.HasContextMenu() {
+		t.Error("expected HasContextMenu=false with no menu open")
+	}
+
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 3})
+	x, y, w, h, ok := m.ContextMenuBounds()
+	if !ok {
+		t.Fatal("expected ContextMenuBounds ok=true with menu open")
+	}
+	if x != 2 || y != 3 {
+		t.Errorf("expected bounds origin (2,3), got (%d,%d)", x, y)
+	}
+	if w != contextMenuInnerW+4 {
+		t.Errorf("expected width %d, got %d", contextMenuInnerW+4, w)
+	}
+	if h != len(m.ctxMenu.items)+2 {
+		t.Errorf("expected height %d, got %d", len(m.ctxMenu.items)+2, h)
+	}
+	if !m.HasContextMenu() {
+		t.Error("expected HasContextMenu=true with menu open")
 	}
 }

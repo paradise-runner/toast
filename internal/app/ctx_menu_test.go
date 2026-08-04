@@ -216,6 +216,43 @@ func TestApp_EscapeDismissesDeleteDialog_RegardlessOfFocus(t *testing.T) {
 	}
 }
 
+// TestApp_ContextMenuHover_PastSidebarEdge verifies that mouse motion is routed to
+// the file tree when the pointer is inside the open context menu's box, even when
+// that box extends past the sidebar's right edge.
+func TestApp_ContextMenuHover_PastSidebarEdge(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	// Right-click near the sidebar's right edge (x=28, y=1 → contentY=0).
+	// Menu opens at (28, 0); its box spans [28, 48) horizontally, past sidebarW=30.
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 28, Y: 1})
+	before, _, _, ok := model.fileTree.ContextMenuOverlay()
+	if !ok {
+		t.Fatal("expected context menu to be open after right-click")
+	}
+
+	// Hover over item 1 (New Folder): screen y=3 → contentY=2 → menu row 2.
+	// x=35 is past the sidebar edge, so this only reaches the file tree via the
+	// context-menu bounds routing.
+	model.Update(tea.MouseMotionMsg{X: 35, Y: 3})
+	after, _, _, ok := model.fileTree.ContextMenuOverlay()
+	if !ok {
+		t.Fatal("expected context menu to still be open")
+	}
+	// The highlight must have moved (item 0 → item 1), so the overlay changed.
+	if after == before {
+		t.Error("expected context menu highlight to change after hovering an item past the sidebar edge")
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
