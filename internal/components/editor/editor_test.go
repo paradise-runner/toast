@@ -16,6 +16,14 @@ import (
 	"github.com/yourusername/toast/internal/theme"
 )
 
+// TestMain keeps clipboard access hermetic: Paste() must fall back to the
+// internal store instead of shelling out to pbpaste/xclip, so tests never
+// read or depend on the developer's real system clipboard.
+func TestMain(m *testing.M) {
+	clipboard.SetPasteFunc(func() (string, bool) { return "", false })
+	os.Exit(m.Run())
+}
+
 // newTestModel builds a minimal editor model with the given content.
 func newTestModel(content string) Model {
 	m := New(nil, config.Config{})
