@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.5.0 — 2026-08-03
+
+Right-clicking a file or folder in the sidebar now reveals it in your OS file manager, so you can find it in Finder (macOS), your file manager (Linux), or Explorer (Windows) without leaving the editor.
+
+### File tree
+- New **View in Finder** / **View in Folder** / **View in Explorer** context menu item (label matches the OS). Selecting it reveals the clicked file or folder in the file manager: `open -R` on macOS, `explorer /select,` on Windows, and the freedesktop `FileManager1` D-Bus interface (with an `xdg-open` fallback) on Linux. Right-clicking empty sidebar space reveals the directory under the cursor. (issue #50)
+
+---
+
 ## v0.4.3 — 2026-08-03
 
 A small UX patch: the sidebar context menu (New File / New Folder / Delete) now highlights the item under the mouse as you hover.
