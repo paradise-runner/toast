@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.3 — 2026-08-03
+
+A small UX patch: the sidebar context menu (New File / New Folder / Delete) now highlights the item under the mouse as you hover.
+
+### File tree
+- The context menu's selection highlight follows the mouse: hovering an item moves the highlight there, on top of the existing keyboard navigation (up/down). Hover is tracked across the whole menu box, including when the menu extends past the sidebar's right edge. (issue #51)
+
+---
+
 ## v0.4.2 — 2026-08-03
 
 A patch release fixing an escape-key trap in the sidebar's file/folder creation flow.
