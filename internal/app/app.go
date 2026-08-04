@@ -874,10 +874,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.closeSearch()
 			return nil
 		}
+		// Escape must always dismiss the filetree's transient interactions
+		// (context menu, inline create input, delete dialog) no matter which
+		// component currently has focus — the user right-clicked to start a
+		// file/folder creation and must be able to escape from it even after
+		// clicking into the editor.
+		if m.fileTree.HasTransientInteraction() {
+			var cmd tea.Cmd
+			m.fileTree, cmd = m.fileTree.Update(msg)
+			return cmd
+		}
 		if m.focus == FocusFileTree {
-			if m.fileTree.HasTransientInteraction() {
-				return m.updateFocused(msg)
-			}
 			m.setFocus(FocusEditor)
 			return nil
 		}

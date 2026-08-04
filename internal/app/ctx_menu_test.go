@@ -1,10 +1,13 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/yourusername/toast/internal/config"
 )
 
@@ -102,6 +105,114 @@ func TestSidebarInlineCreate_EscapeCancelsFromAppKeyRouting(t *testing.T) {
 
 	if strings.Contains(model.View().Content, name) {
 		t.Fatalf("expected Escape to cancel inline create row containing %q", name)
+	}
+}
+
+// TestApp_EscapeClosesContextMenu_RegardlessOfFocus verifies that Escape
+// dismisses the sidebar context menu even when keyboard focus has moved
+// elsewhere (e.g. the user right-clicked, then clicked into the editor).
+func TestApp_EscapeClosesContextMenu_RegardlessOfFocus(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	// Right-click opens the context menu (focus moves to the file tree).
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: 1})
+	if _, _, _, ok := model.fileTree.ContextMenuOverlay(); !ok {
+		t.Fatal("expected context menu to be open after right-click")
+	}
+
+	// Focus moves to the editor — the floating menu stays open.
+	model.setFocus(FocusEditor)
+
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if _, _, _, ok := model.fileTree.ContextMenuOverlay(); ok {
+		t.Fatal("expected Escape to close the context menu even when focus is on the editor")
+	}
+}
+
+// TestApp_EscapeCancelsInlineCreate_RegardlessOfFocus verifies that Escape
+// cancels an in-progress file/folder creation even when keyboard focus has
+// moved elsewhere (e.g. the user clicked into the editor mid-creation).
+func TestApp_EscapeCancelsInlineCreate_RegardlessOfFocus(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	// Right-click → Enter starts inline file creation (focus on the file tree).
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: 1})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	name := "focus_elsewhere_probe.go"
+	for _, ch := range name {
+		model.Update(tea.KeyPressMsg{Text: string(ch)})
+	}
+	if !strings.Contains(model.View().Content, name) {
+		t.Fatalf("expected inline create row to contain %q before Escape", name)
+	}
+
+	// Focus moves to the editor — the inline row stays active.
+	model.setFocus(FocusEditor)
+
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if strings.Contains(model.View().Content, name) {
+		t.Fatalf("expected Escape to cancel inline create row containing %q even when focus is on the editor", name)
+	}
+}
+
+// TestApp_EscapeDismissesDeleteDialog_RegardlessOfFocus verifies that Escape
+// cancels the delete confirmation dialog even when focus has moved elsewhere.
+func TestApp_EscapeDismissesDeleteDialog_RegardlessOfFocus(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+	cfg.Sidebar.ConfirmDelete = true
+
+	rootDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rootDir, "doomed.go"), []byte(""), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	// Right-click the file row → down to Delete → Enter opens the dialog.
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: 1})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !model.fileTree.HasDeleteDialog() {
+		t.Fatal("expected delete dialog to be open")
+	}
+
+	// Focus moves to the editor — the modal stays open.
+	model.setFocus(FocusEditor)
+
+	model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if model.fileTree.HasDeleteDialog() {
+		t.Fatal("expected Escape to dismiss the delete dialog even when focus is on the editor")
+	}
+	if _, err := os.Stat(filepath.Join(rootDir, "doomed.go")); err != nil {
+		t.Fatalf("file should not have been deleted: %v", err)
 	}
 }
 
