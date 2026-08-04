@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.7.0 — 2026-08-04
+
+Toast now saves your work automatically: by default, dirty files are written to disk shortly after you stop typing, so an unexpected quit can never lose edits again.
+
+### Auto-save
+- Enabled by default: after 300ms of inactivity — the debounce resets with every keystroke — the file you're editing is written to disk, along with any other dirty open tabs.
+- Configurable in `~/.config/toast/config.json`: `editor.auto_save` selects `"auto"` or `"manual"` (manual restores the classic ctrl+s workflow), and `editor.auto_save_delay_ms` tunes the inactivity window.
+- Both options are also live-adjustable from the Settings dialog (`Ctrl+,` → Editor): an Auto Save auto/manual cycle and an Auto Save Delay preset cycle (100ms–10s).
+- Auto-save uses the same pipeline as manual save, so git status stays fresh and the file watcher never mistakes toast's own writes for external changes. (issue #45)
+
+---
+
 ## v0.6.0 — 2026-08-04
 
 The new settings dialog: open it from the statusbar gear button or `Ctrl+,` to browse and tweak toast's configuration from inside the editor.
