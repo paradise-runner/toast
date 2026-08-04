@@ -154,6 +154,21 @@ func TestSystemPaletteResponseAppliesTerminalAccent(t *testing.T) {
 	}
 }
 
+func TestSystemSettingsBorderIsColorful(t *testing.T) {
+	m, _ := theme.NewManager("system", "")
+	m.ApplySystemBackground(color.RGBA{R: 0x10, G: 0x10, B: 0x10, A: 0xff}, true)
+	// Before the terminal reports its palette, the border is the magenta
+	// palette placeholder (ANSI 5), not a grayscale blend.
+	if got := m.Settings("border"); got != "5" {
+		t.Errorf("Settings(border) = %q, want palette placeholder %q", got, "5")
+	}
+	// Once the terminal reports palette index 5, the border maps to it.
+	m.ApplySystemPaletteColor(5, color.RGBA{R: 0x88, G: 0x33, B: 0xee, A: 0xff})
+	if got := m.Settings("border"); got != "#8833ee" {
+		t.Errorf("Settings(border) = %q, want %q after palette apply", got, "#8833ee")
+	}
+}
+
 func TestSystemPaletteSurvivesBackgroundRefresh(t *testing.T) {
 	m, _ := theme.NewManager("system", "")
 	m.ApplySystemPaletteColor(5, color.RGBA{R: 0x88, G: 0x33, B: 0xee, A: 0xff})
@@ -175,7 +190,7 @@ func TestTerminalColorsIgnoredForNonSystemTheme(t *testing.T) {
 
 func TestSettingsTokensPopulated(t *testing.T) {
 	cases := map[string]func(m *theme.Manager){
-		"toast-dark": func(m *theme.Manager) {},
+		"toast-dark":  func(m *theme.Manager) {},
 		"toast-light": func(m *theme.Manager) {},
 		"system": func(m *theme.Manager) {
 			// System theme derives tokens from terminal colors. Apply a
@@ -253,5 +268,33 @@ func TestSettingsFallsBackToCompletionWhenUnset(t *testing.T) {
 	}
 	if bd := m2.Settings("border"); bd != "#aaaaaa" {
 		t.Errorf("Settings(border) = %q, want %q (border fallback)", bd, "#aaaaaa")
+	}
+}
+
+func TestSettingsBorderFallsBackToAccent(t *testing.T) {
+	// A theme without settings_border or border should fall back to the
+	// vibrant find_replace_border accent for the dialog frame.
+	dir := t.TempDir()
+	themeJSON := `{
+		"name": "Test Accent",
+		"variant": "dark",
+		"ui": {
+			"background": "#222222", "foreground": "#eeeeee",
+			"find_replace_border": "#cba6f7"
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "accent.json"), []byte(themeJSON), 0o644); err != nil {
+		t.Fatalf("write theme: %v", err)
+	}
+	m, err := theme.NewManager("accent", dir)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if bd := m.Settings("border"); bd != "#cba6f7" {
+		t.Errorf("Settings(border) = %q, want %q (find_replace_border fallback)", bd, "#cba6f7")
+	}
+	// Separator keeps the plain-border fallback path (no accent).
+	if sep := m.Settings("separator"); sep != "" {
+		t.Errorf("Settings(separator) = %q, want empty when border missing", sep)
 	}
 }

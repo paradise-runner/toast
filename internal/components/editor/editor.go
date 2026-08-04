@@ -119,6 +119,11 @@ func (m Model) Init() tea.Cmd { return nil }
 // Update handles all incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case messages.SettingsChangedMsg:
+		m.cfg = msg.Config
+		m.clampViewport()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.viewHeight = msg.Height
 		m.viewWidth = msg.Width

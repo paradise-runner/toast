@@ -170,7 +170,7 @@ func TestDiscoverThemes_UserThemesDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "my-theme.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	names := discoverThemes(dir)
+	names := theme.Discover(dir)
 	found := false
 	for _, n := range names {
 		if n == "my-theme" {

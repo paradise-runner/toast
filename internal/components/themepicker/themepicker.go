@@ -3,7 +3,6 @@ package themepicker
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"unicode/utf8"
@@ -22,12 +21,12 @@ const (
 	confirmBtnText  = "[ confirm ]"
 	cancelBtnText   = "[ cancel ]"
 	folderBtnText   = "[o] folder"
-	confirmBtnStart = 2                                    // after leading "  "
+	confirmBtnStart = 2                                     // after leading "  "
 	confirmBtnEnd   = confirmBtnStart + len(confirmBtnText) // 13
-	cancelBtnStart  = confirmBtnEnd + 3                    // 16 (after "   " gap)
-	cancelBtnEnd    = cancelBtnStart + len(cancelBtnText)  // 26
-	folderBtnStart  = cancelBtnEnd + 3                     // 29 (after "   " gap)
-	folderBtnEnd    = folderBtnStart + len(folderBtnText)  // 39
+	cancelBtnStart  = confirmBtnEnd + 3                     // 16 (after "   " gap)
+	cancelBtnEnd    = cancelBtnStart + len(cancelBtnText)   // 26
+	folderBtnStart  = cancelBtnEnd + 3                      // 29 (after "   " gap)
+	folderBtnEnd    = folderBtnStart + len(folderBtnText)   // 39
 )
 
 // Model holds the state of the theme picker dialog.
@@ -50,7 +49,7 @@ func New(tm *theme.Manager, themeDir, activeTheme string) Model {
 
 // Init (re)scans the theme list and positions the cursor on the active theme.
 func (m Model) Init() (Model, tea.Cmd) {
-	m.themes = discoverThemes(m.themeDir)
+	m.themes = theme.Discover(m.themeDir)
 	m.selected = 0
 	for i, n := range m.themes {
 		if n == m.activeTheme {
@@ -217,37 +216,6 @@ func (m Model) Render() string {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-// discoverThemes returns sorted list of theme names: builtins first, then user themes.
-func discoverThemes(themeDir string) []string {
-	seen := make(map[string]bool)
-	var names []string
-
-	for _, n := range theme.ListBuiltin() {
-		if !seen[n] {
-			seen[n] = true
-			names = append(names, n)
-		}
-	}
-
-	if themeDir != "" {
-		entries, err := os.ReadDir(themeDir)
-		if err == nil {
-			for _, e := range entries {
-				n := e.Name()
-				if filepath.Ext(n) == ".json" {
-					base := strings.TrimSuffix(n, ".json")
-					if !seen[base] {
-						seen[base] = true
-						names = append(names, base)
-					}
-				}
-			}
-		}
-	}
-
-	return names
-}
 
 // openDir opens the given directory in the system file manager.
 func openDir(dir string) {

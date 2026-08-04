@@ -23,6 +23,7 @@ import (
 	"github.com/yourusername/toast/internal/components/quickopen"
 	"github.com/yourusername/toast/internal/components/quitdialog"
 	"github.com/yourusername/toast/internal/components/search"
+	"github.com/yourusername/toast/internal/components/settings"
 	"github.com/yourusername/toast/internal/components/statusbar"
 	"github.com/yourusername/toast/internal/components/tabbar"
 	"github.com/yourusername/toast/internal/components/themepicker"
@@ -64,6 +65,8 @@ type Model struct {
 
 	themePickerOpen bool
 	themePicker     themepicker.Model
+	settingsOpen    bool
+	settings        settings.Model
 	themeDir        string
 	configPath      string
 
@@ -724,6 +727,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case messages.SettingsOpenMsg:
+		m.settings = settings.New(m.theme, m.themeDir, m.cfg)
+		m.settingsOpen = true
+
+	case messages.SettingsClosedMsg:
+		m.settingsOpen = false
+
+	case messages.SettingsChangedMsg:
+		cfg := msg.Config
+		if cfg.Theme != m.cfg.Theme {
+			_ = m.theme.Reload(cfg.Theme, m.themeDir)
+			if cmd := m.requestSystemThemeColors(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		sidebarChanged := cfg.Sidebar.Visible != m.sidebarVisible || cfg.Sidebar.Width != m.sidebarWidth
+		m.cfg = cfg
+		_ = config.Save(cfg, m.configPath)
+		m.sidebarVisible = cfg.Sidebar.Visible
+		m.sidebarWidth = cfg.Sidebar.Width
+		if sidebarChanged {
+			cmds = append(cmds, m.resizeComponents()...)
+		}
+		// Push the updated config into components that keep their own copy.
+		if cmd := m.updateEditor(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		ftUpdated, ftCmd := m.fileTree.Update(msg)
+		m.fileTree = ftUpdated
+		if ftCmd != nil {
+			cmds = append(cmds, ftCmd)
+		}
+
 	default:
 		// Forward unknown messages to focused component
 		cmd := m.updateFocused(msg)
@@ -766,6 +802,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.themePickerOpen {
 		updated, cmd := m.themePicker.Update(msg)
 		m.themePicker = updated
+		return cmd
+	}
+
+	if m.settingsOpen {
+		updated, cmd := m.settings.Update(msg)
+		m.settings = updated
 		return cmd
 	}
 
@@ -837,6 +879,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	case m.isQuickOpen(msg):
 		return m.openQuickOpen()
+
+	case m.isSettings(msg):
+		if m.settingsOpen {
+			m.settingsOpen = false
+		} else {
+			m.settings = settings.New(m.theme, m.themeDir, m.cfg)
+			m.settingsOpen = true
+		}
+		return nil
 
 	case m.isGoToDefinition(msg):
 		if m.editor.Path() == "" {
@@ -1038,6 +1089,28 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		return cmd
 	}
 
+	if m.settingsOpen {
+		ow, oh := m.settings.Dimensions()
+		startX := (m.width - ow) / 2
+		startY := (m.height - oh) / 2
+		if startX < 0 {
+			startX = 0
+		}
+		if startY < 0 {
+			startY = 0
+		}
+		localX := msg.X - startX
+		localY := msg.Y - startY
+		if localX < 0 || localX >= ow || localY < 0 || localY >= oh {
+			// Click outside the dialog: close it.
+			return func() tea.Msg { return messages.SettingsClosedMsg{} }
+		}
+		local := tea.MouseClickMsg{Button: msg.Button, Mod: msg.Mod, X: localX, Y: localY}
+		updated, cmd := m.settings.Update(local)
+		m.settings = updated
+		return cmd
+	}
+
 	if m.themePickerOpen {
 		ow, oh := m.themePicker.Dimensions()
 		startX := (m.width - ow) / 2
@@ -1191,7 +1264,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 
 // handleMouseRelease handles mouse button release events (ends sidebar drag and editor drag).
 func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
-	if m.themePickerOpen || m.closeDialogOpen {
+	if m.themePickerOpen || m.closeDialogOpen || m.settingsOpen {
 		return nil
 	}
 	if msg.Button == tea.MouseLeft {
@@ -1264,7 +1337,7 @@ func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 
 // handleMouseWheel routes scroll-wheel events to the component under the pointer.
 func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	if m.themePickerOpen || m.closeDialogOpen {
+	if m.themePickerOpen || m.closeDialogOpen || m.settingsOpen {
 		return nil
 	}
 	tabBarHeight := 1
@@ -1330,6 +1403,29 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 // handleMouseMotion routes mouse motion events, handling sidebar drag.
 func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 	if m.themePickerOpen {
+		return nil
+	}
+	if m.settingsOpen {
+		// Route hover into the dialog so the selection follows the pointer.
+		ow, oh := m.settings.Dimensions()
+		startX := (m.width - ow) / 2
+		startY := (m.height - oh) / 2
+		if startX < 0 {
+			startX = 0
+		}
+		if startY < 0 {
+			startY = 0
+		}
+		x := msg.Mouse().X
+		y := msg.Mouse().Y
+		localX := x - startX
+		localY := y - startY
+		if localX >= 0 && localX < ow && localY >= 0 && localY < oh {
+			local := tea.MouseMotionMsg{Button: msg.Button, Mod: msg.Mod, X: localX, Y: localY}
+			updated, cmd := m.settings.Update(local)
+			m.settings = updated
+			return cmd
+		}
 		return nil
 	}
 	tabBarHeight := 1
@@ -1928,6 +2024,10 @@ func (m *Model) View() tea.View {
 	}
 	if m.themePickerOpen {
 		overlayStr := m.themePicker.Render()
+		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
+	}
+	if m.settingsOpen {
+		overlayStr := m.settings.Render()
 		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)
 	}
 	if m.closeDialogOpen {

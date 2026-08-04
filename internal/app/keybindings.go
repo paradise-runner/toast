@@ -82,6 +82,10 @@ func (m *Model) isTriggerCompletion(msg tea.KeyPressMsg) bool {
 	return m.cfg.Keybindings.Match(msg, config.ActionTriggerCompletion)
 }
 
+func (m *Model) isSettings(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionOpenSettings)
+}
+
 func (m *Model) isEscape(msg tea.KeyPressMsg) bool {
 	return m.cfg.Keybindings.MatchEscape(msg)
 }

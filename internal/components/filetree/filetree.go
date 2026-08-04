@@ -65,6 +65,10 @@ func (m Model) Init() tea.Cmd { return nil }
 // Update implements tea.Model.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case messages.SettingsChangedMsg:
+		m.cfg = msg.Config
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
 		m.width = msg.Width

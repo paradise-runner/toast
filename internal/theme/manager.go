@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -44,17 +45,24 @@ func NewManager(name, themeDir string) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) UI(key string) string       { return m.theme.UI[key] }
-func (m *Manager) Git(key string) string      { return m.theme.Git[key] }
+func (m *Manager) UI(key string) string  { return m.theme.UI[key] }
+func (m *Manager) Git(key string) string { return m.theme.Git[key] }
 
 // Settings returns a color for the settings dialog (settings_bg, settings_fg,
 // settings_selected, settings_separator, settings_border). If the active theme
 // does not define the requested key, the corresponding completion_* token
 // (or `border` for separator/border) is returned so older themes continue to
-// render the dialog sensibly.
+// render the dialog sensibly. The border additionally falls back to
+// find_replace_border before the plain border so the dialog frame picks up a
+// vibrant theme accent when no explicit settings_border is defined.
 func (m *Manager) Settings(key string) string {
 	if v := m.theme.UI["settings_"+key]; v != "" {
 		return v
+	}
+	if key == "border" {
+		if v := m.theme.UI["find_replace_border"]; v != "" {
+			return v
+		}
 	}
 	return m.UI(settingsFallback(key))
 }
@@ -168,6 +176,38 @@ func ListBuiltin() []string {
 			names = append(names, n[:len(n)-5])
 		}
 	}
+	return names
+}
+
+// Discover returns all available theme names: builtins first, then any
+// user-defined *.json themes found in themeDir. Duplicates are skipped.
+func Discover(themeDir string) []string {
+	seen := make(map[string]bool)
+	var names []string
+
+	for _, n := range ListBuiltin() {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+
+	if themeDir != "" {
+		entries, err := os.ReadDir(themeDir)
+		if err == nil {
+			for _, e := range entries {
+				n := e.Name()
+				if filepath.Ext(n) == ".json" {
+					base := strings.TrimSuffix(n, ".json")
+					if !seen[base] {
+						seen[base] = true
+						names = append(names, base)
+					}
+				}
+			}
+		}
+	}
+
 	return names
 }
 

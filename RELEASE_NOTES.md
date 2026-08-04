@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.6.0 — 2026-08-04
+
+The new settings dialog: open it from the statusbar gear button or `Ctrl+,` to browse and tweak toast's configuration from inside the editor.
+
+### Settings
+- Two-pane dialog: a group list on the left (Appearance, etc.) and the selected group's settings on the right. Navigate with `Tab`/`←`/`→` to switch panes, `↑`/`↓` to move the selection, `h`/`l` (or `◄`/`►`) to adjust stepper values, `Enter` to toggle switches, and `Esc` to close.
+- Full mouse support: hovering a group or setting moves the selection, clicking activates it — toggles flip, and stepper/cycle controls respond to their arrows.
+- Changes apply live: every control reads and writes the same config object the editor uses, so toggling an option or picking a theme takes effect immediately (the theme picker is now a group inside the dialog).
+- New `settings_*` theme tokens (bg, fg, selected, separator, border) for the dialog, added to the built-in dark/light/system themes with a fallback for older user themes.
+- Opened from the statusbar gear button or `Ctrl+,`; settings persist to disk on change.
+- Tests cover keyboard navigation, toggles, steppers, mouse hit-testing, and the new theme tokens.
+
+---
+
 ## v0.5.0 — 2026-08-03
 
 Right-clicking a file or folder in the sidebar now reveals it in your OS file manager, so you can find it in Finder (macOS), your file manager (Linux), or Explorer (Windows) without leaving the editor.

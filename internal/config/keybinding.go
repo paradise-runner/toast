@@ -29,6 +29,7 @@ const (
 	ActionMarkdownPreview   = "markdown_preview"
 	ActionShowHover         = "show_hover"
 	ActionTriggerCompletion = "trigger_completion"
+	ActionOpenSettings      = "open_settings"
 	ActionEscape            = "escape"
 )
 
@@ -131,6 +132,7 @@ func DefaultKeybindings() KeybindingMap {
 		ActionMarkdownPreview:   {"ctrl+shift+m"},
 		ActionShowHover:         {"ctrl+shift+k"},
 		ActionTriggerCompletion: {"ctrl+space", "super+space"},
+		ActionOpenSettings:      {"ctrl+,"},
 		ActionEscape:            {"escape"},
 	}
 	normalizeKeyStrings(m)

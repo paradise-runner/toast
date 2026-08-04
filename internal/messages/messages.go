@@ -1,5 +1,9 @@
 package messages
 
+import (
+	"github.com/yourusername/toast/internal/config"
+)
+
 // FileSelectedMsg - emitted when user selects a file in tree or search result
 type FileSelectedMsg struct{ Path string }
 
@@ -303,6 +307,16 @@ type DirDeletedMsg struct{ Path string }
 
 // SaveConfigMsg - emitted when a component needs app to persist updated config
 type SaveConfigMsg struct{ Config interface{} }
+
+// SettingsOpenMsg - open the settings dialog (e.g. from the statusbar button)
+type SettingsOpenMsg struct{}
+
+// SettingsClosedMsg - settings dialog dismissed
+type SettingsClosedMsg struct{}
+
+// SettingsChangedMsg - emitted by the settings dialog whenever a value
+// changes. The app applies the config live and persists it.
+type SettingsChangedMsg struct{ Config config.Config }
 
 // GoToLineMsg - emitted by the go-to-line overlay to jump to a specific line.
 // Line is zero-based (converted from the user's 1-based input).

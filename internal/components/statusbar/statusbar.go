@@ -13,25 +13,30 @@ import (
 const (
 	themeButtonLabel = " theme "
 	themeButtonWidth = len(themeButtonLabel) // 7
+
+	// settingsButtonLabel sits at the far bottom-right of the status bar.
+	settingsButtonLabel = " ⚙ "
+	settingsButtonWidth = 3 // space + gear + space
 )
 
 type Model struct {
-	theme        *theme.Manager
-	width        int
-	filename     string
-	language     string
-	encoding     string
-	line, col    int
-	modified     bool
-	branch       string
-	errorCount   int
-	warnCount    int
-	lspStatus    map[string]messages.LSPServerStatus
-	themeButtonX int
+	theme           *theme.Manager
+	width           int
+	filename        string
+	language        string
+	encoding        string
+	line, col       int
+	modified        bool
+	branch          string
+	errorCount      int
+	warnCount       int
+	lspStatus       map[string]messages.LSPServerStatus
+	themeButtonX    int
+	settingsButtonX int
 }
 
 func New(tm *theme.Manager) Model {
-	return Model{theme: tm, encoding: "UTF-8", lspStatus: make(map[string]messages.LSPServerStatus), themeButtonX: -1}
+	return Model{theme: tm, encoding: "UTF-8", lspStatus: make(map[string]messages.LSPServerStatus), themeButtonX: -1, settingsButtonX: -1}
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -40,12 +45,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.themeButtonX = m.width - themeButtonWidth
+		m.settingsButtonX = m.width - settingsButtonWidth
+		m.themeButtonX = m.width - settingsButtonWidth - themeButtonWidth
 		if m.themeButtonX < 0 {
 			m.themeButtonX = -1
+			m.settingsButtonX = -1
 		}
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
+			if msg.Y == 0 && m.settingsButtonX >= 0 && msg.X >= m.settingsButtonX && msg.X < m.settingsButtonX+settingsButtonWidth {
+				return m, func() tea.Msg { return messages.SettingsOpenMsg{} }
+			}
 			if msg.Y == 0 && m.themeButtonX >= 0 && msg.X >= m.themeButtonX && msg.X < m.themeButtonX+themeButtonWidth {
 				return m, func() tea.Msg { return messages.ThemePickerOpenMsg{} }
 			}
@@ -111,7 +121,7 @@ func (m Model) View() tea.View {
 	if m.warnCount > 0 {
 		right += lipgloss.NewStyle().Background(bg).Foreground(warnColor).Render(fmt.Sprintf("⚠ %d", m.warnCount)) + sep
 	}
-	right += base.Render(themeButtonLabel)
+	right += base.Render(themeButtonLabel) + base.Render(settingsButtonLabel)
 
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)

@@ -106,7 +106,11 @@ func (m *Manager) applySystemBaseColors() {
 	m.theme.UI["settings_fg"] = fg
 	m.theme.UI["settings_selected"] = selected
 	m.theme.UI["settings_separator"] = selected
-	m.theme.UI["settings_border"] = border
+	// The dialog frame gets a splash of color even in the grayscale system
+	// theme: palette index 5 (magenta) maps to the terminal's own palette via
+	// applySystemPaletteColors, and renders as ANSI magenta otherwise. This
+	// mirrors the purple accent the builtin themes use for their borders.
+	m.theme.UI["settings_border"] = "5"
 	m.theme.UI["hover_bg"] = surface2
 	m.theme.UI["hover_fg"] = fg
 	m.theme.UI["hover_border"] = border
