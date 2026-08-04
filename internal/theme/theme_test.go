@@ -2,6 +2,8 @@ package theme_test
 
 import (
 	"image/color"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/yourusername/toast/internal/theme"
@@ -168,5 +170,88 @@ func TestTerminalColorsIgnoredForNonSystemTheme(t *testing.T) {
 	m.ApplySystemBackground(color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}, false)
 	if got := m.UI("background"); got != before {
 		t.Errorf("background changed for non-system theme: %q -> %q", before, got)
+	}
+}
+
+func TestSettingsTokensPopulated(t *testing.T) {
+	cases := map[string]func(m *theme.Manager){
+		"toast-dark": func(m *theme.Manager) {},
+		"toast-light": func(m *theme.Manager) {},
+		"system": func(m *theme.Manager) {
+			// System theme derives tokens from terminal colors. Apply a
+			// background first so the derived settings_* values are populated.
+			m.ApplySystemBackground(color.RGBA{R: 0x10, G: 0x10, B: 0x10, A: 0xff}, true)
+			m.ApplySystemForeground(color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
+		},
+	}
+	for name, prep := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, err := theme.NewManager(name, "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			prep(m)
+			for _, key := range []string{"bg", "fg", "selected", "separator", "border"} {
+				if got := m.Settings(key); got == "" {
+					t.Errorf("Settings(%q) empty for theme %q", key, name)
+				}
+			}
+		})
+	}
+}
+
+func TestSettingsFallsBackToCompletionWhenUnset(t *testing.T) {
+	// Build a manager that has completion_* populated but no settings_*. We
+	// do this by constructing the manager and then clearing the settings_*
+	// keys on its embedded theme via a re-load from a minimal theme dir.
+	dir := t.TempDir()
+	themeJSON := `{
+		"name": "Test Fallback",
+		"variant": "dark",
+		"ui": {
+			"background": "#222222", "foreground": "#eeeeee",
+			"completion_bg": "#333333", "completion_fg": "#eeeeee", "completion_selected": "#444444"
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "fallback.json"), []byte(themeJSON), 0o644); err != nil {
+		t.Fatalf("write theme: %v", err)
+	}
+	m, err := theme.NewManager("fallback", dir)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if bg := m.Settings("bg"); bg != "#333333" {
+		t.Errorf("Settings(bg) = %q, want %q (completion_bg)", bg, "#333333")
+	}
+	if fg := m.Settings("fg"); fg != "#eeeeee" {
+		t.Errorf("Settings(fg) = %q, want %q (completion_fg)", fg, "#eeeeee")
+	}
+	if sel := m.Settings("selected"); sel != "#444444" {
+		t.Errorf("Settings(selected) = %q, want %q (completion_selected)", sel, "#444444")
+	}
+	if sep := m.Settings("separator"); sep != "" {
+		// No border defined either → fallback chain still empty. Confirm we
+		// get an empty string back rather than a panic, and that adding a
+		// border makes it return that border.
+		t.Errorf("Settings(separator) = %q, want empty when border missing", sep)
+	}
+	// And that a defined border is used.
+	borderTheme := `{
+		"name": "Test Fallback 2",
+		"variant": "dark",
+		"ui": {"border": "#aaaaaa", "completion_bg": "#bbbbbb"}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "fallback.json"), []byte(borderTheme), 0o644); err != nil {
+		t.Fatalf("write theme: %v", err)
+	}
+	m2, err := theme.NewManager("fallback", dir)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if sep := m2.Settings("separator"); sep != "#aaaaaa" {
+		t.Errorf("Settings(separator) = %q, want %q (border fallback)", sep, "#aaaaaa")
+	}
+	if bd := m2.Settings("border"); bd != "#aaaaaa" {
+		t.Errorf("Settings(border) = %q, want %q (border fallback)", bd, "#aaaaaa")
 	}
 }

@@ -34,6 +34,8 @@ func newSystemTheme(isDark bool) *Theme {
 			"diagnostic_error": "1", "diagnostic_warning": "3",
 			"diagnostic_info": "4", "diagnostic_hint": "2",
 			"completion_bg": "", "completion_fg": "", "completion_selected": "",
+			"settings_bg": "", "settings_fg": "", "settings_selected": "",
+			"settings_separator": "", "settings_border": "",
 			"hover_bg": "", "hover_fg": "", "hover_border": "",
 			"find_replace_border": "",
 			"search_match_bg":     "3", "search_match_fg": "0",
@@ -100,6 +102,11 @@ func (m *Manager) applySystemBaseColors() {
 	m.theme.UI["completion_bg"] = surface2
 	m.theme.UI["completion_fg"] = fg
 	m.theme.UI["completion_selected"] = selected
+	m.theme.UI["settings_bg"] = surface2
+	m.theme.UI["settings_fg"] = fg
+	m.theme.UI["settings_selected"] = selected
+	m.theme.UI["settings_separator"] = selected
+	m.theme.UI["settings_border"] = border
 	m.theme.UI["hover_bg"] = surface2
 	m.theme.UI["hover_fg"] = fg
 	m.theme.UI["hover_border"] = border

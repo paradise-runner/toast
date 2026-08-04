@@ -46,6 +46,33 @@ func NewManager(name, themeDir string) (*Manager, error) {
 
 func (m *Manager) UI(key string) string       { return m.theme.UI[key] }
 func (m *Manager) Git(key string) string      { return m.theme.Git[key] }
+
+// Settings returns a color for the settings dialog (settings_bg, settings_fg,
+// settings_selected, settings_separator, settings_border). If the active theme
+// does not define the requested key, the corresponding completion_* token
+// (or `border` for separator/border) is returned so older themes continue to
+// render the dialog sensibly.
+func (m *Manager) Settings(key string) string {
+	if v := m.theme.UI["settings_"+key]; v != "" {
+		return v
+	}
+	return m.UI(settingsFallback(key))
+}
+
+// settingsFallback returns the ui key used when settings_<key> is undefined.
+func settingsFallback(key string) string {
+	switch key {
+	case "bg":
+		return "completion_bg"
+	case "fg":
+		return "completion_fg"
+	case "selected":
+		return "completion_selected"
+	case "separator", "border":
+		return "border"
+	}
+	return key
+}
 func (m *Manager) Variant() string            { return m.theme.Variant }
 func (m *Manager) SyntaxFG(key string) string { return m.theme.Syntax[key].FG }
 func (m *Manager) IsSystem() bool             { return m.name == systemThemeName }

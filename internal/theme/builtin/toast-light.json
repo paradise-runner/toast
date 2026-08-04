@@ -14,6 +14,8 @@
     "diagnostic_error": "#d20f39", "diagnostic_warning": "#df8e1d",
     "diagnostic_info": "#1e66f5", "diagnostic_hint": "#40a02b",
     "completion_bg": "#e6e9ef", "completion_fg": "#4c4f69", "completion_selected": "#bcc0cc",
+    "settings_bg": "#e6e9ef", "settings_fg": "#4c4f69", "settings_selected": "#bcc0cc",
+    "settings_separator": "#bcc0cc", "settings_border": "#9ca0b0",
     "hover_bg": "#e6e9ef", "hover_fg": "#4c4f69", "hover_border": "#acb0be",
     "find_replace_border": "#8839ef",
     "search_match_bg": "#df8e1d", "search_match_fg": "#eff1f5",
