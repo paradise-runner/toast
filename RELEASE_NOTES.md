@@ -9,7 +9,7 @@ A patch release fixing paste consistency on macOS.
 
 ---
 
-*Keep this file updated with a `## vX.Y.Z` section for each release — the pre-push hook (prek) refuses to push a tag without matching notes here.*
+## v0.4.0 — 2026-08-03
 
 A small polish release.
 
