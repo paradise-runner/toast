@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.2 — 2026-08-03
+
+A patch release fixing an escape-key trap in the sidebar's file/folder creation flow.
+
+### File tree
+- Escape now always dismisses the sidebar context menu, inline file/folder creation row, and delete confirmation dialog, regardless of which component has keyboard focus. Previously, right-clicking to start a creation and then clicking into the editor left the creation UI stuck open with Escape going to the editor instead. (issue #48)
+
+---
+
 ## v0.4.1 — 2026-08-03
 
 A patch release fixing paste consistency on macOS.
