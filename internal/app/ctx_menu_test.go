@@ -198,6 +198,7 @@ func TestApp_EscapeDismissesDeleteDialog_RegardlessOfFocus(t *testing.T) {
 	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: 1})
 	model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !model.fileTree.HasDeleteDialog() {
 		t.Fatal("expected delete dialog to be open")

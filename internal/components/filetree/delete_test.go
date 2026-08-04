@@ -11,7 +11,7 @@ import (
 	"github.com/yourusername/toast/internal/messages"
 )
 
-// openDeleteDialog right-clicks row fileY, moves focus to "Delete" (item 2), and
+// openDeleteDialog right-clicks row fileY, moves focus to "Delete" (item 3), and
 // presses Enter to open the confirmation dialog. Fails the test if the dialog
 // does not appear.
 func openDeleteDialog(t *testing.T, m Model, fileY int) Model {
@@ -20,7 +20,8 @@ func openDeleteDialog(t *testing.T, m Model, fileY int) Model {
 	if m.ctxMenu == nil {
 		t.Fatal("expected ctxMenu after right-click")
 	}
-	// Move focus from 0 → 1 → 2 ("Delete")
+	// Move focus from 0 → 1 → 2 → 3 ("Delete")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -131,6 +132,7 @@ func TestDelete_ConfirmDeleteFalse_SkipsDialog(t *testing.T) {
 
 	// flat[0]=root dir, flat[1]=todelete.go — right-click the file at row 1
 	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

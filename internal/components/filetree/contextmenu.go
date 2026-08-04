@@ -1,6 +1,7 @@
 package filetree
 
 import (
+	"runtime"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -27,8 +28,16 @@ type ContextMenu struct {
 // targetDir is the directory in which New File / New Folder will be created.
 // targetNode, when non-nil, causes a "Delete" item to be appended and
 // targetPath / targetIsDir to be populated from the node.
+//
+// Item layout:
+//
+//	0 = New File
+//	1 = New Folder
+//	2 = View in Finder / View in Folder / View in Explorer (reveal targetDir
+//	    when no node is targeted, otherwise reveal the node itself)
+//	3 = Delete (only when targetNode != nil)
 func newContextMenu(x, y int, targetDir string, targetNode *TreeNode, tm *theme.Manager) *ContextMenu {
-	items := []string{"New File", "New Folder"}
+	items := []string{"New File", "New Folder", revealItemLabel()}
 	c := &ContextMenu{
 		X:         x,
 		Y:         y,
@@ -42,6 +51,19 @@ func newContextMenu(x, y int, targetDir string, targetNode *TreeNode, tm *theme.
 		c.targetIsDir = targetNode.IsDir
 	}
 	return c
+}
+
+// revealItemLabel returns the OS-appropriate label for the "reveal in file
+// manager" menu item.
+func revealItemLabel() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "View in Finder"
+	case "windows":
+		return "View in Explorer"
+	default:
+		return "View in Folder"
+	}
 }
 
 // HandleClick returns the index of the item at sidebar-local (x, y),

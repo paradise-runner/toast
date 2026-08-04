@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/yourusername/toast/internal/config"
+	"github.com/yourusername/toast/internal/messages"
 	"github.com/yourusername/toast/internal/theme"
 )
 
@@ -46,14 +47,25 @@ func TestContextMenu_Render_HighlightsFocused(t *testing.T) {
 func TestNewContextMenu_DefaultItems(t *testing.T) {
 	tm := newTestTheme(t)
 	cm := newContextMenu(5, 10, "/some/dir", nil, tm)
-	if len(cm.items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(cm.items))
+	if len(cm.items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(cm.items))
 	}
 	if cm.X != 5 || cm.Y != 10 {
 		t.Errorf("expected X=5 Y=10, got X=%d Y=%d", cm.X, cm.Y)
 	}
 	if cm.targetDir != "/some/dir" {
 		t.Errorf("expected targetDir '/some/dir', got %q", cm.targetDir)
+	}
+}
+
+func TestNewContextMenu_IncludesRevealItem(t *testing.T) {
+	tm := newTestTheme(t)
+	cm := newContextMenu(0, 0, "/some/dir", nil, tm)
+	if len(cm.items) < 3 {
+		t.Fatalf("expected at least 3 items, got %d", len(cm.items))
+	}
+	if cm.items[2] != revealItemLabel() {
+		t.Errorf("expected items[2]=%q (OS reveal label), got %q", revealItemLabel(), cm.items[2])
 	}
 }
 
@@ -134,6 +146,9 @@ func TestContextMenu_SelectNewFolder_EntersInlineEdit(t *testing.T) {
 func TestContextMenu_MoveUpDown(t *testing.T) {
 	tm := newTestTheme(t)
 	cm := newContextMenu(0, 0, "", nil, tm)
+	if len(cm.items) != 3 {
+		t.Fatalf("expected 3 default items, got %d", len(cm.items))
+	}
 
 	// Initial state
 	if cm.focused != 0 {
@@ -149,15 +164,20 @@ func TestContextMenu_MoveUpDown(t *testing.T) {
 	if cm.focused != 1 {
 		t.Errorf("expected focused=1 after moveDown, got %d", cm.focused)
 	}
+	// Move down to the last item (index 2 = reveal item)
+	cm.moveDown()
+	if cm.focused != 2 {
+		t.Errorf("expected focused=2 after moveDown, got %d", cm.focused)
+	}
 	// Can't go past last item
 	cm.moveDown()
-	if cm.focused != 1 {
-		t.Errorf("expected focused to stay at 1 after moveDown at bottom, got %d", cm.focused)
+	if cm.focused != 2 {
+		t.Errorf("expected focused to stay at 2 after moveDown at bottom, got %d", cm.focused)
 	}
 	// Move back up
 	cm.moveUp()
-	if cm.focused != 0 {
-		t.Errorf("expected focused=0 after moveUp, got %d", cm.focused)
+	if cm.focused != 1 {
+		t.Errorf("expected focused=1 after moveUp, got %d", cm.focused)
 	}
 }
 
@@ -220,11 +240,14 @@ func TestNewContextMenu_WithTargetNode_HasDeleteItem(t *testing.T) {
 	tm := newTestTheme(t)
 	node := &TreeNode{Name: "foo.go", Path: "/tmp/foo.go", IsDir: false}
 	cm := newContextMenu(0, 0, "/tmp", node, tm)
-	if len(cm.items) != 3 {
-		t.Fatalf("expected 3 items with targetNode, got %d", len(cm.items))
+	if len(cm.items) != 4 {
+		t.Fatalf("expected 4 items with targetNode, got %d", len(cm.items))
 	}
-	if cm.items[2] != "Delete" {
-		t.Errorf("expected items[2]='Delete', got %q", cm.items[2])
+	if cm.items[3] != "Delete" {
+		t.Errorf("expected items[3]='Delete', got %q", cm.items[3])
+	}
+	if cm.items[2] != revealItemLabel() {
+		t.Errorf("expected items[2]=%q, got %q", revealItemLabel(), cm.items[2])
 	}
 	if cm.targetPath != "/tmp/foo.go" {
 		t.Errorf("expected targetPath '/tmp/foo.go', got %q", cm.targetPath)
@@ -237,8 +260,8 @@ func TestNewContextMenu_WithTargetNode_HasDeleteItem(t *testing.T) {
 func TestNewContextMenu_WithNilNode_NoDeleteItem(t *testing.T) {
 	tm := newTestTheme(t)
 	cm := newContextMenu(0, 0, "/tmp", nil, tm)
-	if len(cm.items) != 2 {
-		t.Fatalf("expected 2 items without targetNode, got %d", len(cm.items))
+	if len(cm.items) != 3 {
+		t.Fatalf("expected 3 items without targetNode, got %d", len(cm.items))
 	}
 }
 
@@ -246,8 +269,8 @@ func TestNewContextMenu_WithDirNode_HasDeleteItem(t *testing.T) {
 	tm := newTestTheme(t)
 	node := &TreeNode{Name: "pkg", Path: "/tmp/pkg", IsDir: true}
 	cm := newContextMenu(0, 0, "/tmp/pkg", node, tm)
-	if len(cm.items) != 3 {
-		t.Fatalf("expected 3 items with dir targetNode, got %d", len(cm.items))
+	if len(cm.items) != 4 {
+		t.Fatalf("expected 4 items with dir targetNode, got %d", len(cm.items))
 	}
 	if !cm.targetIsDir {
 		t.Error("expected targetIsDir=true for a dir node")
@@ -301,8 +324,11 @@ func TestContextMenu_RightClickOnNode_HasDeleteItem(t *testing.T) {
 	if m.ctxMenu == nil {
 		t.Fatal("expected ctxMenu")
 	}
-	if len(m.ctxMenu.items) != 3 {
-		t.Errorf("expected 3 items for node right-click, got %d", len(m.ctxMenu.items))
+	if len(m.ctxMenu.items) != 4 {
+		t.Errorf("expected 4 items for node right-click, got %d", len(m.ctxMenu.items))
+	}
+	if m.ctxMenu.items[3] != "Delete" {
+		t.Errorf("expected items[3]='Delete', got %q", m.ctxMenu.items[3])
 	}
 }
 
@@ -314,8 +340,11 @@ func TestContextMenu_RightClickEmptySpace_NoDeleteItem(t *testing.T) {
 	if m.ctxMenu == nil {
 		t.Fatal("expected ctxMenu even for empty space")
 	}
-	if len(m.ctxMenu.items) != 2 {
-		t.Errorf("expected 2 items for empty-space right-click, got %d", len(m.ctxMenu.items))
+	if len(m.ctxMenu.items) != 3 {
+		t.Errorf("expected 3 items for empty-space right-click, got %d", len(m.ctxMenu.items))
+	}
+	if len(m.ctxMenu.items) > 3 && m.ctxMenu.items[3] == "Delete" {
+		t.Error("expected no Delete item for empty-space right-click")
 	}
 }
 
@@ -397,5 +426,100 @@ func TestContextMenu_Bounds(t *testing.T) {
 	}
 	if !m.HasContextMenu() {
 		t.Error("expected HasContextMenu=true with menu open")
+	}
+}
+
+// ── Reveal in file manager (View in Finder / View in Folder) ──────────────────
+
+// TestContextMenu_SelectReveal_OnNode_EmitsMsg verifies that activating the
+// reveal item (index 2) on a file emits RevealInFileManagerMsg with the node's
+// path and clears the context menu.
+func TestContextMenu_SelectReveal_OnNode_EmitsMsg(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(filePath, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, dir)
+	// flat[0]=root, flat[1]=main.go — right-click the file row.
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+	if m.ctxMenu == nil {
+		t.Fatal("expected ctxMenu after right-click")
+	}
+	// Move focus 0 → 1 → 2 (reveal item).
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.ctxMenu != nil {
+		t.Error("expected ctxMenu to be cleared after selecting reveal")
+	}
+	if cmd == nil {
+		t.Fatal("expected RevealInFileManagerMsg cmd")
+	}
+	msg := cmd()
+	rm, ok := msg.(messages.RevealInFileManagerMsg)
+	if !ok {
+		t.Fatalf("expected RevealInFileManagerMsg, got %T", msg)
+	}
+	if rm.Path != filePath {
+		t.Errorf("RevealInFileManagerMsg.Path = %q, want %q", rm.Path, filePath)
+	}
+}
+
+// TestContextMenu_SelectReveal_EmptySpace_EmitsMsg verifies that activating the
+// reveal item after right-clicking empty space reveals the target directory.
+func TestContextMenu_SelectReveal_EmptySpace_EmitsMsg(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir)
+	// Right-click empty space (row 5 — beyond any nodes).
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 5})
+	if m.ctxMenu == nil {
+		t.Fatal("expected ctxMenu after right-click")
+	}
+	// Move focus 0 → 1 → 2 (reveal item).
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected RevealInFileManagerMsg cmd")
+	}
+	msg := cmd()
+	rm, ok := msg.(messages.RevealInFileManagerMsg)
+	if !ok {
+		t.Fatalf("expected RevealInFileManagerMsg, got %T", msg)
+	}
+	if rm.Path != dir {
+		t.Errorf("RevealInFileManagerMsg.Path = %q, want %q", rm.Path, dir)
+	}
+}
+
+// TestContextMenu_LeftClickReveal_EmitsMsg verifies the reveal item works via
+// mouse click as well.
+func TestContextMenu_LeftClickReveal_EmitsMsg(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(filePath, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, dir)
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+	if m.ctxMenu == nil {
+		t.Fatal("expected ctxMenu after right-click")
+	}
+	// Left-click item 2 (reveal item): row = ctxMenu.Y + 1 + 2.
+	m, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.ctxMenu.X + 2, Y: m.ctxMenu.Y + 3})
+	if m.ctxMenu != nil {
+		t.Error("expected ctxMenu to be cleared after clicking reveal")
+	}
+	if cmd == nil {
+		t.Fatal("expected RevealInFileManagerMsg cmd")
+	}
+	msg := cmd()
+	rm, ok := msg.(messages.RevealInFileManagerMsg)
+	if !ok {
+		t.Fatalf("expected RevealInFileManagerMsg, got %T", msg)
+	}
+	if rm.Path != filePath {
+		t.Errorf("RevealInFileManagerMsg.Path = %q, want %q", rm.Path, filePath)
 	}
 }

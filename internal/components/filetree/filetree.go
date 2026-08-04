@@ -90,7 +90,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			case "down", "j":
 				m.ctxMenu.moveDown()
 			case "enter", " ":
-				if m.ctxMenu.focused == 2 {
+				switch m.ctxMenu.focused {
+				case 2: // View in Finder / View in Folder / View in Explorer
+					return m.revealInFileManager()
+				case 3: // Delete
 					path := m.ctxMenu.targetPath
 					isDir := m.ctxMenu.targetIsDir
 					m.ctxMenu = nil
@@ -169,7 +172,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					return m, nil
 				}
 				m.ctxMenu.focused = idx
-				if idx == 2 {
+				switch idx {
+				case 2: // View in Finder / View in Folder / View in Explorer
+					return m.revealInFileManager()
+				case 3: // Delete
 					path := m.ctxMenu.targetPath
 					isDir := m.ctxMenu.targetIsDir
 					m.ctxMenu = nil
@@ -526,6 +532,20 @@ func (m *Model) enterInlineEdit() {
 	}
 	m.inlineInsertIdx = idx + 1
 	m.inlineInput = NewInlineInput(targetDir, isDir)
+}
+
+// revealInFileManager handles the "View in Finder / View in Folder / View in
+// Explorer" context menu item. When a node is targeted it reveals that node;
+// otherwise it reveals the target directory (e.g. right-clicking empty space).
+func (m Model) revealInFileManager() (Model, tea.Cmd) {
+	path := m.ctxMenu.targetPath
+	if path == "" {
+		path = m.ctxMenu.targetDir
+	}
+	m.ctxMenu = nil
+	return m, func() tea.Msg {
+		return messages.RevealInFileManagerMsg{Path: path}
+	}
 }
 
 // expandPath finds the node with the given path and expands it.

@@ -342,3 +342,7 @@ type FileLoadedMsg struct {
 
 // OpenExternalFileMsg - open a file with the operating system's default app.
 type OpenExternalFileMsg struct{ Path string }
+
+// RevealInFileManagerMsg - reveal a file/folder in the OS file manager
+// (Finder on macOS, the default file manager on Linux, Explorer on Windows).
+type RevealInFileManagerMsg struct{ Path string }

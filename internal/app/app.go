@@ -635,6 +635,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case messages.RevealInFileManagerMsg:
+		if cmd := revealInFileManager(msg.Path); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case messages.SidebarToggleMsg:
 		m.sidebarVisible = !m.sidebarVisible
 		cmds = append(cmds, m.resizeComponents()...)
@@ -1737,6 +1742,53 @@ func openExternalFile(path string) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// revealInFileManager reveals a file/folder in the OS file manager: Finder on
+// macOS, the default file manager on Linux, Explorer on Windows.
+func revealInFileManager(path string) tea.Cmd {
+	if path == "" {
+		return nil
+	}
+
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			// -R reveals the item in a Finder window instead of opening it.
+			cmd = exec.Command("open", "-R", path)
+		case "windows":
+			cmd = exec.Command("explorer", "/select,", path)
+		default:
+			cmd = linuxRevealCmd(path)
+		}
+		if cmd != nil {
+			if err := cmd.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "toast: reveal in file manager failed for %s: %v\n", path, err)
+			}
+		}
+		return nil
+	}
+}
+
+// linuxRevealCmd builds a reveal command for Linux: it prefers the freedesktop
+// FileManager1 D-Bus interface (which selects the item in the default file
+// manager); if dbus-send is unavailable it falls back to xdg-open on the
+// item's parent directory.
+func linuxRevealCmd(path string) *exec.Cmd {
+	fileURL := "file://" + filepath.ToSlash(path)
+	dbusCmd := exec.Command("dbus-send", "--session", "--dest=org.freedesktop.FileManager1",
+		"--type=method_call", "/org/freedesktop/FileManager1",
+		"org.freedesktop.FileManager1.ShowItems",
+		"array:string:"+fileURL, "string:")
+	if err := dbusCmd.Start(); err == nil {
+		return nil // launched successfully
+	}
+	target := path
+	if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+		target = filepath.Dir(path)
+	}
+	return exec.Command("xdg-open", target)
 }
 
 // runGitStatus runs git status asynchronously and returns a GitStatusUpdatedMsg.
