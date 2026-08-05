@@ -108,6 +108,40 @@ export PATH="$(dirname "${zig_bin}"):${PATH}"
 # chokes on libSystem.tbd from e.g. Xcode 26.5). Probe with a trivial link;
 # on failure, retry using the CommandLineTools SDK, which ships an older
 # MacOSX.sdk (26.2) that zig handles fine.
+# zig 0.15.x cannot link against macOS SDKs newer than ~26.2 (its tbd parser
+# chokes on libSystem.tbd from e.g. Xcode 26.5). GitHub macOS runners ship
+# several SDKs side by side (e.g. MacOSX15.4.sdk next to the default 26.5),
+# so when the probe fails we find the newest SDK older than macOS 26 and put
+# an `xcrun` shim on PATH: zig resolves the SDK via `xcrun --sdk macosx
+# --show-sdk-path` (looked up on PATH), so the shim answers that one
+# invocation with the older SDK and delegates everything else.
+older_sdk_shim() {
+	local sdk_root="$1" sdk name major newest=""
+	for sdk in $(ls -1d "${sdk_root}"/MacOSX*.sdk 2>/dev/null | sort -V); do
+		name="$(basename "${sdk}")"
+		major="${name#MacOSX}"
+		major="${major%%.*}"
+		[[ "${major}" =~ ^[0-9]+$ ]] || continue
+		[[ "${major}" -lt 26 ]] || continue
+		newest="${sdk}"
+	done
+	[[ -z "${newest}" ]] && return 1
+	mkdir -p "${tools_dir}/bin"
+	cat > "${tools_dir}/bin/xcrun" <<EOF
+#!/bin/bash
+# Shim so zig 0.15.x resolves an older, parseable macOS SDK (its tbd parser
+# cannot read libSystem.tbd from SDKs newer than ~26.2). Only intercepts the
+# exact invocation zig's SDK detection makes; everything else delegates.
+if [[ "\${1:-}" == "--sdk" && "\${2:-}" == "macosx" && "\${3:-}" == "--show-sdk-path" ]]; then
+	echo "${newest}"
+	exit 0
+fi
+exec /usr/bin/xcrun "\$@"
+EOF
+	chmod +x "${tools_dir}/bin/xcrun"
+	printf '%s\n' "${tools_dir}/bin"
+}
+
 probe_zig_link() {
 	local probe_dir
 	probe_dir="$(mktemp -d)"
@@ -126,8 +160,20 @@ if ! probe_zig_link "${zig_bin}"; then
 		echo "retrying with the CommandLineTools SDK (DEVELOPER_DIR)" >&2
 		export DEVELOPER_DIR=/Library/Developer/CommandLineTools
 		if ! probe_zig_link "${zig_bin}"; then
-			echo "zig link probe failed even with the CommandLineTools SDK; install an older macOS SDK or set ZIG to a working binary" >&2
-			exit 1
+			echo "zig link probe failed even with the CommandLineTools SDK; searching for an older macOS SDK" >&2
+			if shim_dir="$(older_sdk_shim /Library/Developer/CommandLineTools/SDKs)"; then
+				echo "retrying with an older macOS SDK via xcrun shim: ${shim_dir}" >&2
+				export PATH="${shim_dir}:${PATH}"
+				if probe_zig_link "${zig_bin}"; then
+					echo "zig link probe passed with an older macOS SDK" >&2
+				else
+					echo "no usable macOS SDK found; install an older SDK or set ZIG to a working binary" >&2
+					exit 1
+				fi
+			else
+				echo "no older macOS SDK found; install an older SDK or set ZIG to a working binary" >&2
+				exit 1
+			fi
 		fi
 	else
 		echo "no CommandLineTools SDK found; install one (or set ZIG to a working zig 0.15.2) and rerun" >&2
