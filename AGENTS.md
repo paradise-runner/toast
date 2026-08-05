@@ -40,6 +40,13 @@ goimports -w .
 
 Entry point: `cmd/toast/main.go`. Top-level bubbletea model: `internal/app/app.go`.
 
+The standalone desktop app bundle lives in `cmd/toastapp` (a self-extracting
+launcher that embeds the toast binary, the Ghostling terminal, and
+libghostty-vt; built by `scripts/build-libghostty-bundle.sh` into
+`dist/toast-libghostty`). See `docs/experimental/libghostty-bundle.md`. Toast
+code can detect the bundle via the `TOAST_GHOSTTY_BUNDLE` env var (theme
+forcing and glyph substitutions read it).
+
 ```
 internal/
   app/            # top-level model: layout, focus, mouse routing

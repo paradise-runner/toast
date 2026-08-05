@@ -1,0 +1,12 @@
+diff --git a/main.c b/main.c
+index 8eb8efb..2ecbf4b 100644
+--- a/main.c
++++ b/main.c
+@@ -1208,6 +1208,7 @@ int main(void)
+     // Initialize window
+     InitWindow(800, 600, "ghostling");
+     SetWindowState(FLAG_WINDOW_RESIZABLE);
++    SetExitKey(KEY_NULL);
+     SetTargetFPS(60);
+ 
+     // Query the DPI scale so we can rasterize the font at the true pixel

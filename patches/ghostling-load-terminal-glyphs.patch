@@ -1,0 +1,106 @@
+diff --git a/main.c b/main.c
+index b50b7ae..d3f09ee 100644
+--- a/main.c
++++ b/main.c
+@@ -1192,6 +1192,87 @@ static bool effect_color_scheme(GhosttyTerminal terminal, void *userdata,
+ // Main
+ // ---------------------------------------------------------------------------
+ 
++// Raylib only bakes requested glyphs into the font atlas. Loading with
++// NULL/0 includes ASCII only, which makes terminal drawing glyphs render as
++// '?'. This list covers everything toast renders (box drawing, arrows,
++// triangles, bullets, the Select Workspace hint's middle-dot separators,
++// check marks, the trigram settings icon, quadrant spinner blocks, and the
++// em-dash/ellipsis punctuation).
++static int init_terminal_font_codepoints(int *codepoints, int capacity)
++{
++    int count = 0;
++
++    for (int cp = 32; cp <= 126 && count < capacity; cp++)
++        codepoints[count++] = cp;
++
++    static const int extras[] = {
++        0x00B7, // middle dot (Select Workspace hint separator)
++        0x00D7, // multiplication sign
++        0x00E9, // latin small letter e with acute
++        0x00F6, // latin small letter o with diaeresis
++        0x2013, // en dash
++        0x2014, // em dash
++        0x2022, // bullet
++        0x2026, // horizontal ellipsis
++        0x2190, // leftwards arrow
++        0x2191, // upwards arrow
++        0x2192, // rightwards arrow
++        0x2193, // downwards arrow
++        0x2248, // almost equal to
++        0x2261, // identical to (bundle settings icon)
++        0x2500, // box drawings light horizontal
++        0x2502, // box drawings light vertical
++        0x250c, // box drawings light down and right
++        0x2510, // box drawings light down and left
++        0x2514, // box drawings light up and right
++        0x2518, // box drawings light up and left
++        0x251c, // box drawings light vertical and right
++        0x2524, // box drawings light vertical and left
++        0x252c, // box drawings light down and horizontal
++        0x2534, // box drawings light up and horizontal
++        0x253c, // box drawings light vertical and horizontal
++        0x2550, // box drawings double horizontal
++        0x2551, // box drawings double vertical
++        0x2554, // box drawings double down and right
++        0x2557, // box drawings double down and left
++        0x255a, // box drawings double up and right
++        0x255d, // box drawings double up and left
++        0x256d, // box drawings light arc down and right (rounded corner)
++        0x256e, // box drawings light arc down and left (rounded corner)
++        0x256f, // box drawings light arc up and left (rounded corner)
++        0x2570, // box drawings light arc up and right (rounded corner)
++        0x2580, // upper half block
++        0x2584, // lower half block
++        0x2588, // full block
++        0x258c, // left half block
++        0x2596, // quadrant lower left (bundle spinner)
++        0x2597, // quadrant lower right (bundle spinner)
++        0x2598, // quadrant upper left (bundle spinner)
++        0x259d, // quadrant upper right (bundle spinner)
++        0x25a1, // white square
++        0x25b2, // black up-pointing triangle
++        0x25b6, // black right-pointing triangle
++        0x25b8, // black right-pointing small triangle
++        0x25ba, // black right-pointing pointer
++        0x25bc, // black down-pointing triangle
++        0x25c4, // black left-pointing pointer
++        0x25c6, // black diamond
++        0x25cf, // black circle
++        0x26a0, // warning sign
++        0x2713, // check mark
++        0x2715, // multiplication x
++    };
++
++    for (int i = 0; i < (int)(sizeof(extras) / sizeof(extras[0])) && count < capacity; i++)
++        codepoints[count++] = extras[i];
++
++    return count;
++}
++
++// ---------------------------------------------------------------------------
++// Main
++// ---------------------------------------------------------------------------
++
+ int main(void)
+ {
+     log_build_info();
+@@ -1217,8 +1298,12 @@ int main(void)
+     // Load the embedded monospace font at the native pixel size so every
+     // glyph maps 1:1 to screen pixels — no texture scaling, no blur.
+     int font_size_px = (int)(font_size * dpi_scale.y);
++    int font_codepoints[160];
++    int font_codepoint_count = init_terminal_font_codepoints(
++        font_codepoints, (int)(sizeof(font_codepoints) / sizeof(font_codepoints[0])));
+     Font mono_font = LoadFontFromMemory(".ttf", font_jetbrains_mono,
+-                         (int)sizeof(font_jetbrains_mono), font_size_px, NULL, 0);
++                         (int)sizeof(font_jetbrains_mono), font_size_px,
++                         font_codepoints, font_codepoint_count);
+ 
+     // Use bilinear filtering; the texture is already at native resolution
+     // so there's no magnification blur, and this avoids jagged edges when

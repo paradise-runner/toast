@@ -74,6 +74,10 @@ type Model struct {
 	quickOpenOpen bool
 	quickOpen     quickopen.Model
 
+	// workspacePromptVisible shows the Select Workspace button in the editor
+	// area (bundled app's fresh-open state: no file, no workspace).
+	workspacePromptVisible bool
+
 	closeDialogOpen  bool
 	closePendingID   int
 	closePendingPath string
@@ -145,6 +149,10 @@ type Model struct {
 	// Services (initialized lazily via SetLSPSend)
 	lspMgr  *lsp.Manager
 	watcher *watcher.Watcher
+
+	// send is bubbletea's Program.Send, used to recreate the LSP manager and
+	// file watcher when the workspace root changes (see restartServices).
+	send func(tea.Msg)
 }
 
 // New creates a new application model with all component sub-models.
@@ -191,11 +199,34 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 	}, nil
 }
 
+// ShowWorkspacePrompt shows the Select Workspace button in the editor area.
+// Used by the bundled desktop app's fresh-open state (no file, no workspace);
+// activating it opens the native folder picker.
+func (m *Model) ShowWorkspacePrompt() {
+	m.workspacePromptVisible = true
+}
+
 // SetLSPSend creates the LSP manager and file watcher using the provided
 // send function (typically bubbletea's Program.Send).
 func (m *Model) SetLSPSend(send func(tea.Msg)) {
-	m.lspMgr = lsp.NewManager(m.cfg, m.rootDir, send)
-	w, err := watcher.New(send)
+	m.send = send
+	m.restartServices()
+}
+
+// restartServices (re)creates the LSP manager and file watcher. It is called
+// on startup and whenever the workspace root changes.
+func (m *Model) restartServices() {
+	if m.send == nil {
+		return
+	}
+	if m.lspMgr != nil {
+		m.lspMgr.ShutdownAll()
+	}
+	m.lspMgr = lsp.NewManager(m.cfg, m.rootDir, m.send)
+	if m.watcher != nil {
+		m.watcher.Close()
+	}
+	w, err := watcher.New(m.send)
 	if err == nil {
 		m.watcher = w
 	}
@@ -263,6 +294,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case uv.UnknownOscEvent:
 		if index, c, ok := theme.ParseSystemPaletteResponse(string(msg)); ok {
 			m.theme.ApplySystemPaletteColor(index, c)
+			break
+		}
+		if cmd := m.handleToastOSC(string(msg)); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
 	case tea.KeyPressMsg:
@@ -313,6 +348,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case messages.FileSelectedMsg:
+		m.workspacePromptVisible = false
 		closeSearch := m.searchOpen
 		closeQuickOpen := m.quickOpenOpen
 		cmd := m.handleFileSelected(msg)
@@ -861,6 +897,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 
+	if m.workspacePromptVisible {
+		// The Select Workspace button owns the keyboard; quit still works.
+		if m.isQuit(msg) {
+			return m.requestQuit()
+		}
+		if msg.String() == "enter" {
+			return requestWorkspacePickerCmd()
+		}
+		if msg.String() == "esc" {
+			m.workspacePromptVisible = false
+		}
+		return nil
+	}
+
 	// App-level keys always checked first.
 	switch {
 	case m.isQuit(msg):
@@ -1063,6 +1113,13 @@ func (m *Model) forceCloseTab(path string) tea.Cmd {
 
 // handleMouseClick routes mouse click events to the appropriate component based on position.
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
+	if m.workspacePromptVisible {
+		// Only clicks on the Select Workspace button itself open the picker.
+		if bx, by, bw, bh := m.workspaceButtonRect(); msg.X >= bx && msg.X < bx+bw && msg.Y >= by && msg.Y < by+bh {
+			return requestWorkspacePickerCmd()
+		}
+		return nil
+	}
 	if m.lspInstall.Visible() {
 		ow, oh := m.lspInstall.Dimensions()
 		startX := m.width - ow - 1
@@ -2008,6 +2065,126 @@ func (m *Model) runGitDiff(bufferID int, path string) tea.Cmd {
 }
 
 // View renders the full application layout.
+// workspacePromptStrings renders the Select Workspace button and its hint,
+// styled with the editor's own background so the button blends into the blank
+// editor. Shared by the view and the mouse hit-test.
+func (m *Model) workspacePromptStrings() (button, hint string) {
+	bg := lipgloss.Color(m.theme.UI("background"))
+	fg := lipgloss.Color(m.theme.UI("foreground"))
+	accent := lipgloss.Color(m.theme.UI("sidebar_icon_fg"))
+	muted := lipgloss.Color(m.theme.UI("gutter_fg"))
+
+	button = lipgloss.NewStyle().
+		Background(bg).
+		Foreground(fg).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accent).
+		BorderBackground(bg).
+		Padding(0, 2).
+		Render(" Select Workspace… ")
+
+	hint = lipgloss.NewStyle().
+		Foreground(muted).
+		Background(bg).
+		Render("open a folder to work on · enter or click · esc to dismiss")
+	return button, hint
+}
+
+// workspacePromptView renders the Select Workspace button centered on a page
+// painted with the same background the editor uses, so the button blends into
+// the blank editor.
+func (m *Model) workspacePromptView() string {
+	editorWidth := m.width
+	if m.sidebarVisible {
+		editorWidth -= m.sidebarWidth
+	}
+	editorHeight := m.height - 3 // tab bar + breadcrumb + status bar
+	if editorHeight < 1 {
+		editorHeight = 1
+	}
+
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(m.theme.UI("background")))
+	pad := func(n int) string {
+		if n < 0 {
+			n = 0
+		}
+		return bgStyle.Render(strings.Repeat(" ", n))
+	}
+
+	button, hint := m.workspacePromptStrings()
+	buttonW, buttonH := lipgloss.Width(button), lipgloss.Height(button)
+	hintW := lipgloss.Width(hint)
+	contentW := buttonW
+	if hintW > contentW {
+		contentW = hintW
+	}
+	contentH := buttonH + lipgloss.Height(hint)
+
+	startX := (editorWidth - contentW) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	startY := (editorHeight - contentH) / 2
+	if startY < 0 {
+		startY = 0
+	}
+
+	buttonLines := strings.Split(button, "\n") // border top, text, border bottom
+	buttonX := (contentW - buttonW) / 2
+	hintX := (contentW - hintW) / 2
+
+	rows := make([]string, 0, editorHeight)
+	for y := 0; y < editorHeight; y++ {
+		switch {
+		case y >= startY && y < startY+buttonH:
+			line := buttonLines[y-startY]
+			rows = append(rows, pad(startX+buttonX)+line+pad(editorWidth-(startX+buttonX)-buttonW))
+		case y == startY+buttonH:
+			rows = append(rows, pad(startX+hintX)+hint+pad(editorWidth-(startX+hintX)-hintW))
+		default:
+			rows = append(rows, pad(editorWidth))
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
+// workspaceButtonRect returns the on-screen rectangle of the Select Workspace
+// button (app coordinates: X includes the sidebar, Y includes the tab bar and
+// breadcrumb) for mouse hit-testing.
+func (m *Model) workspaceButtonRect() (x, y, w, h int) {
+	button, hint := m.workspacePromptStrings()
+	buttonW, buttonH := lipgloss.Width(button), lipgloss.Height(button)
+	contentW := buttonW
+	if hw := lipgloss.Width(hint); hw > contentW {
+		contentW = hw
+	}
+	contentH := buttonH + lipgloss.Height(hint)
+
+	editorWidth := m.width
+	if m.sidebarVisible {
+		editorWidth -= m.sidebarWidth
+	}
+	editorHeight := m.height - 3 // tab bar + breadcrumb + status bar
+	if editorHeight < 1 {
+		editorHeight = 1
+	}
+	startX := (editorWidth - contentW) / 2
+	startY := (editorHeight - contentH) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+	sidebarW := 0
+	if m.sidebarVisible {
+		sidebarW = m.sidebarWidth
+	}
+	// The main content pane starts two rows down (tab bar + breadcrumb); the
+	// button is horizontally centered within the (wider) hint line.
+	return sidebarW + startX + (contentW-buttonW)/2, 2 + startY, buttonW, buttonH
+}
+
 func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
@@ -2045,6 +2222,8 @@ func (m *Model) View() tea.View {
 		mainContentView = m.search.View().Content
 	} else if m.previewOpen {
 		mainContentView = m.preview.View().Content
+	} else if m.workspacePromptVisible {
+		mainContentView = m.workspacePromptView()
 	} else {
 		editorView := m.editor.View()
 		mainContentView = editorView.Content

@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-integration-update run clean
+.PHONY: build test test-integration test-integration-update run app clean
 
 build:
 	go build -o bin/toast ./cmd/toast
@@ -14,6 +14,12 @@ test-integration-update:
 
 run:
 	go run ./cmd/toast .
+
+# Standalone desktop app: toast bundled with a libghostty terminal window.
+# See docs/experimental/libghostty-bundle.md. Requires cmake, ninja, and git;
+# Zig 0.15.2 is provisioned automatically.
+app:
+	scripts/build-libghostty-bundle.sh
 
 clean:
 	rm -rf bin/

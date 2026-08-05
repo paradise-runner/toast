@@ -1,5 +1,10 @@
 .worktrees/
 bin/
+build/
+dist/
+cmd/toastapp/payload/ghostling
+cmd/toastapp/payload/toast
+cmd/toastapp/payload/libghostty-vt.dylib
 *.test
 *.out
 .superpowers/

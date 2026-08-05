@@ -1079,6 +1079,22 @@
       font-size: 12px;
     }
 
+    .app-dl {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 0;
+    }
+
+    .app-note {
+      margin: 12px 0 0;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .app-note strong { color: var(--soft); font-weight: 600; }
+
     .usage-row {
       margin-top: 26px;
       display: flex;
@@ -1528,13 +1544,14 @@
         <div class="sec-head reveal">
           <span class="sec-tag">Install</span>
           <h2>One command to <span class="h1-accent">install</span>.</h2>
-          <p>No Electron download, no dependency tree. A single ~28 MB binary that opens a working IDE.</p>
+          <p>No Electron download, no dependency tree. A single ~28 MB binary that opens a working IDE. Prefer a native window? There's an experimental Mac app too.</p>
         </div>
 
         <div class="install-card reveal">
           <div class="install-tabs" role="tablist">
             <button class="install-tab active" type="button" data-panel="tab-brew" role="tab">Homebrew</button>
             <button class="install-tab" type="button" data-panel="tab-release" role="tab">Release</button>
+            <button class="install-tab" type="button" data-panel="tab-app" role="tab" data-hint="Launch Toast from Applications like any app — drag a file or folder onto its dock icon (or run `open -a Toast &lt;path&gt;`) to open it.">Mac app</button>
             <button class="install-tab" type="button" data-panel="tab-source" role="tab">Source</button>
           </div>
 
@@ -1554,6 +1571,21 @@ install -m755 toast-darwin-arm64 /usr/local/bin/toast">copy</button>
 <span class="cmd">$</span> install -m755 toast-darwin-arm64 /usr/local/bin/toast</pre>
           </div>
 
+          <div class="code-block" id="tab-app" hidden>
+            <button class="copy-btn" type="button" data-copy="curl -LO https://github.com/paradise-runner/toast/releases/latest/download/toast-app-darwin-arm64.zip
+unzip toast-app-darwin-arm64.zip
+mv Toast.app /Applications/">copy</button>
+            <pre><span class="cmt"># macOS app (Apple Silicon) — also: toast-app-darwin-amd64.zip for Intel</span>
+<span class="cmd">$</span> curl -LO https://github.com/paradise-runner/toast/releases/latest/download/toast-app-darwin-arm64.zip
+<span class="cmd">$</span> unzip toast-app-darwin-arm64.zip
+<span class="cmd">$</span> mv Toast.app /Applications/</pre>
+            <p class="app-dl">
+              <a class="btn btn-ghost btn-sm" href="https://github.com/paradise-runner/toast/releases/latest/download/toast-app-darwin-arm64.zip">Download for Apple Silicon</a>
+              <a class="btn btn-ghost btn-sm" href="https://github.com/paradise-runner/toast/releases/latest/download/toast-app-darwin-amd64.zip">Download for Intel</a>
+            </p>
+            <p class="app-note">⚠️ <strong>Experimental:</strong> the app wraps toast in a bundled terminal and has more bugs than the terminal version — it's a bonus option, not the primary install. No terminal required. First launch: right-click <strong>Toast.app</strong> in Finder → <strong>Open</strong> — the app isn't notarized yet, so Gatekeeper blocks a plain double-click.</p>
+          </div>
+
           <div class="code-block" id="tab-source" hidden>
             <button class="copy-btn" type="button" data-copy="git clone https://github.com/paradise-runner/toast
 cd toast
@@ -1564,7 +1596,7 @@ make build">copy</button>
 <span class="cmd">$</span> make build</pre>
           </div>
 
-          <div class="install-hint">
+          <div class="install-hint" id="install-hint">
             Then point it at anything — a directory, a file, or nothing at all. Toast auto-detects the git root.
           </div>
         </div>
@@ -1659,6 +1691,11 @@ make build">copy</button>
         document.querySelectorAll(".code-block").forEach((block) => { block.hidden = true; });
         tabButton.classList.add("active");
         document.getElementById(tabButton.dataset.panel).hidden = false;
+        const hint = document.getElementById("install-hint");
+        if (hint) {
+          hint.textContent = tabButton.dataset.hint ||
+            "Then point it at anything — a directory, a file, or nothing at all. Toast auto-detects the git root.";
+        }
       });
     });
 

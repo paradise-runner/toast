@@ -2,6 +2,7 @@ package statusbar
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,10 +15,20 @@ const (
 	themeButtonLabel = " theme "
 	themeButtonWidth = len(themeButtonLabel) // 7
 
-	// settingsButtonLabel sits at the far bottom-right of the status bar.
-	settingsButtonLabel = " ⚙ "
+	// settingsButtonWidth is the rendered width of settingsButtonLabel.
 	settingsButtonWidth = 3 // space + gear + space
 )
+
+// settingsButtonLabel sits at the far bottom-right of the status bar. The
+// bundled desktop app (TOAST_GHOSTTY_BUNDLE=1) embeds JetBrains Mono, which
+// has no U+2699 GEAR glyph (it would render as '?'); use the trigram-for-heaven
+// glyph as a menu/settings substitute there.
+func settingsButtonLabel() string {
+	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" {
+		return " ≡ "
+	}
+	return " ⚙ "
+}
 
 type Model struct {
 	theme           *theme.Manager
@@ -121,7 +132,7 @@ func (m Model) View() tea.View {
 	if m.warnCount > 0 {
 		right += lipgloss.NewStyle().Background(bg).Foreground(warnColor).Render(fmt.Sprintf("⚠ %d", m.warnCount)) + sep
 	}
-	right += base.Render(themeButtonLabel) + base.Render(settingsButtonLabel)
+	right += base.Render(themeButtonLabel) + base.Render(settingsButtonLabel())
 
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)

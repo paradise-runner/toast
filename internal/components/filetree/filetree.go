@@ -38,6 +38,9 @@ type Model struct {
 	inlineInsertIdx int // index in flat where the edit row is inserted after
 }
 
+// RootPath returns the root directory the tree is browsing.
+func (m Model) RootPath() string { return m.rootDir }
+
 // New creates a new file tree model, loads children for the root, expands the root,
 // and builds the initial flat list.
 func New(tm *theme.Manager, cfg config.Config, rootDir string) Model {

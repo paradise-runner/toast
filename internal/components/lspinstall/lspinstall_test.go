@@ -74,7 +74,7 @@ func TestInstallPromptSpinsWhileInstalling(t *testing.T) {
 
 	// Ticks keep the spinner cycling while the install is running.
 	frame := updated.spinner
-	for i := 0; i < 2*len(spinnerFrames); i++ {
+	for i := 0; i < 2*len(spinnerFrames()); i++ {
 		updated, cmd = updated.Update(messages.LSPInstallTickMsg{})
 		if cmd == nil {
 			t.Fatal("expected ticks to continue while installing")

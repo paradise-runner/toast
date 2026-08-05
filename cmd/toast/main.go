@@ -114,15 +114,34 @@ Options:
 		}
 	}
 
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: config error: %v\n", err)
+	}
+
+	// The bundled desktop app (toast-libghostty) runs inside a terminal that
+	// cannot report a meaningful system color scheme, so a \"system\" theme
+	// would resolve to the terminal's raw black/white defaults. Default the
+	// bundle to the built-in toast-dark theme instead.
+	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" {
+		cfg.Theme = "toast-dark"
+	}
+
+	// The bundled desktop app (toast-libghostty) launches with a working
+	// directory chosen by LaunchServices (often "/"), which is never what the
+	// user wants. With no path argument, open a blank editor instead: point
+	// the workspace at the home directory and hide the file tree.
+	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" && len(os.Args) < 2 {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = home
+		}
+		cfg.Sidebar.Visible = false
+	}
+
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: config error: %v\n", err)
 	}
 
 	home, _ := os.UserHomeDir()
@@ -132,6 +151,12 @@ Options:
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// In the bundle's fresh-open state show a Select Workspace button that
+	// opens the native folder picker.
+	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" && len(os.Args) < 2 {
+		model.ShowWorkspacePrompt()
 	}
 
 	p := tea.NewProgram(model)

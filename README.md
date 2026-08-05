@@ -6,13 +6,13 @@
 
 # toast
 
-</h1>
+</h1>x
 </div>
 
 
-toast is a beatiful developer environment right in your terminal. nvim and emacs have you build your editor from scratch, while toast ships with managed LSPs, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
+toast is a beautiful developer environment right in your terminal. vim, nvim, and emacs have you build your editor from scratch, while toast ships with managed LSPs, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
 
-> ⚠️ This project is in _early development_, you may encounter bugs. ⚠️
+> ⚠️ This project is in _early development, you may encounter bugs. ⚠️
 
 <img src="toast-demo.gif" alt="toast logo" width="800" style="border-radius: 12px; display: block; margin: 20px 0;">
 
@@ -50,6 +50,46 @@ curl -Lo toast.zip https://github.com/paradise-runner/toast/releases/latest/down
 unzip toast.zip
 install -m755 toast-darwin-arm64 /usr/local/bin/toast
 ```
+
+**Standalone macOS app**
+
+> ⚠️ **Experimental:** this bundles toast inside a libghostty terminal window
+> and has more bugs than the terminal version. The TUI — Homebrew or the
+> release binary above — is the primary, best-tested way to run toast.
+
+Prefer a native app over the terminal? Each release also ships **Toast.app** —
+a complete desktop app with its own terminal window (libghostty), native menu
+bar, and dock icon. No terminal, Homebrew, or Go required.
+
+1. Grab the zip for your Mac from the [releases page](https://github.com/paradise-runner/toast/releases/latest):
+   `toast-app-darwin-arm64.zip` for Apple Silicon (M1/M2/M3/M4), `toast-app-darwin-amd64.zip` for Intel.
+2. Unzip it and drag **Toast.app** into your `Applications` folder.
+
+```bash
+curl -LO https://github.com/paradise-runner/toast/releases/latest/download/toast-app-darwin-arm64.zip
+unzip toast-app-darwin-arm64.zip
+mv Toast.app /Applications/
+```
+
+> **First launch:** the app is not code-signed or notarized yet, so macOS
+> Gatekeeper will block a plain double-click. Right-click **Toast.app** in
+> Finder and choose **Open**, then **Open** again — it launches fine from then
+> on. Or clear the quarantine flag once:
+> `xattr -dr com.apple.quarantine /Applications/Toast.app`
+
+Launch Toast like any app — from Launchpad, Spotlight, or the Finder. It opens
+on a blank editor where you can pick a folder with the **Select Workspace**
+button or the **File › Open Folder…** menu item. To open a specific file or
+directory from the command line:
+
+```bash
+open -a Toast ~/src/foo.go
+open -a Toast ~/src/myproject
+```
+
+You can also drop a file or folder onto the app's dock icon. See
+[docs/experimental/libghostty-bundle.md](docs/experimental/libghostty-bundle.md)
+for how the app works and its current limitations.
 
 **Build from source**
 

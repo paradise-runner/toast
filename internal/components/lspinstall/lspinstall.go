@@ -3,6 +3,7 @@ package lspinstall
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,7 +20,15 @@ const (
 	spinnerInterval = 100 * time.Millisecond
 )
 
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// spinnerFrames is a rotating-clock quadrant spinner. The bundled desktop app
+// (TOAST_GHOSTTY_BUNDLE=1) embeds JetBrains Mono, which lacks braille
+// patterns, so those frames use the quadrant blocks the font does provide.
+func spinnerFrames() []string {
+	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" {
+		return []string{"▘", "▝", "▗", "▖"}
+	}
+	return []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+}
 
 // Model holds the currently visible install prompt.
 type Model struct {
@@ -101,7 +110,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case messages.LSPInstallTickMsg:
 		if m.visible && m.installing {
-			m.spinner = (m.spinner + 1) % len(spinnerFrames)
+			m.spinner = (m.spinner + 1) % len(spinnerFrames())
 			return m, spinnerTick()
 		}
 
@@ -170,7 +179,7 @@ func (m Model) Render() string {
 	if status == "" {
 		status = "Ctrl-hover symbols, then Ctrl-click to jump."
 	} else if m.installing {
-		status = " " + spinnerFrames[m.spinner] + " " + status
+		status = " " + spinnerFrames()[m.spinner] + " " + status
 	}
 	buttons := action.Render(" [I] Install ") + base.Render("  [N] Not now")
 	lines := []string{pad(title, promptWidth), pad(detail, promptWidth), pad(status, promptWidth), pad(buttons, promptWidth)}

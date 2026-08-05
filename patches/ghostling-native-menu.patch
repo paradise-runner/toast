@@ -1,0 +1,402 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f65c4fa..acc8bb4 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 3.19)
+-project(ghostling C)
++project(ghostling C OBJC)
+ 
+ # Generate compile_commands.json for clangd/IDE support.
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+@@ -68,7 +68,7 @@ add_custom_command(
+ )
+ 
+ # --- Our Project -------------------------------------------------------------
+-add_executable(${PROJECT_NAME} main.c "${FONT_HEADER}" "${ICON_HEADER}")
++add_executable(${PROJECT_NAME} main.c menu.m "${FONT_HEADER}" "${ICON_HEADER}")
+ target_compile_features(${PROJECT_NAME} PRIVATE c_std_11)
+ target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_BINARY_DIR}")
+ target_link_libraries(${PROJECT_NAME} raylib ghostty-vt)
+diff --git a/main.c b/main.c
+index 7369ed1..2a9ea69 100644
+--- a/main.c
++++ b/main.c
+@@ -24,6 +24,13 @@
+ #include "font_jetbrains_mono.h"
+ #include "toast_logo.h"
+ 
++// Native menu bar (menu.m) forwards commands to the toast TUI via the PTY.
++extern void toast_install_menu(void);
++extern void toast_request_open_folder(void);
++
++// PTY master fd, set after pty_spawn so the menu can write OSC commands.
++static int g_pty_fd = -1;
++
+ // ---------------------------------------------------------------------------
+ // PTY helpers
+ // ---------------------------------------------------------------------------
+@@ -117,6 +124,33 @@ static void pty_write(int pty_fd, const char *buf, size_t len)
+     }
+ }
+ 
++// Pending menu-generated OSC payloads. Menu handlers (menu.m) queue here
++// rather than writing directly: while a modal panel is up the render loop is
++// paused, so toast's output can fill the PTY buffer and a direct write would
++// EAGAIN and drop. The render loop flushes the queue right after draining the
++// PTY, when the buffer has room.
++static char g_osc_queue[32768];
++static size_t g_osc_queue_len = 0;
++
++void toast_pty_write(const char *data)
++{
++    size_t len = strlen(data);
++    if (len == 0 || g_osc_queue_len + len >= sizeof(g_osc_queue))
++        return;
++    memcpy(g_osc_queue + g_osc_queue_len, data, len);
++    g_osc_queue_len += len;
++}
++
++// Flush queued OSC payloads to the PTY. Called from the render loop after the
++// PTY has been drained so the kernel buffer has room.
++void toast_flush_osc(void)
++{
++    if (g_osc_queue_len == 0 || g_pty_fd < 0)
++        return;
++    pty_write(g_pty_fd, g_osc_queue, g_osc_queue_len);
++    g_osc_queue_len = 0;
++}
++
+ // Result of draining the pty master fd.
+ typedef enum {
+     PTY_READ_OK,    // data was drained (or EAGAIN, i.e. nothing available right now)
+@@ -130,12 +164,63 @@ typedef enum {
+ //
+ // Because the fd is non-blocking, read() returns -1 with EAGAIN once
+ // the kernel buffer is empty, at which point we stop.
++// Marker toast writes (as an OSC the VT parser would otherwise drop) to ask
++// the host to open the native folder picker for the Select Workspace button.
++// True when running inside the toast desktop bundle (the launcher sets this).
++static int toast_bundle_mode(void)
++{
++    const char *v = getenv("TOAST_GHOSTTY_BUNDLE");
++    return v != NULL && v[0] == '1';
++}
++
++// Set when the bundled editor quits; ends the render loop (raylib 5.5 has no
++// SetWindowShouldClose, so the loop checks this flag).
++static bool g_toast_close = false;
++
++static bool toast_should_close(void) { return g_toast_close; }
++
++static const char toast_request_folder_marker[] = "\x1b]1337;toast-request-open-folder\x07";
++
++static int toast_has_request_marker(const uint8_t *data, size_t len)
++{
++    size_t mlen = sizeof(toast_request_folder_marker) - 1;
++    for (size_t i = 0; i + mlen <= len; i++) {
++        if (memcmp(data + i, toast_request_folder_marker, mlen) == 0)
++            return 1;
++    }
++    return 0;
++}
++
++static void toast_strip_request_marker(uint8_t *data, size_t *len)
++{
++    size_t mlen = sizeof(toast_request_folder_marker) - 1;
++    size_t src = 0, dst = 0;
++    while (src + mlen <= *len) {
++        if (memcmp(data + src, toast_request_folder_marker, mlen) == 0) {
++            src += mlen;
++            continue;
++        }
++        data[dst++] = data[src++];
++    }
++    while (src < *len)
++        data[dst++] = data[src++];
++    *len = dst;
++}
++
+ static PtyReadResult pty_read(int pty_fd, GhosttyTerminal terminal)
+ {
+     uint8_t buf[4096];
+     for (;;) {
+         ssize_t n = read(pty_fd, buf, sizeof(buf));
+         if (n > 0) {
++            // Intercept toast's Select Workspace request before the VT parser
++            // consumes (and drops) the unknown OSC.
++            if (toast_has_request_marker(buf, (size_t)n)) {
++                toast_strip_request_marker(buf, (size_t *)&n);
++                toast_request_open_folder();
++                if (n <= 0)
++                    continue; // marker only — nothing to render
++            }
+             ghostty_terminal_vt_write(terminal, buf, (size_t)n);
+         } else if (n == 0) {
+             // EOF — the child closed its side of the pty.
+@@ -1297,6 +1382,11 @@ int main(void)
+         SetWindowIcon(logo);
+         UnloadImage(logo);
+     }
++
++    // Install the native File/Edit/View menu bar; menu actions forward to the
++    // toast TUI as OSC commands through the PTY.
++    toast_install_menu();
++
+     SetTargetFPS(60);
+ 
+     // Query the DPI scale so we can rasterize the font at the true pixel
+@@ -1386,6 +1476,7 @@ int main(void)
+     // is what we read/write; the child's stdin/stdout/stderr are wired to
+     // the slave side.
+     pty_fd = pty_spawn(&child, term_cols, term_rows, cell_width, cell_height);
++    g_pty_fd = pty_fd;
+     if (pty_fd < 0) {
+         exit_code = 1;
+         goto cleanup;
+@@ -1521,7 +1612,7 @@ int main(void)
+     int child_exit_status = -1;
+ 
+     // Each frame: handle resize → read pty → process input → render.
+-    while (!WindowShouldClose()) {
++    while (!WindowShouldClose() && !toast_should_close()) {
+         // Recalculate grid dimensions when the window is resized.
+         // We update both the ghostty terminal (so it reflows text) and the
+         // pty's winsize (so the child shell knows about the new size and
+@@ -1585,9 +1676,16 @@ int main(void)
+             if (pty_rc != PTY_READ_OK) {
+                 // EOF or error — the child's side of the pty is closed.
+                 child_exited = true;
++                // In the toast bundle the child is the editor itself:
++                // quitting it closes the app window.
++                if (toast_bundle_mode())
++                    g_toast_close = true;
+             }
+         }
+ 
++        // Flush menu-queued OSC payloads now that the PTY buffer has room.
++        toast_flush_osc();
++
+         // Try to reap the child each frame until we succeed.  The pty
+         // EOF can arrive before the child is waitable, so a single
+         // WNOHANG attempt right at EOF may miss.  We also check for
+diff --git a/menu.m b/menu.m
+new file mode 100644
+index 0000000..23e80cc
+--- /dev/null
++++ b/menu.m
+@@ -0,0 +1,214 @@
++// menu.m — Native macOS menu bar for the toast bundle terminal.
++//
++// Installs the standard File / Edit / View menus (plus the app menu) on the
++// ghostling window. Menu items with Cmd key equivalents are intercepted by
++// macOS and never reach the terminal; each item's action forwards the
++// equivalent TUI command to toast through a custom OSC payload written to the
++// PTY:
++//
++//   \x1b]1337;toast-action;<name>\x1b\\      — trigger a toast action
++//   \x1b]1337;toast-open-file;<path>\x1b\\   — open a file
++//   \x1b]1337;toast-open-folder;<path>\x1b\\ — open a folder as the workspace
++//
++// toast parses these in internal/app (handleToastOSC).
++#import <Cocoa/Cocoa.h>
++
++// Provided by main.c: writes raw bytes to the PTY master.
++extern void toast_pty_write(const char *data);
++
++static void toast_write_osc(const char *payload)
++{
++    char buf[32768];
++    int n = snprintf(buf, sizeof(buf), "\x1b]1337;%s\x1b\\", payload);
++    if (n > 0 && n < (int)sizeof(buf))
++        toast_pty_write(buf);
++}
++
++// Open the native folder picker and send the chosen folder to toast. Called
++// from the File > Open Folder… menu item and from the pty marker scan in
++// main.c (toast's Select Workspace button requests this).
++// Show the About dialog: version (from TOAST_VERSION, set by the launcher)
++// and a link to the project's GitHub page.
++void toast_show_about(void)
++{
++    const char *ver = getenv("TOAST_VERSION");
++    NSString *version = ver && ver[0] ? [NSString stringWithUTF8String:ver] : @"dev";
++    NSString *url = @"https://github.com/paradise-runner/toast";
++
++    NSAlert *alert = [[NSAlert alloc] init];
++    [alert setMessageText:[NSString stringWithFormat:@"Toast %@", version]];
++    [alert setInformativeText:@"A fast, familiar terminal text editor for macOS."];
++
++    NSTextField *link = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 20)];
++    [link setBordered:NO];
++    [link setEditable:NO];
++    [link setSelectable:YES];
++    [link setDrawsBackground:NO];
++    NSMutableAttributedString *linkText = [[NSMutableAttributedString alloc]
++        initWithString:url
++            attributes:@{
++                NSLinkAttributeName: url,
++                NSForegroundColorAttributeName: [NSColor linkColor],
++                NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
++            }];
++    [link setAttributedStringValue:linkText];
++    [alert setAccessoryView:link];
++
++    [alert runModal];
++}
++
++void toast_request_open_folder(void)
++{
++    NSOpenPanel *panel = [NSOpenPanel openPanel];
++    [panel setCanChooseFiles:NO];
++    [panel setCanChooseDirectories:YES];
++    [panel setAllowsMultipleSelection:NO];
++    [panel setDirectoryURL:[NSURL fileURLWithPath:NSHomeDirectory()]];
++    [panel setMessage:@"Choose a folder for toast to open"];
++    if ([panel runModal] == NSModalResponseOK) {
++        NSURL *url = [panel URL];
++        const char *path = [url fileSystemRepresentation];
++        char payload[16384];
++        int n = snprintf(payload, sizeof(payload), "toast-open-folder;%s",
++                         path ? path : "");
++        if (n > 0 && n < (int)sizeof(payload))
++            toast_write_osc(payload);
++    }
++}
++
++// MenuHandler is the target of every menu item. The action name lives in the
++// item's representedObject; selectors are resolved at runtime by AppKit.
++@interface ToastMenuHandler : NSObject
++@end
++
++@implementation ToastMenuHandler
++
++- (void)menuAction:(id)sender
++{
++    NSMenuItem *item = (NSMenuItem *)sender;
++    NSString *action = (NSString *)[item representedObject];
++    if (action.length == 0)
++        return;
++
++    if ([action isEqualToString:@"about"]) {
++        toast_show_about();
++        return;
++    }
++    if ([action isEqualToString:@"open-file"]) {
++        NSOpenPanel *panel = [NSOpenPanel openPanel];
++        [panel setCanChooseFiles:YES];
++        [panel setCanChooseDirectories:NO];
++        [panel setAllowsMultipleSelection:NO];
++        [panel setDirectoryURL:[NSURL fileURLWithPath:NSHomeDirectory()]];
++        [panel setMessage:@"Choose a file to open in toast"];
++        if ([panel runModal] == NSModalResponseOK) {
++            NSURL *url = [panel URL];
++            const char *path = [url fileSystemRepresentation];
++            char payload[16384];
++            int n = snprintf(payload, sizeof(payload), "toast-open-file;%s",
++                             path ? path : "");
++            if (n > 0 && n < (int)sizeof(payload))
++                toast_write_osc(payload);
++        }
++        return;
++    }
++    if ([action isEqualToString:@"open-folder"]) {
++        toast_request_open_folder();
++        return;
++    }
++
++    char payload[256];
++    int n = snprintf(payload, sizeof(payload), "toast-action;%s",
++                     [action UTF8String]);
++    if (n > 0 && n < (int)sizeof(payload))
++        toast_write_osc(payload);
++}
++
++@end
++
++// The handler singleton the items target.
++static ToastMenuHandler *handler(void);
++
++// Add an item to a menu with a target action and a toast action name.
++static void toast_menu_item(NSMenu *menu, NSString *title, NSString *key,
++                            NSString *actionName)
++{
++    NSMenuItem *item = [menu addItemWithTitle:title
++                                       action:@selector(menuAction:)
++                                keyEquivalent:key];
++    [item setTarget:handler()];
++    [item setRepresentedObject:actionName];
++}
++
++static ToastMenuHandler *handler(void)
++{
++    static ToastMenuHandler *h;
++    if (!h)
++        h = [[ToastMenuHandler alloc] init];
++    return h;
++}
++
++// Build the full main menu. Called once after the raylib window exists so the
++// menu bar is owned by the app's NSApplication.
++void toast_install_menu(void)
++{
++    @autoreleasepool {
++        NSApplication *app = [NSApplication sharedApplication];
++        NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
++
++        // ── App menu ─────────────────────────────────────────────────────
++        NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle:@"Toast"
++                                                         action:NULL
++                                                  keyEquivalent:@""];
++        NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Toast"];
++        toast_menu_item(appMenu, @"About Toast", @"", @"about");
++        [appMenu addItem:[NSMenuItem separatorItem]];
++        toast_menu_item(appMenu, @"Quit Toast", @"q", @"quit");
++        [appItem setSubmenu:appMenu];
++
++        // ── File ─────────────────────────────────────────────────────────
++        NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:@"File"
++                                                          action:NULL
++                                                   keyEquivalent:@""];
++        NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
++        toast_menu_item(fileMenu, @"Open File…", @"o", @"open-file");
++        toast_menu_item(fileMenu, @"Open Folder…", @"O", @"open-folder");
++        [fileMenu addItem:[NSMenuItem separatorItem]];
++        toast_menu_item(fileMenu, @"Save", @"s", @"save");
++        [fileMenu addItem:[NSMenuItem separatorItem]];
++        toast_menu_item(fileMenu, @"Close Tab", @"w", @"close-tab");
++        [fileItem setSubmenu:fileMenu];
++
++        // ── Edit ─────────────────────────────────────────────────────────
++        NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:@"Edit"
++                                                          action:NULL
++                                                   keyEquivalent:@""];
++        NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
++        toast_menu_item(editMenu, @"Undo", @"z", @"undo");
++        toast_menu_item(editMenu, @"Redo", @"Z", @"redo");
++        [editMenu addItem:[NSMenuItem separatorItem]];
++        toast_menu_item(editMenu, @"Cut", @"x", @"cut");
++        toast_menu_item(editMenu, @"Copy", @"c", @"copy");
++        toast_menu_item(editMenu, @"Paste", @"v", @"paste");
++        toast_menu_item(editMenu, @"Select All", @"a", @"select-all");
++        [editMenu addItem:[NSMenuItem separatorItem]];
++        toast_menu_item(editMenu, @"Find…", @"f", @"find");
++        [editItem setSubmenu:editMenu];
++
++        // ── View ─────────────────────────────────────────────────────────
++        NSMenuItem *viewItem = [[NSMenuItem alloc] initWithTitle:@"View"
++                                                          action:NULL
++                                                   keyEquivalent:@""];
++        NSMenu *viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
++        toast_menu_item(viewMenu, @"Toggle Sidebar", @"b", @"toggle-sidebar");
++        toast_menu_item(viewMenu, @"Quick Open", @"p", @"quick-open");
++        toast_menu_item(viewMenu, @"Search", @"F", @"search");
++        [viewItem setSubmenu:viewMenu];
++
++        [mainMenu addItem:appItem];
++        [mainMenu addItem:fileItem];
++        [mainMenu addItem:editItem];
++        [mainMenu addItem:viewItem];
++        [app setMainMenu:mainMenu];
++    }
++}
