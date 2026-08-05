@@ -10,3 +10,4 @@ cmd/toastapp/payload/libghostty-vt.dylib
 .superpowers/
 .DS_Store
 docs/superpowers/
+*.zip
