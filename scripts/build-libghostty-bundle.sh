@@ -251,18 +251,18 @@ cp "${toast_payload}" "${payload_dir}/toast"
 cp -L "${ghostty_dylib}" "${payload_dir}/libghostty-vt.dylib"
 
 echo "building single-file bundle"
+version="${TOAST_VERSION:-}"
+if [[ -z "${version}" ]]; then
+	version="$(sed -n 's/^var version = "\(.*\)"/\1/p' "${repo_root}/cmd/toast/main.go" | head -n 1)"
+fi
+if [[ -z "${version}" ]]; then
+	version="dev"
+fi
+# Info.plist's CFBundleShortVersionString must be numeric-only (no "v" prefix).
+plist_version="${version#v}"
+echo "bundle version: ${version}"
 (
 	cd "${repo_root}"
-	version="${TOAST_VERSION:-}"
-	if [[ -z "${version}" ]]; then
-		version="$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/toast/main.go | head -n 1)"
-	fi
-	if [[ -z "${version}" ]]; then
-		version="dev"
-	fi
-	# Info.plist's CFBundleShortVersionString must be numeric-only (no "v" prefix).
-	plist_version="${version#v}"
-	echo "bundle version: ${version}"
 	go build -ldflags "-X main.version=${version}" -o "${bundle_path}" ./cmd/toastapp
 )
 
