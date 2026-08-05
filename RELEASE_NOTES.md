@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.8.0 — 2026-08-05
+
+Toast now ships as a **standalone macOS app**: the TUI bundled inside a libghostty terminal window, so you can run toast as a native desktop application — dock icon, menu bar, and all — without a terminal or Homebrew.
+
+### Standalone macOS app
+- Every release now includes `toast-app-darwin-arm64.zip` (Apple Silicon) and `toast-app-darwin-amd64.zip` (Intel): download, unzip, drag **Toast.app** into Applications.
+- Native macOS menu bar (Toast / File / Edit / View) with Cmd key equivalents and `NSOpenPanel` file/folder pickers, an About dialog with the version and a GitHub link, and a **Select Workspace** button for choosing a folder when the app opens fresh.
+- Opening a file or folder re-roots the whole workspace — file tree, breadcrumbs, quick-open, search, git status, and LSP all follow.
+- ⚠️ Experimental: the app wraps toast in a bundled terminal and has more rough edges than the TUI — the terminal version (Homebrew or release binary) remains the primary install.
+- Built by `scripts/build-libghostty-bundle.sh` (`make app`); see `docs/experimental/libghostty-bundle.md` for how it works and its limitations.
+
+---
+
 ## v0.7.0 — 2026-08-04
 
 Toast now saves your work automatically: by default, dirty files are written to disk shortly after you stop typing, so an unexpected quit can never lose edits again.
