@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.8.1 — 2026-08-06
+
+Fixes a crash (panic) when editing multi-line text: auto-save's trailing-whitespace trim replaced the buffer without moving the cursor, so the next backspace sliced past the end of a now-shorter line.
+
+### Stability
+- Fixed the `slice bounds out of range` panic on backspace after an auto-save trimmed trailing whitespace (e.g. deleting spaces at the end of a line that then became empty). The cursor is now clamped back inside the buffer when save-time whitespace trimming or JSON reformatting shortens a line.
+- Line-slicing edit/navigation operations (backspace, word-delete, arrow/word movement, forward-delete, completion insert) now defensively clamp a stale cursor column before reading the line, so any out-of-bounds cursor state can never panic the editor again.
+- Regression tests cover backspace after a whitespace-trimming save (empty line and mid-line cases) plus a deliberately corrupted cursor column.
+
+---
+
 ## v0.8.0 — 2026-08-05
 
 Toast now ships as a **standalone macOS app**: the TUI bundled inside a libghostty terminal window, so you can run toast as a native desktop application — dock icon, menu bar, and all — without a terminal or Homebrew.
