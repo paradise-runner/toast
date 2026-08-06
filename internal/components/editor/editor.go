@@ -888,6 +888,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		ext := strings.ToLower(filepath.Ext(m.path))
 		if ext == ".json" || ext == ".jsonc" {
 			m.formatJSON()
+			m.clampCursor()
 		}
 		m.reparseSyntax()
 		m.clampViewport()
@@ -1206,6 +1207,7 @@ func (m *Model) moveCursorDown(n int) {
 }
 
 func (m *Model) moveCursorLeft() {
+	m.clampCursorCol()
 	if m.cursor.col > 0 {
 		line := m.buf.LineAt(m.cursor.line)
 		// Step back one rune.
@@ -1225,6 +1227,7 @@ func (m *Model) moveCursorLeft() {
 }
 
 func (m *Model) moveCursorRight() {
+	m.clampCursorCol()
 	lineLen := m.lineContentLen(m.cursor.line)
 	if m.cursor.col < lineLen {
 		line := m.buf.LineAt(m.cursor.line)
@@ -1250,6 +1253,7 @@ func (m *Model) moveCursorRight() {
 
 // moveCursorWordLeft moves left past non-word chars then past word chars.
 func (m *Model) moveCursorWordLeft() {
+	m.clampCursorCol()
 	// First move left at least one character so we don't stay in place.
 	if m.cursor.col == 0 {
 		if m.cursor.line > 0 {
@@ -1285,6 +1289,7 @@ func (m *Model) moveCursorWordLeft() {
 
 // moveCursorWordRight moves right past non-word chars then past word chars.
 func (m *Model) moveCursorWordRight() {
+	m.clampCursorCol()
 	lineLen := m.lineContentLen(m.cursor.line)
 	if m.cursor.col >= lineLen {
 		lastLine := m.buf.LineCount() - 1
@@ -1420,6 +1425,9 @@ func (m *Model) applyCompletion(item messages.CompletionItem) {
 		endCol = utf16ColToByte(m.lineContent(endLine), edit.EndCol)
 	} else {
 		line := m.lineContent(m.cursor.line)
+		if startCol > len(line) {
+			startCol = len(line)
+		}
 		for startCol > 0 {
 			r, size := utf8.DecodeLastRuneInString(line[:startCol])
 			if !isWordChar(r) {
@@ -1466,6 +1474,7 @@ func (m *Model) dedent() {
 
 // deleteBackward deletes the rune immediately before the cursor (or the preceding newline).
 func (m *Model) deleteBackward() {
+	m.clampCursorCol()
 	if m.cursor.col > 0 {
 		line := m.buf.LineAt(m.cursor.line)
 		_, size := utf8.DecodeLastRuneInString(line[:m.cursor.col])
@@ -1489,6 +1498,7 @@ func (m *Model) deleteBackward() {
 // Word boundary follows isWordChar: letters, digits, underscore.
 // At col 0 on a non-first line, deletes the preceding newline (joins lines).
 func (m *Model) deleteWordBackward() {
+	m.clampCursorCol()
 	if _, _, active := m.selectionRange(); active {
 		m.deleteSelection()
 		return
@@ -1535,6 +1545,7 @@ func (m *Model) deleteWordBackward() {
 
 // deleteForward deletes the rune immediately after the cursor (or the following newline).
 func (m *Model) deleteForward() {
+	m.clampCursorCol()
 	lineLen := m.lineContentLen(m.cursor.line)
 	if m.cursor.col < lineLen {
 		line := m.buf.LineAt(m.cursor.line)
@@ -1575,6 +1586,10 @@ func (m *Model) save() tea.Cmd {
 	// Sync the buffer to the trimmed/finalized content.
 	if content != m.buf.String() {
 		m.buf = buffer.NewEditBuffer(content)
+		// The trimmed/final-newline-normalized content can be shorter than the
+		// current line, leaving a stale cursor.col that would panic on the next
+		// edit (slice bounds out of range). Clamp the cursor back in bounds.
+		m.clampCursor()
 	}
 	m.buf.MarkSaved()
 
@@ -2360,6 +2375,20 @@ func (m *Model) clampCol(line, preferred int) int {
 		return maxCol
 	}
 	return preferred
+}
+
+// clampCursorCol clamps m.cursor.col to the current line's content length.
+// Guards the line-slicing edit/navigation operations against a stale cursor
+// column (e.g. after the buffer was replaced wholesale by save-time whitespace
+// trimming or JSON reformatting), so line[:col] stays in bounds.
+func (m *Model) clampCursorCol() {
+	if m.buf == nil {
+		m.cursor.col = 0
+		return
+	}
+	if max := m.lineContentLen(m.cursor.line); m.cursor.col > max {
+		m.cursor.col = max
+	}
 }
 
 // clampCursor ensures cursor stays within valid buffer bounds after an undo/redo.

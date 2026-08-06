@@ -1185,6 +1185,79 @@ func TestSave_EmitsFileSavedMsg(t *testing.T) {
 	}
 }
 
+// ── Cursor clamping after save-time buffer replacement ──────────────────────
+
+// Regression test for the "slice bounds out of range [:6] with length 1" panic:
+// auto-save trims trailing whitespace and replaces the buffer wholesale without
+// moving the cursor, leaving cursor.col past the end of the (now shorter) line.
+// The next edit (backspace) then slices line[:cursor.col] out of bounds.
+func TestDeleteBackward_AfterTrimSave_NoPanic(t *testing.T) {
+	m := newTestModel("      \nxyz\n")
+	m.cursor.line = 0
+	m.cursor.col = 6 // end of the whitespace-only line
+	m.path = "test.txt"
+	m.bufferID = 1
+	m.cfg.Editor.TrimTrailingWhitespaceOnSave = true
+	m.cfg.Editor.InsertFinalNewlineOnSave = true
+
+	m.save() // trims line 0 to "" and replaces m.buf
+
+	if got := m.buf.String(); got != "\nxyz\n" {
+		t.Fatalf("unexpected buffer after trim save: %q", got)
+	}
+	if m.cursor.col != 0 {
+		t.Fatalf("expected cursor col clamped to 0, got %d", m.cursor.col)
+	}
+
+	// Must not panic; cursor sits on the emptied line and backspace is a no-op.
+	m.deleteBackward()
+	if m.cursor.col != 0 {
+		t.Fatalf("expected cursor col 0 after backspace, got %d", m.cursor.col)
+	}
+}
+
+func TestDeleteBackward_AfterTrimSave_MidLine(t *testing.T) {
+	m := newTestModel("abc   \nxyz\n")
+	m.cursor.line = 0
+	m.cursor.col = 6 // end of line including trailing spaces
+	m.path = "test.txt"
+	m.bufferID = 1
+	m.cfg.Editor.TrimTrailingWhitespaceOnSave = true
+	m.cfg.Editor.InsertFinalNewlineOnSave = true
+
+	m.save() // trims line 0 to "abc" and replaces m.buf
+
+	if got := m.buf.String(); got != "abc\nxyz\n" {
+		t.Fatalf("unexpected buffer after trim save: %q", got)
+	}
+	if m.cursor.col != 3 {
+		t.Fatalf("expected cursor col clamped to 3, got %d", m.cursor.col)
+	}
+
+	// Backspace at end of "abc" removes the trailing 'c'.
+	m.deleteBackward()
+	if got := m.buf.String(); got != "ab\nxyz\n" {
+		t.Fatalf("unexpected buffer after backspace: %q", got)
+	}
+	if m.cursor.col != 2 {
+		t.Fatalf("expected cursor col 2 after backspace, got %d", m.cursor.col)
+	}
+}
+
+// The operation-level guards must also keep stale cursors in bounds, in case
+// any other code path leaves cursor.col past the line end.
+func TestDeleteBackward_StaleCursor_NoPanic(t *testing.T) {
+	m := newTestModel("short\n")
+	m.cursor.line = 0
+	m.cursor.col = 100 // corrupt state: beyond line length
+
+	// Must not panic; clamps to the line end then deletes the last rune.
+	m.deleteBackward()
+	if got := m.buf.String(); got != "shor\n" {
+		t.Fatalf("unexpected buffer after backspace: %q", got)
+	}
+}
+
 // ── Syntax re-parse after edits ──────────────────────────────────────────────
 
 func TestReparseSyntax_AfterTyping(t *testing.T) {
