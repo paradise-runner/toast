@@ -1,6 +1,11 @@
 package lsp
 
-import "net/url"
+import (
+	"net/url"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
 
 // RequestMessage is a JSON-RPC 2.0 request.
 type RequestMessage struct {
@@ -153,6 +158,20 @@ type LocationLink struct {
 
 // URIFromPath converts a filesystem path to a file:// URI.
 func URIFromPath(path string) string {
+	if runtime.GOOS == "windows" {
+		path = filepath.ToSlash(filepath.Clean(path))
+		if strings.HasPrefix(path, "//") {
+			parts := strings.SplitN(strings.TrimPrefix(path, "//"), "/", 2)
+			uri := &url.URL{Scheme: "file", Host: parts[0]}
+			if len(parts) == 2 {
+				uri.Path = "/" + parts[1]
+			}
+			return uri.String()
+		}
+		if len(path) >= 2 && path[1] == ':' {
+			path = "/" + path
+		}
+	}
 	return (&url.URL{Scheme: "file", Path: path}).String()
 }
 
@@ -162,5 +181,15 @@ func PathFromURI(uri string) string {
 	if err != nil || parsed.Scheme != "file" {
 		return ""
 	}
-	return parsed.Path
+	path := parsed.Path
+	if runtime.GOOS == "windows" {
+		if parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost") {
+			path = "//" + parsed.Host + path
+			return filepath.FromSlash(path)
+		}
+		if len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+			return filepath.FromSlash(path[1:])
+		}
+	}
+	return path
 }

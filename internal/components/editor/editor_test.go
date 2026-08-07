@@ -1261,6 +1261,9 @@ func TestDeleteBackward_StaleCursor_NoPanic(t *testing.T) {
 // ── Syntax re-parse after edits ──────────────────────────────────────────────
 
 func TestReparseSyntax_AfterTyping(t *testing.T) {
+	if !syntax.TreeSitterAvailable() {
+		t.Skip("tree-sitter requires cgo")
+	}
 	// Start with a Go file. "func" on line 0 should be highlighted as a keyword.
 	src := "func main() {}\n"
 	m := newTestModelWithSyntax(src, "main.go")
@@ -1313,6 +1316,9 @@ func TestReparseSyntax_AfterDelete(t *testing.T) {
 }
 
 func TestReparseSyntax_AfterPasteMsg(t *testing.T) {
+	if !syntax.TreeSitterAvailable() {
+		t.Skip("tree-sitter requires cgo")
+	}
 	// Paste a string literal into a Go buffer and verify highlighting works.
 	src := "package main\n"
 	m := newTestModelWithSyntax(src, "main.go")
