@@ -2,8 +2,9 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -166,17 +167,16 @@ func TestDidChangeTracksEveryFullDocumentVersion(t *testing.T) {
 }
 
 func TestInstallCapsVerboseFailureOutput(t *testing.T) {
-	// An installer that floods stdout with a megabyte of noise before failing.
-	installer := filepath.Join(t.TempDir(), "noisy-installer")
-	if err := os.WriteFile(installer, []byte("#!/bin/sh\nhead -c 1048576 /dev/zero | tr '\\0' 'x'\necho FAILED >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg := config.Defaults()
 	cfg.LSP = map[string]config.LSPCmd{
 		"test": {
 			Command: "missing-server",
-			Install: &config.LSPInstall{Name: "Test LS", Command: installer},
+			Install: &config.LSPInstall{
+				Name:    "Test LS",
+				Command: os.Args[0],
+				Args:    []string{"-test.run=TestInstallFailureHelperProcess"},
+				Env:     map[string]string{"TOAST_TEST_INSTALL_FAILURE": "1"},
+			},
 		},
 	}
 	var sent []tea.Msg
@@ -200,9 +200,24 @@ func TestInstallCapsVerboseFailureOutput(t *testing.T) {
 	}
 }
 
+func TestInstallFailureHelperProcess(t *testing.T) {
+	if os.Getenv("TOAST_TEST_INSTALL_FAILURE") != "1" {
+		return
+	}
+	fmt.Print(strings.Repeat("x", 1<<20))
+	fmt.Fprintln(os.Stderr, "FAILED")
+	os.Exit(1)
+}
+
 func TestExpandTargetTriple(t *testing.T) {
 	m := NewManager(config.Defaults(), t.TempDir(), func(tea.Msg) {})
 	triple := rustTargetTriple()
+	if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" && triple != "x86_64-pc-windows-msvc" {
+		t.Fatalf("rustTargetTriple() = %q, want x86_64-pc-windows-msvc", triple)
+	}
+	if runtime.GOOS == "windows" && runtime.GOARCH == "arm64" && triple != "aarch64-pc-windows-msvc" {
+		t.Fatalf("rustTargetTriple() = %q, want aarch64-pc-windows-msvc", triple)
+	}
 	if triple == "" {
 		t.Skip("platform has no prebuilt harper binary")
 	}
