@@ -114,6 +114,20 @@ make build
 # binary written to bin/toast
 ```
 
+On Windows, run the native build script from `cmd.exe`:
+
+```bat
+git clone https://github.com/paradise-runner/toast
+cd toast
+build.cmd
+rem binary written to bin\toast.exe
+```
+
+The script uses `go` from `PATH`, or falls back to
+`C:\bin\Go\bin\go.exe`. A C compiler is optional: builds with
+`CGO_ENABLED=0` retain JSON/JSONC highlighting and use plain text for the
+tree-sitter-backed languages.
+
 ## Usage
 
 ```bash

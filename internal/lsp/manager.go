@@ -496,6 +496,10 @@ func rustTargetTriple() string {
 		return "aarch64-unknown-linux-gnu"
 	case runtime.GOOS == "linux" && runtime.GOARCH == "amd64":
 		return "x86_64-unknown-linux-gnu"
+	case runtime.GOOS == "windows" && runtime.GOARCH == "arm64":
+		return "aarch64-pc-windows-msvc"
+	case runtime.GOOS == "windows" && runtime.GOARCH == "amd64":
+		return "x86_64-pc-windows-msvc"
 	default:
 		return ""
 	}

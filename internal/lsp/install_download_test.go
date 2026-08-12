@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +103,7 @@ func TestInstallFromDownloadInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("binary not installed at %s: %v", bin, err)
 	}
-	if info.Mode()&0o111 == 0 {
+	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
 		t.Fatalf("binary not executable: %v", info.Mode())
 	}
 	output, err := os.ReadFile(bin)

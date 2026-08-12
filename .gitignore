@@ -2,6 +2,8 @@
 bin/
 build/
 dist/
+.gocache/
+.gomodcache/
 cmd/toastapp/payload/ghostling
 cmd/toastapp/payload/toast
 cmd/toastapp/payload/libghostty-vt.dylib
