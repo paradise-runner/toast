@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"net/http"
@@ -112,6 +113,29 @@ func TestInstallFromDownloadInstall(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "fake-harper-ls") {
 		t.Fatalf("unexpected binary content: %q", output)
+	}
+}
+
+func TestReadArchiveEntriesSupportsZip(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("harper-ls.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("fake windows harper")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := readArchiveEntries(buf.Bytes(), "harper-ls-x86_64-pc-windows-msvc.zip")
+	if err != nil {
+		t.Fatalf("readArchiveEntries(zip): %v", err)
+	}
+	if len(entries) != 1 || entries[0].name != "harper-ls.exe" || string(entries[0].data) != "fake windows harper" {
+		t.Fatalf("unexpected zip entries: %#v", entries)
 	}
 }
 

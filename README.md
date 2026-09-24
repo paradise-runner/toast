@@ -112,9 +112,11 @@ rem binary written to bin\toast.exe
 ```
 
 The script uses `go` from `PATH`, or falls back to
-`C:\bin\Go\bin\go.exe`. A C compiler is optional: builds with
-`CGO_ENABLED=0` retain JSON/JSONC highlighting and use plain text for the
-tree-sitter-backed languages.
+`C:\bin\Go\bin\go.exe`. It builds with cgo enabled so tree-sitter syntax
+highlighting is available on Windows; install a Windows C compiler such as
+w64devkit/MinGW `gcc` or LLVM `clang` and add it to `PATH`. If needed,
+run `set CGO_ENABLED=0` before `build.cmd` to produce a plain-text fallback
+for the tree-sitter-backed languages.
 
 ## Usage
 
