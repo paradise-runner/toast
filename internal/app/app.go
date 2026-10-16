@@ -1833,7 +1833,7 @@ func (m *Model) handleFileSelected(msg messages.FileSelectedMsg) tea.Cmd {
 	if m.lspMgr != nil {
 		lang := m.languageForPath(path)
 		if lang != "" {
-			go m.lspMgr.EnsureServer(lang)
+			go m.lspMgr.EnsureServer(lang, path)
 		}
 	}
 

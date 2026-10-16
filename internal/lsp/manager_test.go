@@ -48,6 +48,77 @@ func TestLanguageForPathConfigSupportsCustomLanguage(t *testing.T) {
 	}
 }
 
+func TestLanguageForPathConfigDetectsJava(t *testing.T) {
+	if got := LanguageForPathConfig("/tmp/proj/src/main/java/Main.java", config.Defaults().LSP); got != "java" {
+		t.Fatalf("LanguageForPathConfig(Main.java) = %q, want java", got)
+	}
+}
+
+func TestProjectRootFindsNearestBuildMarker(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "module", "src", "main", "java")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := projectRoot(nested, []string{"settings.gradle", "pom.xml"})
+	if !ok || got != root {
+		t.Fatalf("projectRoot = %q ok=%v, want %q", got, ok, root)
+	}
+	if _, ok := projectRoot(nested, []string{"pom.xml"}); ok {
+		t.Fatal("expected no root when no marker is present")
+	}
+}
+
+func TestRootDirForUsesLanguageMarkers(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pom.xml"), []byte("<project/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "src", "Main.java")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(config.Defaults(), t.TempDir(), func(tea.Msg) {})
+	if got := m.rootDirFor("java", file); got != root {
+		t.Fatalf("rootDirFor(java) = %q, want build root %q", got, root)
+	}
+	// Languages without RootMarkers keep the workspace root.
+	if got := m.rootDirFor("go", file); got != m.rootDir {
+		t.Fatalf("rootDirFor(go) = %q, want workspace root %q", got, m.rootDir)
+	}
+}
+
+func TestEnsureServerReportsMissingRequirement(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.LSP = map[string]config.LSPCmd{
+		"test": {
+			Command:  "sh",
+			Requires: []string{"toast-requirement-that-does-not-exist"},
+		},
+	}
+	var sent []tea.Msg
+	m := NewManager(cfg, t.TempDir(), func(msg tea.Msg) { sent = append(sent, msg) })
+	m.installRoot = t.TempDir()
+
+	m.EnsureServer("test", "")
+
+	if len(sent) != 1 {
+		t.Fatalf("expected one status message, got %d: %#v", len(sent), sent)
+	}
+	status, ok := sent[0].(messages.LSPServerStatusMsg)
+	if !ok || status.Status != messages.LSPServerNotFound {
+		t.Fatalf("expected not-found status, got %#v", sent[0])
+	}
+	if !strings.Contains(status.Message, "toast-requirement-that-does-not-exist") {
+		t.Fatalf("message should name the missing requirement, got %q", status.Message)
+	}
+}
+
 func TestPositionColumnConversions(t *testing.T) {
 	line := "a😀éz"
 	tests := []struct {
@@ -108,8 +179,8 @@ func TestEnsureServerPromptsForConfiguredManagedInstall(t *testing.T) {
 	m := NewManager(cfg, t.TempDir(), func(msg tea.Msg) { sent = append(sent, msg) })
 	m.installRoot = t.TempDir()
 
-	m.EnsureServer("test")
-	m.EnsureServer("test")
+	m.EnsureServer("test", "")
+	m.EnsureServer("test", "")
 
 	if len(sent) != 1 {
 		t.Fatalf("expected one prompt, got %d messages", len(sent))

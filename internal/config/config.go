@@ -56,6 +56,15 @@ type LSPCmd struct {
 	LanguageID     string      `json:"language_id,omitempty"`
 	ManagedCommand string      `json:"managed_command,omitempty"`
 	Install        *LSPInstall `json:"install,omitempty"`
+	// Requires lists executables that must be resolvable on PATH before the
+	// server can run (e.g. "java" and "python3" for the jdtls launcher). A
+	// missing prerequisite is reported as a clear error instead of a cryptic
+	// server crash.
+	Requires []string `json:"requires,omitempty"`
+	// RootMarkers names files/directories that identify a project root when
+	// walking up from an opened file (e.g. "pom.xml", "settings.gradle").
+	// When empty, the workspace directory passed to the manager is used.
+	RootMarkers []string `json:"root_markers,omitempty"`
 }
 
 // LSPInstall describes an opt-in language-server installation. Placeholders
@@ -72,13 +81,17 @@ type LSPInstall struct {
 	Download *LSPDownload      `json:"download,omitempty"`
 }
 
-// LSPDownload downloads and extracts a prebuilt language-server binary. The
-// archive must contain a single executable file at its root (a wrapping
-// top-level directory is tolerated); it is installed to {install_dir}/bin.
-// {target} expands to the platform's Rust target triple (see the LSP
-// manager), for releases that publish per-platform assets.
+// LSPDownload downloads and extracts a prebuilt language-server archive.
+// By default the archive must contain a single executable file at its root
+// (a wrapping top-level directory is tolerated); it is installed to
+// {install_dir}/bin. Set Extract to keep the archive's full directory layout
+// instead, for distributions made of many files (e.g. the jdtls runtime) that
+// are extracted to {install_dir}/server. {target} expands to the platform's
+// Rust target triple (see the LSP manager), for releases that publish
+// per-platform assets.
 type LSPDownload struct {
-	URL string `json:"url"`
+	URL     string `json:"url"`
+	Extract bool   `json:"extract,omitempty"`
 }
 
 type SearchConfig struct {
@@ -126,6 +139,25 @@ func Defaults() Config {
 			"rust": {
 				Command: "rust-analyzer", Extensions: []string{".rs"}, ManagedCommand: "{home}/.cargo/bin/rust-analyzer",
 				Install: &LSPInstall{Name: "rust-analyzer", Command: "rustup", Args: []string{"component", "add", "rust-analyzer"}},
+			},
+			"java": {
+				Command: "jdtls", Extensions: []string{".java"},
+				// The jdtls launcher is a Python 3 script that execs a JDK 21+
+				// runtime (see bin/jdtls.py in the distribution).
+				Requires: []string{"java", "python3"},
+				// Walk up from the opened file to the Gradle/Maven project root so
+				// jdtls imports the whole build instead of a subdirectory.
+				RootMarkers:    []string{".git", "settings.gradle", "settings.gradle.kts", "gradlew", "pom.xml", "build.gradle", "build.gradle.kts"},
+				ManagedCommand: "{install_dir}/server/bin/jdtls",
+				Install: &LSPInstall{
+					Name: "Eclipse JDT Language Server",
+					// Rolling snapshot published by Eclipse; Extract keeps the
+					// bin/ + plugins/ + config_* layout the launcher expects.
+					Download: &LSPDownload{
+						URL:     "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz",
+						Extract: true,
+					},
+				},
 			},
 			"terraform": {
 				Command: "terraform-ls", Args: []string{"serve"}, Extensions: []string{".tf", ".tfvars"},
