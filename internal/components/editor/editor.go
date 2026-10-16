@@ -1104,15 +1104,36 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// handleMouseWheel handles scroll wheel events.
+// horizontalScrollStep is the number of display columns scrolled per
+// horizontal wheel notch or shift+wheel event.
+const horizontalScrollStep = 8
+
+// handleMouseWheel handles scroll wheel events. Plain vertical wheel moves the
+// cursor; horizontal wheel (and shift+vertical wheel) scroll the viewport
+// sideways in non-wrap mode without moving the cursor.
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if m.cannotDisplayFile() {
 		return m, nil
 	}
+	shift := msg.Mod.Contains(tea.ModShift)
 	switch msg.Button {
+	case tea.MouseWheelLeft:
+		m.scrollHorizontal(-horizontalScrollStep)
+		return m, nil
+	case tea.MouseWheelRight:
+		m.scrollHorizontal(horizontalScrollStep)
+		return m, nil
 	case tea.MouseWheelUp:
+		if shift && !m.wrapMode {
+			m.scrollHorizontal(-horizontalScrollStep)
+			return m, nil
+		}
 		m.moveCursorUp(1)
 	case tea.MouseWheelDown:
+		if shift && !m.wrapMode {
+			m.scrollHorizontal(horizontalScrollStep)
+			return m, nil
+		}
 		m.moveCursorDown(1)
 	}
 	m.clampViewport()
@@ -1953,6 +1974,7 @@ func (m Model) View() tea.View {
 
 	content := sb.String()
 	var cursorScreenX, cursorScreenY int
+	cursorOnScreen := true
 	if m.focused {
 		if m.wrapMode {
 			chunks := m.lineChunks(m.cursor.line)
@@ -1961,7 +1983,23 @@ func (m Model) View() tea.View {
 			topVR := m.visualRowFromTop(m.viewportTop)
 			cursorScreenY = m.visualRowOfCursor() - topVR
 		} else {
-			cursorScreenX = m.gutterWidth + m.visualWidthForLineRange(m.cursor.line, m.viewportLeft, m.cursor.col)
+			// A manual horizontal scroll can leave the cursor outside the
+			// viewport. Compute its real offset so it can be hidden instead of
+			// being pinned to the gutter.
+			line := m.lineContent(m.cursor.line)
+			tabWidth := m.cfg.Editor.TabWidth
+			contentWidth := m.viewWidth - m.gutterWidth
+			if contentWidth < 1 {
+				contentWidth = 1
+			}
+			if m.viewportLeft > len(line) {
+				cursorOnScreen = false
+			} else {
+				offset := displayColumnAtByte(line, m.cursor.col, tabWidth) -
+					displayColumnAtByte(line, m.viewportLeft, tabWidth)
+				cursorOnScreen = offset >= 0 && offset < contentWidth
+				cursorScreenX = m.gutterWidth + offset
+			}
 			cursorScreenY = m.cursor.line - m.viewportTop
 		}
 		if m.completion.visible {
@@ -1975,7 +2013,7 @@ func (m Model) View() tea.View {
 	}
 
 	v := tea.NewView(content)
-	if m.focused {
+	if m.focused && cursorOnScreen {
 		v.Cursor = &tea.Cursor{
 			Position: tea.Position{X: cursorScreenX, Y: cursorScreenY},
 			Shape:    tea.CursorBar,
@@ -2736,14 +2774,77 @@ func (m *Model) clampViewport() {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	if cursorScreenCol < 0 {
-		m.viewportLeft = m.cursor.col
-		cursorScreenCol = 0
+	// The cursor is left of the viewport when the viewport's first visible byte
+	// is past the cursor's byte column. displayColumnAtByte clamps its byte
+	// offset to the line length, so the subtraction above reports 0 whenever the
+	// viewport has scrolled past the line; compare raw offsets instead. When the
+	// cursor line is scrolled off entirely (viewportLeft >= len(line)) snap to
+	// the line start so it is readable again, otherwise scroll the minimum
+	// needed to reveal the cursor.
+	if m.viewportLeft > m.cursor.col {
+		if m.viewportLeft >= len(line) {
+			m.viewportLeft = 0
+		} else {
+			m.viewportLeft = m.cursor.col
+		}
+		cursorScreenCol = cursorDisplayCol - displayColumnAtByte(line, m.viewportLeft, tabWidth)
 	}
 	if cursorScreenCol >= contentWidth {
 		targetDisplayCol := cursorDisplayCol - contentWidth + 1
 		m.viewportLeft = byteColAtOrAfterDisplayColumn(line, targetDisplayCol, tabWidth)
 	}
+}
+
+// scrollHorizontal shifts the horizontal viewport by delta display columns in
+// non-wrap mode. The viewport is sized against the longest line currently on
+// screen so scrolling stops at the end of visible content instead of drifting
+// into empty space. Wrap mode has no horizontal scroll: every line starts at
+// the viewport's left edge.
+func (m *Model) scrollHorizontal(delta int) {
+	if m.wrapMode || m.buf == nil || m.viewWidth <= 0 {
+		return
+	}
+	line := m.horizontalReferenceLine()
+	tabWidth := m.cfg.Editor.TabWidth
+	targetCol := displayColumnAtByte(line, m.viewportLeft, tabWidth) + delta
+	if targetCol < 0 {
+		targetCol = 0
+	}
+	next := byteColForDisplayOffset(line, 0, targetCol, tabWidth)
+	// Keep at least the last character of the longest visible line on screen.
+	if max := clampByteCol(line, len(line)-1); next > max {
+		next = max
+	}
+	if next < 0 {
+		next = 0
+	}
+	m.viewportLeft = next
+}
+
+// horizontalReferenceLine returns the content of the longest line currently
+// visible in non-wrap mode, falling back to the cursor line when the viewport
+// is empty. It defines both the scrollable extent and the tab expansion used
+// when stepping the viewport by display columns.
+func (m *Model) horizontalReferenceLine() string {
+	lineCount := m.buf.LineCount()
+	best := ""
+	bestWidth := -1
+	tabWidth := m.cfg.Editor.TabWidth
+	for row := 0; row < m.viewHeight; row++ {
+		line := m.viewportTop + row
+		if line < 0 || line >= lineCount {
+			continue
+		}
+		content := m.lineContent(line)
+		if width := displayColumnAtByte(content, len(content), tabWidth); width > bestWidth {
+			bestWidth = width
+			best = content
+		}
+	}
+	if bestWidth < 0 {
+		return m.lineContent(m.cursor.line)
+	}
+	return best
 }
 
 // recomputeGutterWidth updates the gutter width based on the current line count.
