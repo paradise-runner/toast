@@ -65,7 +65,9 @@ func NewManager(cfg config.Config, rootDir string, send func(tea.Msg)) *Manager 
 
 // EnsureServer starts the language server if available. When a configured
 // server is missing and has an install recipe, it asks the app to prompt once.
-func (m *Manager) EnsureServer(language string) {
+// path is the document that triggered the start; its project root is used to
+// anchor the language server when the language declares RootMarkers.
+func (m *Manager) EnsureServer(language, path string) {
 	m.mu.Lock()
 	if m.clients[language] != nil || m.starting[language] || m.installing[language] {
 		m.mu.Unlock()
@@ -94,17 +96,40 @@ func (m *Manager) EnsureServer(language string) {
 		}
 		return
 	}
+	if missing, ok := m.missingRequirement(language, lspCmd); ok {
+		m.mu.Unlock()
+		m.send(messages.LSPServerStatusMsg{
+			Language: language,
+			Status:   messages.LSPServerNotFound,
+			Message:  fmt.Sprintf("%s requires %s on PATH", lspCmd.Command, missing),
+		})
+		return
+	}
 	m.starting[language] = true
 	m.mu.Unlock()
 
-	m.startClient(language, command, lspCmd)
+	m.startClient(language, command, lspCmd, path)
 }
 
-func (m *Manager) startClient(language, command string, lspCmd config.LSPCmd) {
+// missingRequirement reports the first entry of cmd.Requires that is not
+// resolvable on PATH.
+func (m *Manager) missingRequirement(language string, cmd config.LSPCmd) (string, bool) {
+	for _, name := range cmd.Requires {
+		if name == "" {
+			continue
+		}
+		if _, err := exec.LookPath(m.expand(language, name)); err != nil {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func (m *Manager) startClient(language, command string, lspCmd config.LSPCmd, path string) {
 	m.send(messages.LSPServerStatusMsg{Language: language, Status: messages.LSPServerStarting})
 	client, err := NewClient(language, command, lspCmd.Args, m.send)
 	if err == nil {
-		err = client.Initialize(URIFromPath(m.rootDir))
+		err = client.Initialize(URIFromPath(m.rootDirFor(language, path)))
 	}
 	if err != nil {
 		m.mu.Lock()
@@ -167,7 +192,20 @@ func (m *Manager) Install(language string) {
 	m.prompted[language] = false
 	m.mu.Unlock()
 	m.send(messages.LSPInstallStatusMsg{Language: language, Status: messages.LSPInstallSucceeded})
-	m.EnsureServer(language)
+	m.EnsureServer(language, m.firstDocumentPath(language))
+}
+
+// firstDocumentPath returns the path of any open document for language, used
+// to resolve a project root when the server starts after an install.
+func (m *Manager) firstDocumentPath(language string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, doc := range m.documents {
+		if doc.language == language {
+			return doc.path
+		}
+	}
+	return ""
 }
 
 // runInstallCommand executes a toolchain-based install recipe (e.g. `go
@@ -206,10 +244,10 @@ func (m *Manager) runInstallCommand(language string, install config.LSPInstall) 
 	return nil
 }
 
-// installFromDownload downloads a prebuilt binary archive and installs the
-// server executable into {install_dir}/bin. The archive must contain a single
-// executable file (a wrapping top-level directory is tolerated and stripped);
-// a GitHub-style {target} placeholder selects the platform's asset.
+// installFromDownload downloads a prebuilt language-server archive and,
+// depending on the recipe, either installs a single executable into
+// {install_dir}/bin or extracts the whole archive to {install_dir}/server.
+// A GitHub-style {target} placeholder selects the platform's asset.
 func (m *Manager) installFromDownload(language string, install config.LSPInstall) error {
 	installDir := m.installDir(language)
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
@@ -220,31 +258,24 @@ func (m *Manager) installFromDownload(language string, install config.LSPInstall
 		return fmt.Errorf("create binary directory: %w", err)
 	}
 
-	url := m.expand(language, install.Download.URL)
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(url)
+	archivePath, err := m.downloadArchive(language, install.Download.URL, installDir)
 	if err != nil {
-		return fmt.Errorf("download %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
-	}
-	archivePath := filepath.Join(installDir, "download.archive")
-	out, err := os.Create(archivePath)
-	if err != nil {
-		return fmt.Errorf("create archive: %w", err)
-	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		out.Close()
-		os.Remove(archivePath)
-		return fmt.Errorf("download %s: %w", url, err)
-	}
-	if err := out.Close(); err != nil {
-		os.Remove(archivePath)
-		return fmt.Errorf("close archive: %w", err)
+		return err
 	}
 	defer os.Remove(archivePath)
+
+	// A distribution made of many files (jdtls: bin/, plugins/, config_*) is
+	// extracted whole; ManagedCommand then points inside {install_dir}/server.
+	if install.Download.Extract {
+		serverDir := filepath.Join(installDir, "server")
+		if err := os.RemoveAll(serverDir); err != nil {
+			return fmt.Errorf("clear %s: %w", serverDir, err)
+		}
+		if err := extractArchive(archivePath, serverDir); err != nil {
+			return fmt.Errorf("extract archive: %w", err)
+		}
+		return nil
+	}
 
 	archive, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -263,6 +294,124 @@ func (m *Manager) installFromDownload(language string, install config.LSPInstall
 		return fmt.Errorf("write %s: %w", binPath, err)
 	}
 	return nil
+}
+
+// downloadArchive fetches rawURL (after placeholder expansion) into
+// installDir/download.archive and returns its path.
+func (m *Manager) downloadArchive(language, rawURL, installDir string) (string, error) {
+	url := m.expand(language, rawURL)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("download %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+	}
+	archivePath := filepath.Join(installDir, "download.archive")
+	out, err := os.Create(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("create archive: %w", err)
+	}
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		out.Close()
+		os.Remove(archivePath)
+		return "", fmt.Errorf("download %s: %w", url, err)
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(archivePath)
+		return "", fmt.Errorf("close archive: %w", err)
+	}
+	return archivePath, nil
+}
+
+// extractArchive extracts a .tar.gz archive into destDir, preserving the
+// archive's directory layout and file modes. Used for language-server
+// distributions that consist of many files rather than one executable.
+func extractArchive(archivePath, destDir string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+
+	destDir = filepath.Clean(destDir)
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		target, err := archiveTarget(destDir, hdr.Name)
+		if err != nil {
+			return err
+		}
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			mode := os.FileMode(hdr.Mode).Perm()
+			if mode == 0 {
+				mode = 0o644
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			if err := out.Close(); err != nil {
+				return err
+			}
+		case tar.TypeSymlink:
+			// Only allow relative links that stay inside destDir.
+			if filepath.IsAbs(hdr.Linkname) {
+				return fmt.Errorf("unsafe absolute symlink %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if _, err := archiveTarget(destDir, filepath.Join(filepath.Dir(hdr.Name), hdr.Linkname)); err != nil {
+				return fmt.Errorf("unsafe symlink %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			_ = os.Remove(target)
+			if err := os.Symlink(hdr.Linkname, target); err != nil {
+				return err
+			}
+		default:
+			// Skip hard links, devices, FIFOs and other entry types.
+		}
+	}
+	return nil
+}
+
+// archiveTarget joins an archive entry name onto destDir, rejecting entries
+// that escape it (the "zip slip" path traversal).
+func archiveTarget(destDir, name string) (string, error) {
+	target := filepath.Join(destDir, filepath.FromSlash(name))
+	if target == destDir {
+		return target, nil
+	}
+	if !strings.HasPrefix(target, destDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("archive entry escapes destination: %s", name)
+	}
+	return target, nil
 }
 
 // downloadEntry is one regular file found in a downloaded archive.
@@ -356,7 +505,7 @@ func (m *Manager) DidOpen(path, language, text string) {
 	// the server asynchronously. EnsureServer blocks on Initialize (a
 	// request/response round-trip that can hang on a slow server), so it must
 	// never run on the UI goroutine.
-	go m.EnsureServer(language)
+	go m.EnsureServer(language, path)
 }
 
 func languageIDForPath(path, language string, cmd config.LSPCmd) string {
@@ -469,6 +618,45 @@ func (m *Manager) resolveCommand(language string, cmd config.LSPCmd) (string, bo
 
 func (m *Manager) installDir(language string) string {
 	return filepath.Join(m.installRoot, safeName(language))
+}
+
+// rootDirFor resolves the language server's workspace root for a document.
+// When the language declares RootMarkers, the nearest ancestor of path that
+// contains one of them wins (so Gradle/Maven subprojects anchor at the build
+// root); otherwise the manager's workspace directory is used.
+func (m *Manager) rootDirFor(language, path string) string {
+	markers := m.cfg.LSP[language].RootMarkers
+	if len(markers) == 0 || path == "" {
+		return m.rootDir
+	}
+	if root, ok := projectRoot(filepath.Dir(path), markers); ok {
+		return root
+	}
+	return m.rootDir
+}
+
+// projectRoot walks up from dir and returns the first directory containing
+// one of markers. It reports false when no marker is found.
+func projectRoot(dir string, markers []string) (string, bool) {
+	if dir == "" {
+		return "", false
+	}
+	dir = filepath.Clean(dir)
+	for {
+		for _, marker := range markers {
+			if marker == "" {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+				return dir, true
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
 }
 
 func (m *Manager) expand(language, value string) string {
