@@ -35,8 +35,8 @@ brew install paradise-runner/tap/toast
 
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
-- **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, Java, CSS, HTML, YAML, Bash, Markdown)
-- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, TypeScript, Java (jdtls), and Markdown (harper), with an extensible config for other languages
+- **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, Java, R, CSS, HTML, YAML, Bash, Markdown)
+- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, TypeScript, Java (jdtls), R (languageserver), and Markdown (harper), with an extensible config for other languages
 - **Spell checking** — misspelled words in Markdown and plain-text files are underlined in the theme's diagnostic color via harper
 - **Go to definition** — hold `Ctrl` and hover to underline symbols with a target, then `Ctrl`-click to jump to the exact definition
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
@@ -198,9 +198,11 @@ All default keybindings can be overridden with the `keybindings` object. Each ac
 
 Available actions: `quit`, `toggle_sidebar`, `save`, `new_file`, `close_tab`, `undo`, `redo`, `next_tab`, `prev_tab`, `search`, `find_replace`, `quick_open`, `command_palette`, `theme_picker`, `go_to_line`, `go_to_definition`, `toggle_focus`, `markdown_preview`, `show_hover`, `trigger_completion`.
 
-Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, TypeScript, Java, and Markdown; set `"lsp": {}` to disable all language servers. 
+Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, TypeScript, Java, R, and Markdown; set `"lsp": {}` to disable all language servers. 
 
 Java uses [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) (`jdtls`). Toast can download and install it on request, but the launcher needs **Java 21+** and **`python3`** on `PATH`. On open, Toast anchors jdtls at the nearest Gradle/Maven project root (`settings.gradle`, `pom.xml`, `gradlew`, …), so multi-module builds import as a whole even when you edit a file in a subpackage.
+
+R uses [languageserver](https://github.com/REditorSupport/languageserver). Toast checks whether the `languageserver` package is installed and offers to install it when it is missing, but **R itself must already be installed** with `Rscript` on `PATH`. Toast anchors the server at the nearest R project root (`DESCRIPTION`, `NAMESPACE`, `renv.lock`, `renv`). `.R`, `.Rprofile`, `.Renviron`, `.Rmd`, and `.qmd` files are supported; languageserver recognises R Markdown and Quarto from the file extension. To use a different R server (for example [air](https://github.com/posit-dev/air)), override `lsp.r` with your own `command`/`args`.
 
 ```json
 {
@@ -214,7 +216,7 @@ Java uses [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) (`jd
 }
 ```
 
-Per-language LSP entries also accept two optional keys: `requires` lists executables that must be on `PATH` before the server runs (reported as a clear error otherwise), and `root_markers` lists files/directories used to find the project root by walking up from the opened file. A custom managed install can fetch a prebuilt archive with `install.download`, optionally setting `"extract": true` to keep the archive's directory layout under `{install_dir}/server` instead of installing a single executable.
+Per-language LSP entries also accept three optional keys: `requires` lists executables that must be on `PATH` before the server runs (reported as a clear error otherwise), `root_markers` lists files/directories used to find the project root by walking up from the opened file, and `probe` names a command that must exit `0` for the server to count as installed — useful when the executable exists even if the server does not (the R entry probes for the `languageserver` package), so the install prompt still fires. A custom managed install can fetch a prebuilt archive with `install.download`, optionally setting `"extract": true` to keep the archive's directory layout under `{install_dir}/server` instead of installing a single executable.
 
 ### Themes
 

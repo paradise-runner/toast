@@ -61,10 +61,24 @@ type LSPCmd struct {
 	// missing prerequisite is reported as a clear error instead of a cryptic
 	// server crash.
 	Requires []string `json:"requires,omitempty"`
+	// Probe optionally verifies that the server is usable once its command is
+	// resolvable, for servers whose executable exists even when the server
+	// itself is not installed (e.g. Rscript without the languageserver
+	// package). A non-zero exit is treated like a missing command, so the
+	// install recipe is offered instead of the server failing at startup.
+	Probe *LSPProbe `json:"probe,omitempty"`
 	// RootMarkers names files/directories that identify a project root when
 	// walking up from an opened file (e.g. "pom.xml", "settings.gradle").
 	// When empty, the workspace directory passed to the manager is used.
 	RootMarkers []string `json:"root_markers,omitempty"`
+}
+
+// LSPProbe is a command run to check that a language server is actually
+// available. It exits 0 when the server can run. Placeholders such as
+// {install_dir} are expanded by the manager at runtime.
+type LSPProbe struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
 }
 
 // LSPInstall describes an opt-in language-server installation. Placeholders
@@ -157,6 +171,26 @@ func Defaults() Config {
 						URL:     "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz",
 						Extract: true,
 					},
+				},
+			},
+			"r": {
+				Command: "Rscript", Args: []string{"-e", "languageserver::run()"},
+				Extensions: []string{".r", ".rprofile", ".renviron", ".rmd", ".qmd"},
+				// Rscript exists as soon as R is installed, so resolving the
+				// command says nothing about the languageserver package. Probe
+				// for it so a missing package is offered as an install rather
+				// than failing inside R at startup.
+				Probe: &LSPProbe{
+					Command: "Rscript",
+					Args:    []string{"-e", `quit(status = if (requireNamespace("languageserver", quietly = TRUE)) 0L else 1L)`},
+				},
+				RootMarkers: []string{".git", "DESCRIPTION", "NAMESPACE", "renv.lock", "renv"},
+				Install: &LSPInstall{
+					Name:    "R languageserver",
+					Command: "Rscript",
+					// repos= keeps install.packages from prompting for a CRAN
+					// mirror, which would hang the install prompt.
+					Args: []string{"-e", `install.packages("languageserver", repos="https://cloud.r-project.org")`},
 				},
 			},
 			"terraform": {

@@ -60,6 +60,12 @@ func TestFileIconForName_CommonIDEFiles(t *testing.T) {
 		{name: "Cargo.toml", marker: "rs"},
 		{name: "Dockerfile", marker: "dk"},
 		{name: "schema.sql", marker: "sq"},
+		{name: "analysis.R", marker: "r "},
+		{name: "analysis.r", marker: "r "},
+		{name: ".Rprofile", marker: "r "},
+		{name: ".Renviron", marker: "r "},
+		{name: "report.Rmd", marker: "md"},
+		{name: "report.qmd", marker: "md"},
 		{name: "logo.png", marker: "im"},
 	}
 
