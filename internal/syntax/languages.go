@@ -18,6 +18,8 @@ import (
 	"github.com/smacker/go-tree-sitter/rust"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 	"github.com/smacker/go-tree-sitter/yaml"
+
+	"github.com/yourusername/toast/internal/syntax/grammars/r"
 )
 
 //go:embed queries/*.scm
@@ -45,29 +47,44 @@ func init() {
 		{Name: "bash", Language: bash.GetLanguage()},
 		{Name: "hcl", Language: hcl.GetLanguage()},
 		{Name: "java", Language: java.GetLanguage()},
+		{Name: "r", Language: r.GetLanguage()},
 		{Name: "markdown", Language: tree_sitter_markdown.GetLanguage()},
 		// JSON uses a custom scanner instead of tree-sitter (nil Language).
 		{Name: "json"},
 	}
-	for _, d := range defs {
-		q, err := queriesFS.ReadFile("queries/" + d.Name + ".scm")
-		if err == nil {
-			d.Query = q
-		}
-	}
-	langByExt = map[string]*LangDef{
-		".go": defs[0], ".py": defs[1], ".js": defs[2], ".mjs": defs[2],
-		".ts": defs[3], ".tsx": defs[3], ".rs": defs[4], ".css": defs[5],
-		".html": defs[6], ".htm": defs[6], ".yaml": defs[7], ".yml": defs[7],
-		".sh": defs[8], ".bash": defs[8],
-		".hcl": defs[9], ".tf": defs[9], ".tfvars": defs[9],
-		".java": defs[10],
-		".md":   defs[11], ".markdown": defs[11],
-		".json": defs[12], ".jsonc": defs[12],
-	}
+
 	langByName = make(map[string]*LangDef, len(defs))
 	for _, d := range defs {
+		if q, err := queriesFS.ReadFile("queries/" + d.Name + ".scm"); err == nil {
+			d.Query = q
+		}
 		langByName[d.Name] = d
+	}
+
+	// Extensions are declared as lowercase suffixes because filepath.Ext is
+	// lowercased before lookup, so ".R" and ".Rprofile" resolve here too.
+	// Languages are named rather than indexed so adding a grammar cannot
+	// silently shift the extension mapping.
+	langByExt = make(map[string]*LangDef)
+	for ext, name := range map[string]string{
+		".go": "go",
+		".py": "python",
+		".js": "javascript", ".mjs": "javascript",
+		".ts": "typescript", ".tsx": "typescript",
+		".rs":   "rust",
+		".css":  "css",
+		".html": "html", ".htm": "html",
+		".yaml": "yaml", ".yml": "yaml",
+		".sh": "bash", ".bash": "bash",
+		".hcl": "hcl", ".tf": "hcl", ".tfvars": "hcl",
+		".java": "java",
+		".r":    "r", ".rprofile": "r", ".renviron": "r",
+		".md": "markdown", ".markdown": "markdown",
+		".json": "json", ".jsonc": "json",
+	} {
+		if def := langByName[name]; def != nil {
+			langByExt[ext] = def
+		}
 	}
 }
 

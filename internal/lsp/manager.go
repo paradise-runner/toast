@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -78,26 +79,22 @@ func (m *Manager) EnsureServer(language, path string) {
 		m.mu.Unlock()
 		return
 	}
+	m.mu.Unlock()
+
+	// The checks below are not run under the lock: the probe can start an
+	// interpreter, and must not block other languages from starting.
 	command, found := m.resolveCommand(language, lspCmd)
 	if !found {
-		if lspCmd.Install != nil && !m.prompted[language] {
-			m.prompted[language] = true
-			name := lspCmd.Install.Name
-			if name == "" {
-				name = lspCmd.Command
-			}
-			m.mu.Unlock()
-			m.send(messages.LSPInstallPromptMsg{Language: language, Name: name})
-			return
-		}
-		m.mu.Unlock()
-		if lspCmd.Install == nil {
-			m.send(messages.LSPServerStatusMsg{Language: language, Status: messages.LSPServerNotFound, Message: fmt.Sprintf("%s was not found", lspCmd.Command)})
-		}
+		m.offerInstall(language, lspCmd, fmt.Sprintf("%s was not found", lspCmd.Command))
+		return
+	}
+	if !m.probeAvailable(language, lspCmd) {
+		// The command resolved but the server is not actually installed (e.g.
+		// Rscript without the languageserver package).
+		m.offerInstall(language, lspCmd, fmt.Sprintf("%s is not installed for %s", lspCmd.Command, language))
 		return
 	}
 	if missing, ok := m.missingRequirement(language, lspCmd); ok {
-		m.mu.Unlock()
 		m.send(messages.LSPServerStatusMsg{
 			Language: language,
 			Status:   messages.LSPServerNotFound,
@@ -105,10 +102,53 @@ func (m *Manager) EnsureServer(language, path string) {
 		})
 		return
 	}
+
+	m.mu.Lock()
+	// Another call may have started this server while the checks above ran.
+	if m.clients[language] != nil || m.starting[language] || m.installing[language] {
+		m.mu.Unlock()
+		return
+	}
 	m.starting[language] = true
 	m.mu.Unlock()
 
 	m.startClient(language, command, lspCmd, path)
+}
+
+// offerInstall asks the app to run the configured managed install, at most once
+// per language. When there is no install recipe, or the prompt was already
+// offered, the server is reported as unavailable with reason instead.
+func (m *Manager) offerInstall(language string, lspCmd config.LSPCmd, reason string) {
+	m.mu.Lock()
+	if lspCmd.Install != nil && !m.prompted[language] {
+		m.prompted[language] = true
+		name := lspCmd.Install.Name
+		if name == "" {
+			name = lspCmd.Command
+		}
+		m.mu.Unlock()
+		m.send(messages.LSPInstallPromptMsg{Language: language, Name: name})
+		return
+	}
+	m.mu.Unlock()
+	if lspCmd.Install == nil {
+		m.send(messages.LSPServerStatusMsg{Language: language, Status: messages.LSPServerNotFound, Message: reason})
+	}
+}
+
+// probeAvailable reports whether the configured server is actually usable. A
+// nil probe means the resolved command is proof enough, which is the case for
+// every server installed as an executable.
+func (m *Manager) probeAvailable(language string, cmd config.LSPCmd) bool {
+	if cmd.Probe == nil {
+		return true
+	}
+	// EnsureServer runs off the UI goroutine, so a probe that has to start an
+	// interpreter is safe. The timeout only bounds a hung interpreter.
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	probe := exec.CommandContext(ctx, m.expand(language, cmd.Probe.Command), m.expandArgs(language, cmd.Probe.Args)...)
+	return probe.Run() == nil
 }
 
 // missingRequirement reports the first entry of cmd.Requires that is not
@@ -160,6 +200,11 @@ func (m *Manager) startClient(language, command string, lspCmd config.LSPCmd, pa
 // message. Installers (cargo, npm, …) can print megabytes on failure, and a
 // giant message would stall the install prompt's renderer.
 const maxInstallOutput = 4000
+
+// probeTimeout bounds a language-server availability probe. Probes start an
+// interpreter (e.g. Rscript), so they are given room to boot, but a hung
+// interpreter must not leave EnsureServer blocked forever.
+const probeTimeout = 10 * time.Second
 
 // Install performs the configured opt-in managed installation, then starts the
 // server and replays any documents that were opened while it was unavailable.
@@ -221,10 +266,7 @@ func (m *Manager) runInstallCommand(language string, install config.LSPInstall) 
 	}
 
 	command := m.expand(language, install.Command)
-	args := make([]string, len(install.Args))
-	for i, arg := range install.Args {
-		args[i] = m.expand(language, arg)
-	}
+	args := m.expandArgs(language, install.Args)
 	cmd := exec.Command(command, args...)
 	cmd.Env = os.Environ()
 	for key, value := range install.Env {
@@ -668,6 +710,15 @@ func (m *Manager) expand(language, value string) string {
 		"{home}", home,
 		"{target}", rustTargetTriple(),
 	).Replace(value)
+}
+
+// expandArgs expands placeholders in every argument.
+func (m *Manager) expandArgs(language string, values []string) []string {
+	args := make([]string, len(values))
+	for i, value := range values {
+		args[i] = m.expand(language, value)
+	}
+	return args
 }
 
 // rustTargetTriple returns the Rust target triple for the current platform,

@@ -54,6 +54,33 @@ func TestLanguageForPathConfigDetectsJava(t *testing.T) {
 	}
 }
 
+func TestLanguageForPathConfigDetectsR(t *testing.T) {
+	configured := config.Defaults().LSP
+	for _, path := range []string{
+		"/tmp/proj/analysis.R",
+		"/tmp/proj/analysis.r",
+		"/tmp/proj/.Rprofile",
+		"/tmp/proj/.Renviron",
+		"/tmp/proj/report.Rmd",
+		"/tmp/proj/report.qmd",
+	} {
+		if got := LanguageForPathConfig(path, configured); got != "r" {
+			t.Errorf("LanguageForPathConfig(%q) = %q, want r", path, got)
+		}
+	}
+}
+
+// languageserver decides literate mode from the file extension, so every R
+// extension keeps the default "r" language id.
+func TestLanguageIDForRFiles(t *testing.T) {
+	cmd := config.Defaults().LSP["r"]
+	for _, path := range []string{"analysis.R", ".Rprofile", "report.Rmd", "report.qmd"} {
+		if got := languageIDForPath(path, "r", cmd); got != "r" {
+			t.Errorf("languageIDForPath(%q) = %q, want r", path, got)
+		}
+	}
+}
+
 func TestProjectRootFindsNearestBuildMarker(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "settings.gradle"), []byte(""), 0o644); err != nil {
@@ -191,6 +218,54 @@ func TestEnsureServerPromptsForConfiguredManagedInstall(t *testing.T) {
 	}
 	if prompt.Language != "test" || prompt.Name != "Test LS" {
 		t.Fatalf("unexpected prompt: %#v", prompt)
+	}
+}
+
+func TestEnsureServerPromptsWhenProbeFails(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.LSP = map[string]config.LSPCmd{
+		"test": {
+			// The command resolves, but the probe reports that the server is
+			// not actually installed (mirrors Rscript without the R package).
+			Command: "sh",
+			Probe:   &config.LSPProbe{Command: "sh", Args: []string{"-c", "exit 1"}},
+			Install: &config.LSPInstall{Name: "Test LS", Command: "missing-installer"},
+		},
+	}
+	var sent []tea.Msg
+	m := NewManager(cfg, t.TempDir(), func(msg tea.Msg) { sent = append(sent, msg) })
+	m.installRoot = t.TempDir()
+
+	m.EnsureServer("test", "")
+	m.EnsureServer("test", "")
+
+	if len(sent) != 1 {
+		t.Fatalf("expected one prompt, got %d messages: %#v", len(sent), sent)
+	}
+	prompt, ok := sent[0].(messages.LSPInstallPromptMsg)
+	if !ok {
+		t.Fatalf("expected LSPInstallPromptMsg, got %T", sent[0])
+	}
+	if prompt.Language != "test" || prompt.Name != "Test LS" {
+		t.Fatalf("unexpected prompt: %#v", prompt)
+	}
+}
+
+func TestProbeAvailable(t *testing.T) {
+	m := NewManager(config.Defaults(), t.TempDir(), func(tea.Msg) {})
+
+	// No probe configured: the resolved command is proof enough.
+	if !m.probeAvailable("test", config.LSPCmd{}) {
+		t.Error("a nil probe should be available")
+	}
+	if !m.probeAvailable("test", config.LSPCmd{Probe: &config.LSPProbe{Command: "sh", Args: []string{"-c", "exit 0"}}}) {
+		t.Error("a probe exiting 0 should be available")
+	}
+	if m.probeAvailable("test", config.LSPCmd{Probe: &config.LSPProbe{Command: "sh", Args: []string{"-c", "exit 7"}}}) {
+		t.Error("a probe exiting non-zero should not be available")
+	}
+	if m.probeAvailable("test", config.LSPCmd{Probe: &config.LSPProbe{Command: "toast-probe-that-does-not-exist"}}) {
+		t.Error("a probe whose command is missing should not be available")
 	}
 }
 

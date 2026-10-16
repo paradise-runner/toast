@@ -138,8 +138,10 @@ func extensionFileIcon(ext string) (fileIcon, bool) {
 		return fileIcon{marker: "lu", kind: fileIconShell}, true
 	case ".pl", ".pm":
 		return fileIcon{marker: "pl", kind: fileIconShell}, true
-	case ".r":
+	case ".r", ".rprofile", ".renviron":
 		return fileIcon{marker: "r ", kind: fileIconFunctional}, true
+	case ".rmd", ".qmd":
+		return fileIcon{marker: "md", kind: fileIconMarkdown}, true
 	case ".scala":
 		return fileIcon{marker: "sc", kind: fileIconJVM}, true
 	case ".clj", ".cljs", ".cljc":

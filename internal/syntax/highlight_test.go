@@ -278,3 +278,81 @@ func TestHighlightTerraformExtensions(t *testing.T) {
 		}
 	}
 }
+
+func TestHighlightR(t *testing.T) {
+	tm, _ := theme.NewManager("toast-dark", "")
+	h, err := syntax.NewHighlighter("analysis.R", tm)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if !h.HasQuery() {
+		t.Fatal("expected a highlight query for .R files")
+	}
+
+	src := "# Count reads\ncount_reads <- function(x) {\n  if (x > 1) \"many\" else \"few\"\n}\nvalues <- c(1L, 2.5, 3i)\nprint(stats::median(values))\n"
+	h.Parse([]byte(src))
+
+	assertStyle := func(line int, text, style string) {
+		t.Helper()
+		spans := h.HighlightLine(line, text)
+		for _, s := range spans {
+			if s.Style == style {
+				return
+			}
+		}
+		t.Errorf("line %d %q: no %q span in %+v", line, text, style, spans)
+	}
+
+	assertStyle(0, "# Count reads\n", "comment")
+	assertStyle(1, "count_reads <- function(x) {\n", "function")
+	assertStyle(1, "count_reads <- function(x) {\n", "keyword")
+	assertStyle(2, "  if (x > 1) \"many\" else \"few\"\n", "keyword")
+	assertStyle(2, "  if (x > 1) \"many\" else \"few\"\n", "string")
+	assertStyle(4, "values <- c(1L, 2.5, 3i)\n", "number")
+	assertStyle(5, "print(stats::median(values))\n", "module")
+}
+
+func TestHighlightRExtensions(t *testing.T) {
+	tests := []struct {
+		path string
+	}{
+		{"analysis.R"},
+		{"analysis.r"},
+		{".Rprofile"},
+		{".Renviron"},
+	}
+	for _, tc := range tests {
+		if lang := syntax.ForPath(tc.path); lang == nil || lang.Name != "r" {
+			t.Errorf("ForPath(%q) = %#v, want r", tc.path, lang)
+		}
+	}
+}
+
+// TestEmbeddedQueriesCompile guards against a malformed .scm silently
+// disabling highlighting: NewHighlighter drops a query that fails to compile
+// and falls back to a no-op highlighter.
+func TestEmbeddedQueriesCompile(t *testing.T) {
+	tm, _ := theme.NewManager("toast-dark", "")
+	paths := []string{
+		"file.go", "file.py", "file.js", "file.ts", "file.rs", "file.css",
+		"file.html", "file.yaml", "file.sh", "file.hcl", "file.java",
+		"file.R", "file.md",
+	}
+	for _, path := range paths {
+		lang := syntax.ForPath(path)
+		if lang == nil {
+			t.Fatalf("ForPath(%q) = nil", path)
+		}
+		if len(lang.Query) == 0 {
+			t.Errorf("%s: no embedded query", lang.Name)
+			continue
+		}
+		h, err := syntax.NewHighlighter(path, tm)
+		if err != nil {
+			t.Fatalf("%s: NewHighlighter: %v", path, err)
+		}
+		if !h.HasQuery() {
+			t.Errorf("%s (%s): query failed to compile", path, lang.Name)
+		}
+	}
+}

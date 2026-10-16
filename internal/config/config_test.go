@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yourusername/toast/internal/config"
@@ -71,6 +72,56 @@ func TestDefaultsJavaLanguageServer(t *testing.T) {
 	}
 	if server.ManagedCommand != "{install_dir}/server/bin/jdtls" {
 		t.Fatalf("unexpected managed command %q", server.ManagedCommand)
+	}
+}
+
+func TestDefaultsRLanguageServer(t *testing.T) {
+	cfg := config.Defaults()
+	server, ok := cfg.LSP["r"]
+	if !ok {
+		t.Fatal("expected a default r language server")
+	}
+	if server.Command != "Rscript" {
+		t.Fatalf("expected Rscript command, got %q", server.Command)
+	}
+	if len(server.Args) != 2 || server.Args[0] != "-e" || server.Args[1] != "languageserver::run()" {
+		t.Fatalf("unexpected args %#v", server.Args)
+	}
+	for _, ext := range []string{".r", ".rprofile", ".renviron", ".rmd", ".qmd"} {
+		if !contains(server.Extensions, ext) {
+			t.Errorf("r extensions missing %q: %v", ext, server.Extensions)
+		}
+	}
+	// Rscript exists whenever R does, so the install prompt can only fire if
+	// the server checks that the languageserver package is present.
+	if server.Probe == nil {
+		t.Fatal("expected an availability probe for R")
+	}
+	if server.Probe.Command != "Rscript" {
+		t.Fatalf("unexpected probe command %q", server.Probe.Command)
+	}
+	probe := strings.Join(server.Probe.Args, " ")
+	if !strings.Contains(probe, "requireNamespace(\"languageserver\"") {
+		t.Fatalf("probe must check for the languageserver package: %#v", server.Probe.Args)
+	}
+	for _, marker := range []string{"DESCRIPTION", "renv.lock"} {
+		if !contains(server.RootMarkers, marker) {
+			t.Errorf("r root markers missing %q: %v", marker, server.RootMarkers)
+		}
+	}
+	if server.Install == nil {
+		t.Fatal("expected an install recipe for the R languageserver")
+	}
+	if server.Install.Download != nil {
+		t.Fatalf("expected a command install, got a download: %#v", server.Install.Download)
+	}
+	if server.Install.Name != "R languageserver" {
+		t.Fatalf("unexpected install name %q", server.Install.Name)
+	}
+	// install.packages must not prompt for a CRAN mirror.
+	joined := strings.Join(server.Install.Args, " ")
+	if !strings.Contains(joined, "repos=") {
+		t.Fatalf("install args must pin a CRAN repo: %#v", server.Install.Args)
 	}
 }
 
