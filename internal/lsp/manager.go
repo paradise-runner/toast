@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"fmt"
@@ -250,7 +251,7 @@ func (m *Manager) installFromDownload(language string, install config.LSPInstall
 	if err != nil {
 		return fmt.Errorf("read archive: %w", err)
 	}
-	entries, err := readArchiveEntries(archive)
+	entries, err := readArchiveEntries(archive, filepath.Base(url))
 	if err != nil {
 		return fmt.Errorf("extract archive: %w", err)
 	}
@@ -272,8 +273,15 @@ type downloadEntry struct {
 	data  []byte
 }
 
-// readArchiveEntries reads the regular files of a .tar.gz archive.
-func readArchiveEntries(archive []byte) ([]downloadEntry, error) {
+// readArchiveEntries reads the regular files of a supported downloaded archive.
+func readArchiveEntries(archive []byte, archiveName string) ([]downloadEntry, error) {
+	if strings.HasSuffix(strings.ToLower(archiveName), ".zip") {
+		return readZipArchiveEntries(archive)
+	}
+	return readTarGzArchiveEntries(archive)
+}
+
+func readTarGzArchiveEntries(archive []byte) ([]downloadEntry, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return nil, err
@@ -299,6 +307,34 @@ func readArchiveEntries(archive []byte) ([]downloadEntry, error) {
 		entries = append(entries, downloadEntry{
 			name:  filepath.Base(hdr.Name),
 			depth: strings.Count(hdr.Name, "/"),
+			data:  content,
+		})
+	}
+	return entries, nil
+}
+
+func readZipArchiveEntries(archive []byte) ([]downloadEntry, error) {
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, err
+	}
+	var entries []downloadEntry
+	for _, file := range zr.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		r, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		content, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, downloadEntry{
+			name:  filepath.Base(file.Name),
+			depth: strings.Count(file.Name, "/"),
 			data:  content,
 		})
 	}
@@ -479,6 +515,9 @@ func (m *Manager) expand(language, value string) string {
 		"{root_dir}", m.rootDir,
 		"{home}", home,
 		"{target}", rustTargetTriple(),
+		"{archive_ext}", platformArchiveExt(runtime.GOOS),
+		"{cmd_ext}", platformCommandExt(runtime.GOOS),
+		"{exe_ext}", platformExecutableExt(runtime.GOOS),
 	).Replace(value)
 }
 
@@ -487,18 +526,45 @@ func (m *Manager) expand(language, value string) string {
 // Unsupported platforms return "" and the download then fails with a clear
 // HTTP 404.
 func rustTargetTriple() string {
+	return platformRustTargetTriple(runtime.GOOS, runtime.GOARCH)
+}
+
+func platformRustTargetTriple(goos, goarch string) string {
 	switch {
-	case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
+	case goos == "darwin" && goarch == "arm64":
 		return "aarch64-apple-darwin"
-	case runtime.GOOS == "darwin" && runtime.GOARCH == "amd64":
+	case goos == "darwin" && goarch == "amd64":
 		return "x86_64-apple-darwin"
-	case runtime.GOOS == "linux" && runtime.GOARCH == "arm64":
+	case goos == "linux" && goarch == "arm64":
 		return "aarch64-unknown-linux-gnu"
-	case runtime.GOOS == "linux" && runtime.GOARCH == "amd64":
+	case goos == "linux" && goarch == "amd64":
 		return "x86_64-unknown-linux-gnu"
+	case goos == "windows" && goarch == "amd64":
+		return "x86_64-pc-windows-msvc"
 	default:
 		return ""
 	}
+}
+
+func platformArchiveExt(goos string) string {
+	if goos == "windows" {
+		return "zip"
+	}
+	return "tar.gz"
+}
+
+func platformCommandExt(goos string) string {
+	if goos == "windows" {
+		return ".cmd"
+	}
+	return ""
+}
+
+func platformExecutableExt(goos string) string {
+	if goos == "windows" {
+		return ".exe"
+	}
+	return ""
 }
 
 func defaultInstallRoot() string {

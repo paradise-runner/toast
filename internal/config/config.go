@@ -110,17 +110,17 @@ func Defaults() Config {
 			},
 			"python": {
 				Command: "pyright-langserver", Args: []string{"--stdio"}, Extensions: []string{".py", ".pyi"},
-				ManagedCommand: "{install_dir}/node_modules/.bin/pyright-langserver",
+				ManagedCommand: "{install_dir}/node_modules/.bin/pyright-langserver{cmd_ext}",
 				Install:        &LSPInstall{Name: "Pyright", Command: "npm", Args: []string{"install", "--prefix", "{install_dir}", "pyright"}},
 			},
 			"typescript": {
 				Command: "typescript-language-server", Args: []string{"--stdio"}, Extensions: []string{".ts", ".tsx", ".mts", ".cts"},
-				ManagedCommand: "{install_dir}/node_modules/.bin/typescript-language-server",
+				ManagedCommand: "{install_dir}/node_modules/.bin/typescript-language-server{cmd_ext}",
 				Install:        &LSPInstall{Name: "TypeScript Language Server", Command: "npm", Args: []string{"install", "--prefix", "{install_dir}", "typescript-language-server", "typescript"}},
 			},
 			"javascript": {
 				Command: "typescript-language-server", Args: []string{"--stdio"}, Extensions: []string{".js", ".jsx", ".mjs", ".cjs"},
-				ManagedCommand: "{install_dir}/node_modules/.bin/typescript-language-server",
+				ManagedCommand: "{install_dir}/node_modules/.bin/typescript-language-server{cmd_ext}",
 				Install:        &LSPInstall{Name: "TypeScript Language Server", Command: "npm", Args: []string{"install", "--prefix", "{install_dir}", "typescript-language-server", "typescript"}},
 			},
 			"rust": {
@@ -136,12 +136,13 @@ func Defaults() Config {
 			"markdown": {
 				Command: "harper-ls", Args: []string{"--stdio"},
 				Extensions:     []string{".md", ".markdown", ".mdx", ".txt"},
-				ManagedCommand: "{install_dir}/bin/harper-ls",
+				ManagedCommand: "{install_dir}/bin/harper-ls{exe_ext}",
 				// harper publishes prebuilt binaries on GitHub releases; the
-				// {target} placeholder expands to the platform's Rust triple.
+				// {target} placeholder expands to the platform's Rust triple, and
+				// {archive_ext} selects .zip on Windows and .tar.gz elsewhere.
 				Install: &LSPInstall{
 					Name:     "harper-ls",
-					Download: &LSPDownload{URL: "https://github.com/automattic/harper/releases/latest/download/harper-ls-{target}.tar.gz"},
+					Download: &LSPDownload{URL: "https://github.com/automattic/harper/releases/latest/download/harper-ls-{target}.{archive_ext}"},
 				},
 			},
 		},
