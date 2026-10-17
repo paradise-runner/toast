@@ -79,6 +79,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modified = false
 	case messages.BufferModifiedMsg:
 		m.modified = msg.Modified
+	case messages.BufferPathChangedMsg:
+		m.filename = msg.NewPath
 	case messages.DiagnosticsUpdatedMsg:
 		m.errorCount = 0
 		m.warnCount = 0

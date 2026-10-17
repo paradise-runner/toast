@@ -36,6 +36,37 @@ type Model struct {
 	deleteDialog    *DeleteConfirmDialog
 	inlineInput     *InlineInput
 	inlineInsertIdx int // index in flat where the edit row is inserted after
+
+	// ── Drag & drop ───────────────────────────────────────────────────────────────
+	drag dragState
+}
+
+// dragState tracks a left-button press that may become a file move. A press
+// only records the source row; moving the pointer onto a different row while
+// the button is held activates the drag, and release either activates the node
+// (plain click) or performs the move (drag).
+type dragState struct {
+	fromIdx int // flat index pressed, or -1 when idle
+	from    *TreeNode
+	active  bool
+	dropIdx int // flat index of the current drop target, -1 when invalid
+}
+
+// idleDrag returns the zero drag state (no pending press).
+func idleDrag() dragState { return dragState{fromIdx: -1, dropIdx: -1} }
+
+// IsDragging reports whether a file/folder drag is in flight. The app uses
+// this to keep routing mouse motion to the tree even when the pointer leaves
+// the sidebar.
+func (m Model) IsDragging() bool { return m.drag.active }
+
+// DragSourcePath returns the path being dragged, or "" when no press is
+// pending. The app uses it to suppress watcher noise from its own rename.
+func (m Model) DragSourcePath() string {
+	if m.drag.from == nil {
+		return ""
+	}
+	return m.drag.from.Path
 }
 
 // RootPath returns the root directory the tree is browsing.
@@ -77,6 +108,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.width = msg.Width
 
 	case tea.KeyPressMsg:
+		// Keyboard input abandons any pending or in-flight mouse drag.
+		m.drag = idleDrag()
 		// Delete dialog is open — route keys to it.
 		if m.deleteDialog != nil {
 			confirm, cancel, _ := m.deleteDialog.HandleKey(msg)
@@ -144,6 +177,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.inlineInput != nil {
 				return m, nil
 			}
+			m.drag = idleDrag()
 			idx := m.offset + msg.Y
 			targetDir := m.rootDir
 			var targetNode *TreeNode
@@ -192,8 +226,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			}
 			idx := m.offset + msg.Y
+			m.drag = idleDrag()
 			if idx >= 0 && idx < len(m.flat) {
-				return m.activateNode(idx)
+				node := m.flat[idx]
+				m.cursor = idx
+				// The root row cannot be moved, but still activates on release.
+				if node != m.root {
+					m.drag = dragState{fromIdx: idx, from: node, dropIdx: -1}
+				}
 			}
 		}
 
@@ -205,6 +245,45 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// Drag detection: a button-held move to a different row starts a drag.
+		if m.drag.from != nil && msg.Button == tea.MouseLeft {
+			idx := m.offset + msg.Y
+			if !m.drag.active && idx != m.drag.fromIdx {
+				m.drag.active = true
+			}
+			if m.drag.active {
+				m.drag.dropIdx = m.dropTargetAt(idx, msg.Y)
+			}
+			return m, nil
+		}
+
+	case tea.MouseReleaseMsg:
+		if msg.Button != tea.MouseLeft || m.drag.from == nil {
+			return m, nil
+		}
+		d := m.drag
+		idx := m.offset + msg.Y
+		inViewport := msg.Y >= 0 && (m.height == 0 || msg.Y < m.height)
+		if inViewport && idx == d.fromIdx {
+			// Press and release on the same row: a plain click, even if the
+			// pointer jittered onto another row in between.
+			m.drag = idleDrag()
+			return m.activateNode(idx)
+		}
+		// Releasing outside the tree cancels the drag rather than dropping on
+		// the last row the pointer happened to cross.
+		if !d.active || !inViewport {
+			m.drag = idleDrag()
+			return m, nil
+		}
+		// Resolve the destination before clearing the drag state — canDropInto
+		// reads m.drag.from.
+		destDir, ok := m.dropDirAt(d.dropIdx)
+		m.drag = idleDrag()
+		if !ok {
+			return m, nil
+		}
+		return m.moveNode(d.from, destDir)
 
 	case tea.MouseWheelMsg:
 		switch msg.Button {
@@ -264,6 +343,14 @@ func (m Model) View() tea.View {
 	}
 	ignoredFG := m.ignoredColor()
 
+	// Drag feedback: dim the source row, underline the current drop target.
+	dragging := m.drag.active
+	sourceRow, dropRow := -1, -1
+	if dragging {
+		sourceRow = m.drag.fromIdx
+		dropRow = m.drag.dropIdx
+	}
+
 	var sb strings.Builder
 	end := m.offset + m.height
 	if end > len(m.flat) {
@@ -312,6 +399,12 @@ func (m Model) View() tea.View {
 			if ignored && ignoredFG != "" {
 				labelStyle = labelStyle.Foreground(lipgloss.Color(ignoredFG))
 			}
+			if dragging && i == sourceRow {
+				labelStyle = labelStyle.Faint(true)
+			}
+			if dragging && i == dropRow {
+				labelStyle = labelStyle.Bold(true).Underline(true)
+			}
 			// Build icon with selected background
 			iconStyle := baseStyle.Copy()
 			if selectedBG != "" {
@@ -342,6 +435,12 @@ func (m Model) View() tea.View {
 			labelStyle := baseStyle.Copy()
 			if ignored && ignoredFG != "" {
 				labelStyle = labelStyle.Foreground(lipgloss.Color(ignoredFG))
+			}
+			if dragging && i == sourceRow {
+				labelStyle = labelStyle.Faint(true)
+			}
+			if dragging && i == dropRow {
+				labelStyle = labelStyle.Bold(true).Underline(true)
 			}
 			// Build icon with base background
 			iconStyle := baseStyle.Copy()
@@ -496,6 +595,101 @@ func (m Model) activateNode(idx int) (Model, tea.Cmd) {
 	path := node.Path
 	return m, func() tea.Msg {
 		return messages.FileSelectedMsg{Path: path}
+	}
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+
+// dropTargetAt returns the flat row a drag would drop onto, or -1 when the row
+// under the pointer is not a valid destination. screenY is tree-local and is
+// used to reject pointers outside the visible viewport (the app keeps feeding
+// motion to the tree after the pointer leaves the sidebar).
+func (m Model) dropTargetAt(idx, screenY int) int {
+	if m.height > 0 && (screenY < 0 || screenY >= m.height) {
+		return -1
+	}
+	if _, ok := m.dropDirAt(idx); !ok {
+		return -1
+	}
+	return idx
+}
+
+// dropDirAt resolves a flat row to its destination directory. Dropping on a
+// file row targets the file's parent; dropping on a directory row targets the
+// directory itself.
+func (m Model) dropDirAt(idx int) (string, bool) {
+	if idx < 0 || idx >= len(m.flat) {
+		return "", false
+	}
+	node := m.flat[idx]
+	destDir := node.Path
+	if !node.IsDir {
+		destDir = filepath.Dir(node.Path)
+	}
+	if !m.canDropInto(destDir) {
+		return "", false
+	}
+	return destDir, true
+}
+
+// canDropInto reports whether the in-flight drag may move into destDir. It
+// rejects the current parent (no-op), the source itself, descendants of the
+// source, and destinations that already hold an entry with the same name.
+func (m Model) canDropInto(destDir string) bool {
+	from := m.drag.from
+	if from == nil || destDir == "" {
+		return false
+	}
+	if destDir == filepath.Dir(from.Path) {
+		return false
+	}
+	if from.IsDir {
+		sep := string(filepath.Separator)
+		if destDir == from.Path || strings.HasPrefix(destDir+sep, from.Path+sep) {
+			return false
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(destDir, from.Name)); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return true
+}
+
+// moveNode renames from into destDir on disk, refreshes the source and
+// destination directories, and emits FileMovedMsg so the app can rebind any
+// open buffers, tabs, and language-server documents to the new path.
+func (m *Model) moveNode(from *TreeNode, destDir string) (Model, tea.Cmd) {
+	oldPath := from.Path
+	isDir := from.IsDir
+	newPath := filepath.Join(destDir, from.Name)
+	if err := os.Rename(oldPath, newPath); err != nil {
+		fmt.Fprintf(os.Stderr, "toast: move %q: %v\n", oldPath, err)
+		return *m, nil
+	}
+	m.reloadDir(filepath.Dir(oldPath))
+	m.expandPath(destDir)
+	m.reloadDir(destDir)
+	m.selectPath(newPath)
+	return *m, func() tea.Msg {
+		return messages.FileMovedMsg{OldPath: oldPath, NewPath: newPath, IsDir: isDir}
+	}
+}
+
+// selectPath moves the cursor (and viewport) onto the row for path when it is
+// visible in the flat list.
+func (m *Model) selectPath(path string) {
+	for i, node := range m.flat {
+		if node.Path == path {
+			m.cursor = i
+			if m.height > 0 {
+				if m.cursor < m.offset {
+					m.offset = m.cursor
+				} else if m.cursor >= m.offset+m.height {
+					m.offset = m.cursor - m.height + 1
+				}
+			}
+			return
+		}
 	}
 }
 

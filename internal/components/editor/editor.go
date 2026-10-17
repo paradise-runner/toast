@@ -402,6 +402,15 @@ func (s BufferSnapshot) Modified() bool {
 	return s.buf.Modified()
 }
 
+// Content returns the snapshot buffer's text. Used to re-open a renamed buffer
+// in the LSP so a background tab keeps its language-server session after a move.
+func (s BufferSnapshot) Content() string {
+	if s.buf == nil {
+		return ""
+	}
+	return s.buf.String()
+}
+
 // SaveToDisk writes the snapshot's buffer content to disk and marks it saved.
 // When applyTransforms is true (explicit saves such as save-on-quit) it applies
 // the configured trailing-whitespace trim and final-newline insertion; auto-save
@@ -498,6 +507,14 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 
 // Path returns the path of the currently loaded file.
 func (m Model) Path() string { return m.path }
+
+// SetPath updates the path of the currently loaded file without reloading it.
+// Used when the file is renamed on disk (sidebar drag/drop) so the buffer keeps
+// its content, edits, and undo history while saving to the new location.
+func (m *Model) SetPath(path string) {
+	m.path = path
+	m.pendingBufferID = m.bufferID
+}
 
 // Content returns the full text content of the current buffer, or an empty
 // string when no buffer is loaded.

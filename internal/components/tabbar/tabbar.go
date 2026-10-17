@@ -84,6 +84,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.tabs[idx].Modified = msg.Modified
 		}
 
+	case messages.BufferPathChangedMsg:
+		// The backing file was renamed on disk; keep the tab (and its buffer
+		// ID, so edits and undo history survive) but point it at the new path.
+		idx := m.indexByID(msg.BufferID)
+		if idx >= 0 {
+			m.tabs[idx].Path = msg.NewPath
+		}
+
 	case messages.ActiveBufferChangedMsg:
 		idx := m.indexByID(msg.BufferID)
 		if idx >= 0 {
