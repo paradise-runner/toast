@@ -117,6 +117,11 @@ type Model struct {
 	// watcher-triggered reload for that specific path on FileChangedOnDiskMsg.
 	isSavingPath string
 
+	// movingPath holds the source path of a sidebar drag/drop that is being
+	// completed. It suppresses watcher-triggered handling of the Remove/Create
+	// events our own rename produces, until FileMovedMsg rebinds the buffers.
+	movingPath string
+
 	// autoSaveGen is bumped for every edit while auto-save is enabled. A
 	// firing AutoSaveTickMsg is only acted on when its generation is current,
 	// which debounces saves to the configured inactivity window.
@@ -506,6 +511,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.fileTree, _ = m.fileTree.Update(msg)
 
+	case messages.FileMovedMsg:
+		m.movingPath = ""
+		cmds = append(cmds, m.runGitStatus())
+		m.rebindMovedPath(msg)
+		m.fileTree, _ = m.fileTree.Update(msg)
+
 	case messages.SaveConfigMsg:
 		if cfg, ok := msg.Config.(config.Config); ok {
 			m.cfg = cfg
@@ -686,8 +697,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.autoSaveDirtyBuffers()...)
 
 	case messages.FileChangedOnDiskMsg:
-		// Skip git status and reload when this is our own save write.
-		if m.isSavingPath == msg.Path {
+		// Skip git status and reload when this is our own save write, or when the
+		// event is the Remove/Create pair produced by our own drag/drop rename
+		// (FileMovedMsg will rebind the buffers instead).
+		if m.isSavingPath == msg.Path || m.isOwnMovePath(msg.Path) {
 			break
 		}
 		// Refresh git status on external file changes
@@ -1265,6 +1278,109 @@ func (m *Model) forceCloseTab(path string) tea.Cmd {
 	return closeCmd
 }
 
+// rebindMovedPath updates every open buffer, tab, snapshot, language-server
+// document, and watcher entry that lived under a path renamed on disk. The
+// buffer ID is preserved so edits, undo history, and per-buffer snapshots
+// survive the move; only path-keyed state is rebased.
+func (m *Model) rebindMovedPath(msg messages.FileMovedMsg) {
+	sep := string(filepath.Separator)
+
+	rebase := func(p string) (string, bool) {
+		if p == msg.OldPath {
+			return msg.NewPath, true
+		}
+		if msg.IsDir && strings.HasPrefix(p, msg.OldPath+sep) {
+			return msg.NewPath + strings.TrimPrefix(p, msg.OldPath), true
+		}
+		return "", false
+	}
+
+	type move struct {
+		oldPath string
+		newPath string
+		bufID   int
+	}
+	// Collect first so the openBuffers map is not mutated during iteration.
+	var moves []move
+	for path, id := range m.openBuffers {
+		if newPath, ok := rebase(path); ok {
+			moves = append(moves, move{oldPath: path, newPath: newPath, bufID: id})
+		}
+	}
+
+	for _, mv := range moves {
+		delete(m.openBuffers, mv.oldPath)
+		m.openBuffers[mv.newPath] = mv.bufID
+
+		pathMsg := messages.BufferPathChangedMsg{
+			BufferID: mv.bufID,
+			OldPath:  mv.oldPath,
+			NewPath:  mv.newPath,
+		}
+		m.tabBar, _ = m.tabBar.Update(pathMsg)
+		active := m.editor.BufferID() == mv.bufID
+		if active {
+			m.editor.SetPath(mv.newPath)
+			m.updateBreadcrumbs(pathMsg)
+			m.updateStatusBar(pathMsg)
+		} else if snap, ok := m.bufferSnapshots[mv.bufID]; ok {
+			snap.Path = mv.newPath
+			m.bufferSnapshots[mv.bufID] = snap
+		}
+
+		// Re-open the renamed document so diagnostics/completions keep working.
+		if m.lspMgr != nil {
+			if lang := m.languageForPath(mv.oldPath); lang != "" {
+				content := ""
+				if active {
+					content = m.editor.Content()
+				} else if snap, ok := m.bufferSnapshots[mv.bufID]; ok {
+					content = snap.Content()
+				}
+				m.lspMgr.DidClose(mv.oldPath, lang)
+				m.lspMgr.DidOpen(mv.newPath, lang, content)
+			}
+		}
+
+		// Follow the moved file with the filesystem watcher.
+		if m.watcher != nil {
+			if !m.dirHasOpenBuffer(filepath.Dir(mv.oldPath)) {
+				_ = m.watcher.Unwatch(filepath.Dir(mv.oldPath))
+			}
+			_ = m.watcher.Watch(filepath.Dir(mv.newPath))
+		}
+	}
+
+	// Re-key snapshots for files that were closed after editing at the old path.
+	for path, snap := range m.closedSnapshots {
+		if newPath, ok := rebase(path); ok {
+			delete(m.closedSnapshots, path)
+			snap.Path = newPath
+			m.closedSnapshots[newPath] = snap
+		}
+	}
+}
+
+// isOwnMovePath reports whether path is the source (or under the source) of a
+// sidebar drag/drop rename currently being completed, so its watcher events
+// can be ignored until FileMovedMsg rebinds the buffers.
+func (m *Model) isOwnMovePath(path string) bool {
+	if m.movingPath == "" {
+		return false
+	}
+	return path == m.movingPath || strings.HasPrefix(path, m.movingPath+string(filepath.Separator))
+}
+
+// dirHasOpenBuffer reports whether any open buffer lives directly in dir.
+func (m *Model) dirHasOpenBuffer(dir string) bool {
+	for path := range m.openBuffers {
+		if filepath.Dir(path) == dir {
+			return true
+		}
+	}
+	return false
+}
+
 // handleMouseClick routes mouse click events to the appropriate component based on position.
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	if m.workspacePromptVisible {
@@ -1506,6 +1622,28 @@ func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 	x := msg.Mouse().X
 	y := msg.Mouse().Y
 
+	// A release that ends a sidebar file drag is always routed to the file
+	// tree — even on the tab bar or status bar rows, where it cancels the drag
+	// instead of dropping on an off-screen row.
+	if msg.Button == tea.MouseLeft && m.fileTree.IsDragging() {
+		m.movingPath = m.fileTree.DragSourcePath()
+		treeY := y - tabBarHeight
+		if y <= 0 || y >= m.height-statusBarHeight {
+			treeY = -1 // outside the viewport: cancel, do not move
+		}
+		var cmd tea.Cmd
+		m.fileTree, cmd = m.fileTree.Update(tea.MouseReleaseMsg{
+			Button: msg.Button,
+			Mod:    msg.Mod,
+			X:      x,
+			Y:      treeY,
+		})
+		if cmd == nil {
+			m.movingPath = "" // drag cancelled or failed; nothing to rebind
+		}
+		return cmd
+	}
+
 	// Route tab bar row to tab bar (close button × and middle-click).
 	if y == 0 {
 		var cmd tea.Cmd
@@ -1518,6 +1656,20 @@ func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 	}
 
 	contentY := y - tabBarHeight
+
+	// Route plain clicks over the sidebar to the file tree so they activate on
+	// release.
+	if m.sidebarVisible && x < sidebarW {
+		adjustedMsg := tea.MouseReleaseMsg{
+			Button: msg.Button,
+			Mod:    msg.Mod,
+			X:      x,
+			Y:      contentY,
+		}
+		var cmd tea.Cmd
+		m.fileTree, cmd = m.fileTree.Update(adjustedMsg)
+		return cmd
+	}
 
 	if m.searchOpen {
 		editorX := x - sidebarW
@@ -1676,6 +1828,20 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 		m.sidebarWidth = newWidth
 		cmds := m.resizeComponents()
 		return tea.Batch(cmds...)
+	}
+
+	// Keep feeding motion to the file tree while a file drag is in flight — even
+	// when the pointer leaves the sidebar — so the drop target updates or clears.
+	if m.fileTree.IsDragging() {
+		adjustedMsg := tea.MouseMotionMsg{
+			Button: msg.Button,
+			Mod:    msg.Mod,
+			X:      x,
+			Y:      y - tabBarHeight,
+		}
+		var cmd tea.Cmd
+		m.fileTree, cmd = m.fileTree.Update(adjustedMsg)
+		return cmd
 	}
 
 	// Route motion to appropriate component region

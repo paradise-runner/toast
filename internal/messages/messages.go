@@ -319,6 +319,26 @@ type FileDeletedMsg struct{ Path string }
 // DirDeletedMsg - emitted after a directory is removed from disk via the sidebar
 type DirDeletedMsg struct{ Path string }
 
+// FileMovedMsg - emitted after a sidebar drag/drop renames a path on disk.
+// OldPath is the pre-move path; NewPath is the post-move path. IsDir is true
+// when the moved entry was a directory (NewPath is then the new directory
+// path and every open buffer under OldPath has been rebased).
+type FileMovedMsg struct {
+	OldPath string
+	NewPath string
+	IsDir   bool
+}
+
+// BufferPathChangedMsg - an open buffer's backing file was renamed on disk
+// (sidebar move). Components that key tabs by path (tab bar, breadcrumbs,
+// status bar) update to NewPath; the buffer ID is unchanged so edits, undo
+// history, and snapshots are preserved.
+type BufferPathChangedMsg struct {
+	BufferID int
+	OldPath  string
+	NewPath  string
+}
+
 // SaveConfigMsg - emitted when a component needs app to persist updated config
 type SaveConfigMsg struct{ Config interface{} }
 

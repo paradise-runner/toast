@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	previewButtonLabel  = " Preview "
-	previewButtonWidth  = len(previewButtonLabel) // 9
+	previewButtonLabel = " Preview "
+	previewButtonWidth = len(previewButtonLabel) // 9
 )
 
 type Model struct {
@@ -41,6 +41,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ActiveBufferChangedMsg:
 		m.path = msg.Path
 		// Close preview when switching to a non-markdown file.
+		if !isMarkdownPath(m.path) {
+			m.previewOpen = false
+		}
+		m.updateButtonX()
+	case messages.BufferPathChangedMsg:
+		m.path = msg.NewPath
 		if !isMarkdownPath(m.path) {
 			m.previewOpen = false
 		}
