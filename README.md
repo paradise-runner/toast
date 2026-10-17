@@ -10,7 +10,7 @@
 </div>
 
 
-toast is a beautiful developer environment right in your terminal. vim, nvim, and emacs have you build your editor from scratch, while toast ships with managed LSPs, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
+toast is a beautiful developer environment right in your terminal. vim, nvim, and emacs give you the pieces and leave the wiring to you — language servers included, since an LSP client still expects you to install the server yourself. toast ships wired up: managed language servers it offers to install for you, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
 
 > ⚠️ This project is in _early development_, you may encounter bugs. ⚠️
 
