@@ -25,14 +25,16 @@ brew install paradise-runner/tap/toast
 
 ## Features
 
-| Editor | No AI features | No telemetry | File tree with git status |
-|--------|:---:|:---:|:---:|
-| **toast** | ✅ | ✅ | ✅ |
-| nvim | ✅ | ✅ | ❌ |
-| vim | ✅ | ✅ | ❌ |
-| emacs | ✅ | ✅ | ❌ |
-| vscode | ❌ | ❌ | ✅ |
-| zed | ❌ | ❌ | ✅ |
+| Editor | No AI features | No telemetry | Managed server installs | File tree with git status |
+|--------|:---:|:---:|:---:|:---:|
+| **toast** | ✅ | ✅ | ✅ | ✅ |
+| nvim | ✅ | ✅ | ❌ | ❌ |
+| vim | ✅ | ✅ | ❌ | ❌ |
+| emacs | ✅ | ✅ | ❌ | ❌ |
+| vscode | ❌ | ❌ | ✅ | ✅ |
+| zed | ❌ | ❌ | ✅ | ✅ |
+
+**Managed server installs** means the editor downloads and installs the language server for you. An LSP client alone — eglot, nvim's `vim.lsp` — only launches a server you already have on your `PATH`. vscode does this through per-language extensions (the Go extension installs `gopls`), zed downloads servers automatically, and toast offers to install them on first use.
 
 vim, nvim, and emacs all ship directory browsers (netrw, the built-in directory browser, dired/speedbar), but none of them show git status in the tree.
 
