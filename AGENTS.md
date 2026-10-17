@@ -160,3 +160,11 @@ import (
 - Prefer table-driven tests for many input/output combinations.
 - Do **not** start a real bubbletea program; call `Update` and helpers directly.
 - Use `t.TempDir()` for tests that need filesystem paths.
+
+## Releases
+
+Releases run through Release Please (`.github/workflows/release-please.yml`,
+`release-please-config.json`); see `docs/releasing.md`. Practical consequence
+for agents: **commit and PR titles must be conventional** (`feat:`, `fix:`,
+`docs:`, `chore:`, …) — a title like `readme reorg` is invisible to Release
+Please and produces no release.
