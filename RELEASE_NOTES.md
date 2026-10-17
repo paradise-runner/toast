@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.10.0 — 2026-10-16
+
+Fixes horizontal scrolling getting stuck after scrolling right on a long line: shorter lines rendered blank and clicks mapped to line ends, with no way back except moving the caret to column 0. Also adds horizontal wheel / shift+wheel scrolling in non-wrap mode, clamped to the longest visible line, and hides the caret instead of pinning it to the gutter when scrolled off-screen.
+
+### Fixes
+- `clampViewport` now compares raw byte offsets instead of display columns, so a cursor line scrolled entirely off-screen snaps back to the line start; otherwise the viewport scrolls the minimum needed to reveal the cursor. Regression tests in `hscroll_test.go` cover short/blank line recovery, wheel and shift+wheel scrolling, clamping, wrap-mode no-op, and caret hiding.
+- Horizontal wheel (`MouseWheelLeft`/`Right`) and shift+wheel scroll the viewport without moving the caret in non-wrap mode, clamped to the longest visible line so it cannot drift into empty space.
+
+Addresses #68.
+
 ## v0.9.0 — 2026-08-29
 
 The command palette (issue #26) — `Ctrl+Shift+P` fuzzy search over every editor action — with keybinding hints, live toggle-state pills, MRU ordering, a rotating-tips footer, and a status-bar confirmation flash.
