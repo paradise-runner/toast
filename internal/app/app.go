@@ -2605,6 +2605,10 @@ func (m *Model) View() tea.View {
 		const tabBarHeight = 1
 		v.Content = overlayAt(v.Content, menuStr, menuX, menuY+tabBarHeight, m.width, m.height)
 	}
+	if dragStr, dragX, dragY, ok := m.fileTree.DragOverlay(); ok {
+		const tabBarHeight = 1
+		v.Content = overlayAt(v.Content, dragStr, dragX, dragY+tabBarHeight, m.width, m.height)
+	}
 	if m.themePickerOpen {
 		overlayStr := m.themePicker.Render()
 		v.Content = overlayCenter(v.Content, overlayStr, m.width, m.height)

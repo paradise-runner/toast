@@ -3,9 +3,12 @@ package filetree
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,6 +18,22 @@ import (
 	"github.com/yourusername/toast/internal/messages"
 	"github.com/yourusername/toast/internal/theme"
 )
+
+const (
+	// dragExpandDelay is how long the pointer must dwell on a collapsed
+	// directory during a drag before it expands.
+	dragExpandDelay = 500 * time.Millisecond
+	// dragScrollInterval is the auto-scroll cadence while the pointer is
+	// dragged past the top or bottom edge of the tree.
+	dragScrollInterval = 60 * time.Millisecond
+)
+
+// dragExpandTickMsg fires after the hover-to-expand dwell. path identifies the
+// directory that was hovered when the timer was armed.
+type dragExpandTickMsg struct{ path string }
+
+// dragScrollTickMsg advances the edge auto-scroll loop one row.
+type dragScrollTickMsg struct{}
 
 // Model is the Bubbletea model for the file tree sidebar.
 type Model struct {
@@ -38,7 +57,9 @@ type Model struct {
 	inlineInsertIdx int // index in flat where the edit row is inserted after
 
 	// ── Drag & drop ───────────────────────────────────────────────────────────────
-	drag dragState
+	drag              dragState
+	dragScrolling     bool   // edge auto-scroll loop is running
+	dragExpandPending string // collapsed dir awaiting the hover-to-expand dwell
 }
 
 // dragState tracks a left-button press that may become a file move. A press
@@ -50,10 +71,20 @@ type dragState struct {
 	from    *TreeNode
 	active  bool
 	dropIdx int // flat index of the current drop target, -1 when invalid
+	edge    int // -1 = pointer above the viewport, +1 = below, 0 = inside
+	mouseX  int // last tree-local pointer X, for the drag ghost label
+	mouseY  int // last tree-local pointer Y
 }
 
 // idleDrag returns the zero drag state (no pending press).
 func idleDrag() dragState { return dragState{fromIdx: -1, dropIdx: -1} }
+
+// clearDrag abandons any pending press or in-flight drag and its timers.
+func (m *Model) clearDrag() {
+	m.drag = idleDrag()
+	m.dragScrolling = false
+	m.dragExpandPending = ""
+}
 
 // IsDragging reports whether a file/folder drag is in flight. The app uses
 // this to keep routing mouse motion to the tree even when the pointer leaves
@@ -109,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		// Keyboard input abandons any pending or in-flight mouse drag.
-		m.drag = idleDrag()
+		m.clearDrag()
 		// Delete dialog is open — route keys to it.
 		if m.deleteDialog != nil {
 			confirm, cancel, _ := m.deleteDialog.HandleKey(msg)
@@ -177,7 +208,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.inlineInput != nil {
 				return m, nil
 			}
-			m.drag = idleDrag()
+			m.clearDrag()
 			idx := m.offset + msg.Y
 			targetDir := m.rootDir
 			var targetNode *TreeNode
@@ -226,7 +257,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			}
 			idx := m.offset + msg.Y
-			m.drag = idleDrag()
+			m.clearDrag()
 			if idx >= 0 && idx < len(m.flat) {
 				node := m.flat[idx]
 				m.cursor = idx
@@ -248,13 +279,39 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Drag detection: a button-held move to a different row starts a drag.
 		if m.drag.from != nil && msg.Button == tea.MouseLeft {
 			idx := m.offset + msg.Y
+			m.drag.mouseX, m.drag.mouseY = msg.X, msg.Y
 			if !m.drag.active && idx != m.drag.fromIdx {
 				m.drag.active = true
 			}
-			if m.drag.active {
-				m.drag.dropIdx = m.dropTargetAt(idx, msg.Y)
+			if !m.drag.active {
+				return m, nil
 			}
-			return m, nil
+			m.drag.dropIdx = m.dropTargetAt(idx, msg.Y)
+			// Edge auto-scroll when the pointer is dragged past the viewport.
+			m.drag.edge = 0
+			if msg.Y < 0 {
+				m.drag.edge = -1
+			} else if m.height > 0 && msg.Y >= m.height {
+				m.drag.edge = 1
+			}
+			var cmds []tea.Cmd
+			if m.drag.edge != 0 && !m.dragScrolling {
+				m.dragScrolling = true
+				cmds = append(cmds, dragScrollTick())
+			}
+			// Hover-to-expand: arm a one-shot dwell timer for a collapsed dir.
+			if path := m.pendingExpandPath(); path != "" {
+				if path != m.dragExpandPending {
+					m.dragExpandPending = path
+					cmds = append(cmds, dragExpandTick(path))
+				}
+			} else {
+				m.dragExpandPending = ""
+			}
+			if len(cmds) == 0 {
+				return m, nil
+			}
+			return m, tea.Batch(cmds...)
 		}
 
 	case tea.MouseReleaseMsg:
@@ -267,23 +324,59 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if inViewport && idx == d.fromIdx {
 			// Press and release on the same row: a plain click, even if the
 			// pointer jittered onto another row in between.
-			m.drag = idleDrag()
+			m.clearDrag()
 			return m.activateNode(idx)
 		}
 		// Releasing outside the tree cancels the drag rather than dropping on
 		// the last row the pointer happened to cross.
 		if !d.active || !inViewport {
-			m.drag = idleDrag()
+			m.clearDrag()
 			return m, nil
 		}
 		// Resolve the destination before clearing the drag state — canDropInto
 		// reads m.drag.from.
 		destDir, ok := m.dropDirAt(d.dropIdx)
-		m.drag = idleDrag()
+		m.clearDrag()
 		if !ok {
 			return m, nil
 		}
 		return m.moveNode(d.from, destDir)
+
+	case dragScrollTickMsg:
+		if !m.drag.active || m.drag.edge == 0 {
+			m.dragScrolling = false
+			return m, nil
+		}
+		if m.scrollViewport(m.drag.edge) {
+			return m, dragScrollTick()
+		}
+		m.dragScrolling = false
+		return m, nil
+
+	case dragExpandTickMsg:
+		// Ignore a stale timer: the pointer must still be hovering the same
+		// collapsed directory when the dwell elapses.
+		if !m.drag.active || m.dragExpandPending != msg.path {
+			return m, nil
+		}
+		m.dragExpandPending = ""
+		if m.drag.dropIdx < 0 || m.drag.dropIdx >= len(m.flat) {
+			return m, nil
+		}
+		node := m.flat[m.drag.dropIdx]
+		if !node.IsDir || node.Expanded || node.Path != msg.path {
+			return m, nil
+		}
+		if !node.Loaded() {
+			_ = node.LoadChildren(m.cfg.IgnoredPatterns)
+		}
+		node.Expanded = true
+		if m.gitStatuses != nil {
+			m.applyGitStatus(m.gitStatuses)
+		}
+		m.rebuildFlat()
+		m.refreshDragFromIdx()
+		return m, nil
 
 	case tea.MouseWheelMsg:
 		switch msg.Button {
@@ -632,6 +725,114 @@ func (m Model) dropDirAt(idx int) (string, bool) {
 	return destDir, true
 }
 
+// refreshDragFromIdx re-locates the dragged node in the flat list after a
+// rebuild (hover-to-expand changes the indices of rows below the target).
+func (m *Model) refreshDragFromIdx() {
+	if m.drag.from == nil {
+		return
+	}
+	for i, node := range m.flat {
+		if node == m.drag.from {
+			m.drag.fromIdx = i
+			return
+		}
+	}
+}
+
+// pendingExpandPath returns the path of a collapsed directory that is
+// currently the drop target, or "" when the target is not a collapsed dir.
+func (m Model) pendingExpandPath() string {
+	if m.drag.dropIdx < 0 || m.drag.dropIdx >= len(m.flat) {
+		return ""
+	}
+	node := m.flat[m.drag.dropIdx]
+	if node.IsDir && !node.Expanded {
+		return node.Path
+	}
+	return ""
+}
+
+// dragExpandTick schedules the hover-to-expand dwell timer.
+func dragExpandTick(path string) tea.Cmd {
+	return tea.Tick(dragExpandDelay, func(time.Time) tea.Msg {
+		return dragExpandTickMsg{path: path}
+	})
+}
+
+// dragScrollTick schedules the next edge auto-scroll step.
+func dragScrollTick() tea.Cmd {
+	return tea.Tick(dragScrollInterval, func(time.Time) tea.Msg {
+		return dragScrollTickMsg{}
+	})
+}
+
+// scrollViewport nudges the visible window by delta rows and keeps the cursor
+// inside it. It reports whether the window actually moved.
+func (m *Model) scrollViewport(delta int) bool {
+	if m.height <= 0 {
+		return false
+	}
+	maxOffset := len(m.flat) - m.height
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	next := m.offset + delta
+	if next < 0 {
+		next = 0
+	}
+	if next > maxOffset {
+		next = maxOffset
+	}
+	if next == m.offset {
+		return false
+	}
+	m.offset = next
+	if m.cursor < m.offset {
+		m.cursor = m.offset
+	}
+	if m.cursor > m.offset+m.height-1 {
+		m.cursor = m.offset + m.height - 1
+	}
+	return true
+}
+
+// DragOverlay returns the floating "name → destination" label for an in-flight
+// drag and its tree-local anchor, for the app to composite over the layout.
+func (m Model) DragOverlay() (rendered string, x, y int, ok bool) {
+	if !m.drag.active || m.drag.from == nil {
+		return "", 0, 0, false
+	}
+	label := m.drag.from.Name
+	if dest := m.dropLabel(); dest != "" {
+		label += " → " + dest
+	}
+	style := lipgloss.NewStyle().Padding(0, 1).Bold(true)
+	if bg := m.theme.UI("completion_selected"); bg != "" {
+		style = style.Background(lipgloss.Color(bg))
+	}
+	if fg := m.theme.UI("completion_fg"); fg != "" {
+		style = style.Foreground(lipgloss.Color(fg))
+	}
+	return style.Render(label), m.drag.mouseX + 2, m.drag.mouseY + 1, true
+}
+
+// dropLabel renders the current drop destination relative to the tree root
+// ("sub/dir/", "./" for the root), or "" when there is no valid target.
+func (m Model) dropLabel() string {
+	if m.drag.dropIdx < 0 {
+		return ""
+	}
+	dest, ok := m.dropDirAt(m.drag.dropIdx)
+	if !ok {
+		return ""
+	}
+	rel, err := filepath.Rel(m.rootDir, dest)
+	if err != nil || rel == "." {
+		return "./"
+	}
+	return rel + "/"
+}
+
 // canDropInto reports whether the in-flight drag may move into destDir. It
 // rejects the current parent (no-op), the source itself, descendants of the
 // source, and destinations that already hold an entry with the same name.
@@ -662,7 +863,7 @@ func (m *Model) moveNode(from *TreeNode, destDir string) (Model, tea.Cmd) {
 	oldPath := from.Path
 	isDir := from.IsDir
 	newPath := filepath.Join(destDir, from.Name)
-	if err := os.Rename(oldPath, newPath); err != nil {
+	if err := movePath(oldPath, newPath); err != nil {
 		fmt.Fprintf(os.Stderr, "toast: move %q: %v\n", oldPath, err)
 		return *m, nil
 	}
@@ -673,6 +874,80 @@ func (m *Model) moveNode(from *TreeNode, destDir string) (Model, tea.Cmd) {
 	return *m, func() tea.Msg {
 		return messages.FileMovedMsg{OldPath: oldPath, NewPath: newPath, IsDir: isDir}
 	}
+}
+
+// movePath renames src to dst. When src and dst live on different filesystems
+// os.Rename fails with EXDEV, so it falls back to copying then removing the
+// source.
+func movePath(src, dst string) error {
+	return movePathWith(src, dst, os.Rename)
+}
+
+// movePathWith is movePath with an injectable rename, so the cross-device
+// fallback can be exercised in tests.
+func movePathWith(src, dst string, rename func(string, string) error) error {
+	err := rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+	if err := copyPath(src, dst); err != nil {
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+// copyPath recursively copies a file, directory, or symlink.
+func copyPath(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, dst)
+	case info.IsDir():
+		if err := os.MkdirAll(dst, info.Mode().Perm()|0700); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if err := copyPath(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+				return err
+			}
+		}
+		return os.Chmod(dst, info.Mode().Perm())
+	default:
+		return copyFile(src, dst, info.Mode().Perm())
+	}
+}
+
+// copyFile copies a single regular file, preserving its permission bits.
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // selectPath moves the cursor (and viewport) onto the row for path when it is
