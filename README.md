@@ -25,13 +25,16 @@ brew install paradise-runner/tap/toast
 
 ## Features
 
-| Editor | No AI features | No telemetry | Built-in file tree | Mouse support |
+| Editor | No AI features | No telemetry | File tree with git status | Mouse on by default |
 |--------|:---:|:---:|:---:|:---:|
 | **toast** | ✅ | ✅ | ✅ | ✅ |
+| nvim | ✅ | ✅ | ❌ | ✅ |
 | vim | ✅ | ✅ | ❌ | ❌ |
-| emacs | ✅ | ✅ | ❌ | ❌ |
+| emacs | ✅ | ✅ | ❌ | ⚠️ |
 | vscode | ❌ | ❌ | ✅ | ✅ |
 | zed | ❌ | ❌ | ✅ | ✅ |
+
+⚠️ emacs enables the mouse in graphical frames; in a terminal it needs `xterm-mouse-mode`. vim needs `set mouse=a`. Both ship directory browsers (dired, speedbar, netrw), but none of them show git status in the tree.
 
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
