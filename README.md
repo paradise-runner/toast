@@ -34,10 +34,6 @@ brew install paradise-runner/tap/toast
 | vscode | ❌ | ❌ | ✅ | ❌ |
 | zed | ❌ | ❌ | ✅ | ❌ |
 
-**Managed server installs** means the editor downloads and installs the language server for you. An LSP client alone — eglot, nvim's `vim.lsp` — only launches a server you already have on your `PATH`. vscode does this through per-language extensions (the Go extension installs `gopls`), zed downloads servers automatically, and toast offers to install them on first use.
-
-**Theme from terminal colors** means the editor asks the terminal for its background, foreground, cursor, and 16-color palette and builds its theme from what comes back. toast queries all four for its `system` theme; vim only guesses light or dark and its default scheme uses fixed palette indices; nvim's default scheme (0.10+) uses fixed colors; emacs needs `background` set by hand; vscode and zed follow the OS appearance setting instead.
-
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
 - **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, Markdown)
