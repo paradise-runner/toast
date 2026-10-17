@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,13 @@ type batchMsg struct {
 	results      []messages.SearchResultMsg
 	totalFiles   int
 	totalMatches int
+}
+
+// searchErrorMsg reports that the search command could not be started (for
+// example because ripgrep is not installed). It replaces the silent empty
+// batch so the panel can explain why it found nothing.
+type searchErrorMsg struct {
+	err error
 }
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -187,6 +195,7 @@ type Model struct {
 	done         bool
 	totalFiles   int
 	totalMatches int
+	errMsg       string
 }
 
 // New creates a new search panel.
@@ -236,7 +245,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.totalMatches++
 		m.clampScroll()
 
+	case searchErrorMsg:
+		m.results = nil
+		m.running = false
+		m.done = true
+		m.errMsg = msg.err.Error()
+		m.totalFiles = 0
+		m.totalMatches = 0
+
 	case batchMsg:
+		m.errMsg = ""
 		for _, r := range msg.results {
 			m.results = append(m.results, Result{
 				Path:    r.Path,
@@ -274,6 +292,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.offset = 0
 		m.running = true
 		m.done = false
+		m.errMsg = ""
 		m.totalFiles = 0
 		m.totalMatches = 0
 		cmds = append(cmds, runSearch(msg.query, msg.rootDir, m.cfg.Command, m.cfg.Args))
@@ -500,8 +519,21 @@ func (m Model) View() tea.View {
 		sb.WriteString(row + "\n")
 	}
 
+	// When the search command could not start, show why in the otherwise
+	// empty result area instead of rendering a silently blank list.
+	padFrom := end - m.offset
+	if m.errMsg != "" && len(m.results) == 0 {
+		for _, line := range m.errorLines() {
+			if padFrom >= listH {
+				break
+			}
+			sb.WriteString(base.Width(m.width).Render(subtleStyle.Render(line)) + "\n")
+			padFrom++
+		}
+	}
+
 	// Pad remaining rows so the summary sits at the bottom.
-	for i := end - m.offset; i < listH; i++ {
+	for ; padFrom < listH; padFrom++ {
 		sb.WriteString(base.Width(m.width).Render("") + "\n")
 	}
 
@@ -511,6 +543,8 @@ func (m Model) View() tea.View {
 	switch {
 	case m.running:
 		status = fmt.Sprintf("Searching… %d matches", len(m.results))
+	case m.errMsg != "":
+		status = "Search unavailable"
 	case m.done:
 		status = fmt.Sprintf("%d matches in %d files", m.totalMatches, m.totalFiles)
 	case m.query.value == "":
@@ -532,6 +566,18 @@ func (m Model) listHeight() int {
 		return 0
 	}
 	return n
+}
+
+// errorLines returns the message shown when the search command could not
+// start, as short lines that fit the panel width.
+func (m Model) errorLines() []string {
+	if m.errMsg == "" {
+		return nil
+	}
+	return []string{
+		m.errMsg,
+		`Install it or set "search.command" in the config.`,
+	}
 }
 
 // closeX returns the X position of the close button and whether it fits.
@@ -597,21 +643,56 @@ func (m Model) debounceSearch(query string) tea.Cmd {
 
 // ── Search execution ──────────────────────────────────────────────────────────
 
+// bundledSearchEnv names the environment variable the desktop bundle exports
+// with the path to the ripgrep binary it ships. It is only consulted for the
+// default command so a user-configured search.command is never overridden.
+const bundledSearchEnv = "TOAST_RG_PATH"
+
+// defaultSearchCommand is used when the config does not set search.command.
+const defaultSearchCommand = "rg"
+
+// resolveCommand returns the path to the search executable, preferring a
+// binary bundled with the app over one found on PATH. When neither exists it
+// returns an error naming the missing command, so the panel can explain the
+// failure instead of silently showing no results.
+func resolveCommand(command string) (string, error) {
+	if command == "" {
+		command = defaultSearchCommand
+	}
+	if command == defaultSearchCommand {
+		if bundled := os.Getenv(bundledSearchEnv); bundled != "" {
+			if info, err := os.Stat(bundled); err == nil && !info.IsDir() {
+				return bundled, nil
+			}
+		}
+	}
+	if path, err := exec.LookPath(command); err == nil {
+		return path, nil
+	}
+	return "", fmt.Errorf("search command %q not found", command)
+}
+
 // runSearch executes the configured search command (default: rg --json) and
-// returns a batchMsg containing all results.
+// returns a batchMsg containing all results, or a searchErrorMsg when the
+// command cannot be started.
 func runSearch(query, rootDir, command string, args []string) tea.Cmd {
 	return func() tea.Msg {
+		resolved, err := resolveCommand(command)
+		if err != nil {
+			return searchErrorMsg{err: err}
+		}
+
 		fullArgs := make([]string, 0, len(args)+3)
 		fullArgs = append(fullArgs, args...)
 		fullArgs = append(fullArgs, "--", query, rootDir)
 
-		cmd := exec.Command(command, fullArgs...)
+		cmd := exec.Command(resolved, fullArgs...)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			return batchMsg{}
+			return searchErrorMsg{err: err}
 		}
 		if err := cmd.Start(); err != nil {
-			return batchMsg{}
+			return searchErrorMsg{err: err}
 		}
 
 		var (
@@ -652,6 +733,10 @@ func runSearch(query, rootDir, command string, args []string) tea.Cmd {
 					MatchEnd:   sub.End,
 				})
 			}
+		}
+		if err := scanner.Err(); err != nil {
+			_ = cmd.Wait()
+			return searchErrorMsg{err: fmt.Errorf("reading search output: %w", err)}
 		}
 		_ = cmd.Wait()
 

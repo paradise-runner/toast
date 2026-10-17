@@ -1,6 +1,9 @@
 package search
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -852,20 +855,88 @@ func TestRenderedRowIsFullWidth(t *testing.T) {
 func TestSearchRunnerInvalidCommand(t *testing.T) {
 	cmd := runSearch("test", "/tmp", "nonexistent-command-xyz", nil)
 	msg := cmd()
-	b, ok := msg.(batchMsg)
+	errMsg, ok := msg.(searchErrorMsg)
 	if !ok {
-		t.Fatalf("expected batchMsg, got %T", msg)
+		t.Fatalf("expected searchErrorMsg, got %T", msg)
 	}
-	if len(b.results) != 0 {
-		t.Fatalf("expected 0 results for invalid command, got %d", len(b.results))
+	if !strings.Contains(errMsg.err.Error(), "nonexistent-command-xyz") {
+		t.Fatalf("error %q should name the missing command", errMsg.err)
+	}
+}
+
+func TestResolveCommandPrefersBundled(t *testing.T) {
+	bundled := filepath.Join(t.TempDir(), "rg")
+	if err := os.WriteFile(bundled, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv(bundledSearchEnv, bundled)
+
+	got, err := resolveCommand("rg")
+	if err != nil {
+		t.Fatalf("resolveCommand: %v", err)
+	}
+	if got != bundled {
+		t.Fatalf("resolveCommand = %q, want bundled %q", got, bundled)
+	}
+}
+
+func TestResolveCommandIgnoresBundledForCustomCommand(t *testing.T) {
+	bundled := filepath.Join(t.TempDir(), "rg")
+	if err := os.WriteFile(bundled, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv(bundledSearchEnv, bundled)
+
+	// A missing custom command must not silently fall back to the bundled rg.
+	if _, err := resolveCommand("nonexistent-command-xyz"); err == nil {
+		t.Fatal("expected error for missing custom command")
+	}
+}
+
+func TestResolveCommandFallsBackToPath(t *testing.T) {
+	t.Setenv(bundledSearchEnv, filepath.Join(t.TempDir(), "missing"))
+
+	got, err := resolveCommand("rg")
+	if _, lookErr := exec.LookPath("rg"); lookErr != nil {
+		if err == nil {
+			t.Fatalf("expected error when rg is neither bundled nor on PATH, got %q", got)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("resolveCommand: %v", err)
+	}
+	if !strings.HasSuffix(got, "rg") {
+		t.Fatalf("resolveCommand = %q, want a path ending in rg", got)
+	}
+}
+
+func TestSearchErrorRendersMessage(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = m.Update(searchErrorMsg{err: fmt.Errorf("search command %q not found", "rg")})
+
+	if m.running || !m.done {
+		t.Fatalf("expected done, not running: running=%v done=%v", m.running, m.done)
+	}
+	view := m.View().Content
+	if !strings.Contains(view, "not found") {
+		t.Fatalf("view should explain the failure, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Search unavailable") {
+		t.Fatalf("view should mark search unavailable, got:\n%s", view)
 	}
 }
 
 func TestSearchRunnerEmptyArgs(t *testing.T) {
-	// Should not crash.
+	// Should not crash; either the search runs or reports that rg is missing.
 	cmd := runSearch("test", "/tmp", "rg", nil)
-	msg := cmd()
-	if _, ok := msg.(batchMsg); !ok {
-		t.Fatalf("expected batchMsg, got %T", msg)
+	switch msg := cmd().(type) {
+	case batchMsg:
+	case searchErrorMsg:
+		if _, lookErr := exec.LookPath("rg"); lookErr == nil {
+			t.Fatalf("rg is on PATH but search reported an error: %v", msg.err)
+		}
+	default:
+		t.Fatalf("expected batchMsg or searchErrorMsg, got %T", msg)
 	}
 }

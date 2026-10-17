@@ -119,6 +119,15 @@ Options:
 		fmt.Fprintf(os.Stderr, "warning: config error: %v\n", err)
 	}
 
+	// A build with an embedded ripgrep (make build) extracts it once and points
+	// search at it, so project-wide search works without rg on PATH. The desktop
+	// bundle sets TOAST_RG_PATH itself, so this is a no-op there.
+	if os.Getenv("TOAST_RG_PATH") == "" {
+		if path := bundledRipgrep(); path != "" {
+			os.Setenv("TOAST_RG_PATH", path)
+		}
+	}
+
 	// The bundled desktop app (toast-libghostty) runs inside a terminal that
 	// cannot report a meaningful system color scheme, so a \"system\" theme
 	// would resolve to the terminal's raw black/white defaults. Default the

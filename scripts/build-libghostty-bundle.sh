@@ -3,16 +3,17 @@
 # terminal window (Ghostling). Modeled on Terminal Empire's libghostty bundle.
 #
 # Output: dist/toast-libghostty — a single self-extracting executable. On
-# first run it unpacks the terminal, the editor, and libghostty-vt to a temp
-# directory, then opens a Ghostling window running toast. On macOS it also
-# assembles dist/Toast.app, a proper application bundle wrapping the launcher
-# (dock icon, name, Info.plist).
+# first run it unpacks the terminal, the editor, ripgrep, and libghostty-vt to
+# a temp directory, then opens a Ghostling window running toast. On macOS it
+# also assembles dist/Toast.app, a proper application bundle wrapping the
+# launcher (dock icon, name, Info.plist).
 #
 # Version: TOAST_VERSION (e.g. "v0.8.0") overrides the version baked into the
 # launcher and Info.plist; defaults to cmd/toast/main.go's version var.
 #
 # Requirements: go, git, cmake, ninja, curl, tar. Zig is provisioned
-# automatically (0.15.2) unless ZIG points at a working zig binary.
+# automatically (0.15.2) unless ZIG points at a working zig binary. A pinned
+# ripgrep (TOAST_RIPGREP_VERSION) is downloaded and bundled for search.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -197,9 +198,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 
 cleanup_payloads() {
-	rm -f "${payload_dir}/ghostling" "${payload_dir}/toast" "${payload_dir}/libghostty-vt.dylib"
+	rm -f "${payload_dir}/ghostling" "${payload_dir}/toast" "${payload_dir}/libghostty-vt.dylib" "${payload_dir}/rg"
 }
 trap cleanup_payloads EXIT
+
+echo "bundling ripgrep payload"
+"${repo_root}/scripts/fetch-ripgrep.sh" "${payload_dir}/rg"
 
 cp "${ghostling_payload}" "${payload_dir}/ghostling"
 cp "${toast_payload}" "${payload_dir}/toast"

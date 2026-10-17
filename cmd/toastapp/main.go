@@ -1,10 +1,10 @@
 // Command toastapp is a self-extracting launcher that bundles toast inside a
 // libghostty-based terminal window (Ghostling), producing a standalone desktop
 // app from the TUI. It embeds the built toast binary, the Ghostling terminal,
-// and libghostty-vt as payloads; at runtime it extracts them to a temporary
-// directory, writes a tiny shell wrapper that execs toast, and starts
-// Ghostling with SHELL set to that wrapper. Ghostling then opens its window
-// and runs toast inside its own pseudo-terminal.
+// libghostty-vt, and a ripgrep binary as payloads; at runtime it extracts them
+// to a temporary directory, writes a tiny shell wrapper that execs toast, and
+// starts Ghostling with SHELL set to that wrapper. Ghostling then opens its
+// window and runs toast inside its own pseudo-terminal.
 //
 // Build the payloads with scripts/build-libghostty-bundle.sh — the payload
 // directory only contains a placeholder in the repository.
@@ -28,6 +28,7 @@ const (
 	ghostlingPayload = "payload/ghostling"
 	toastPayload     = "payload/toast"
 	dylibPayload     = "payload/libghostty-vt.dylib"
+	rgPayload        = "payload/rg"
 )
 
 // version is the toast version, injected at build time by
@@ -79,13 +80,10 @@ func run(toastArgs []string) error {
 		return err
 	}
 
+	env := bundleEnv(tmpDir, wrapperPath)
+
 	cmd := exec.Command(ghostlingPath)
-	cmd.Env = append(os.Environ(),
-		"SHELL="+wrapperPath,
-		"TOAST_GHOSTTY_BUNDLE=1",
-		"TOAST_VERSION="+version,
-		"COLORTERM=truecolor",
-	)
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -99,6 +97,23 @@ func run(toastArgs []string) error {
 		return fmt.Errorf("running bundled ghostling terminal: %w", err)
 	}
 	return nil
+}
+
+// bundleEnv returns the environment for the bundled Ghostling process. The
+// ripgrep path is included only when the rg payload was built in, so bundles
+// built before ripgrep was added (and payload-less dev builds) fall back to
+// looking rg up on PATH.
+func bundleEnv(tmpDir, wrapperPath string) []string {
+	env := []string{
+		"SHELL=" + wrapperPath,
+		"TOAST_GHOSTTY_BUNDLE=1",
+		"TOAST_VERSION=" + version,
+		"COLORTERM=truecolor",
+	}
+	if rgPath, err := extractExecutable(tmpDir, rgPayload, "rg"); err == nil {
+		env = append(env, "TOAST_RG_PATH="+rgPath)
+	}
+	return env
 }
 
 func extractExecutable(tmpDir, payloadPath, name string) (string, error) {

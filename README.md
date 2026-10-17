@@ -41,7 +41,7 @@ brew install paradise-runner/tap/toast
 - **Spell checking** — misspelled words in Markdown and plain-text files are underlined in the theme's diagnostic color via harper
 - **Go to definition** — hold `Ctrl` and hover to underline symbols with a target, then `Ctrl`-click to jump to the exact definition
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
-- **Project-wide search** powered by `rg` (ripgrep)
+- **Project-wide search** powered by `rg` (ripgrep), bundled into `make build`
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
 - **Command palette** — `Ctrl+Shift+P` fuzzy search over every action, with keybinding hints, live toggle state, MRU ordering, and a status-bar confirmation flash
 - **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
@@ -233,8 +233,8 @@ Found a bug or have a feature request? We'd love to hear from you! Please open a
 ## Development
 
 ```bash
-make build             # compile
-make run               # go run ./cmd/toast .
+make build             # compile (embeds ripgrep for search)
+make run               # go run -tags embed_rg ./cmd/toast .
 make test              # go test ./...
 make test-integration  # run opt-in Ghostty/tmux terminal integration tests
 make test-integration-update  # refresh golden screenshots

@@ -5,6 +5,7 @@ dist/
 cmd/toastapp/payload/ghostling
 cmd/toastapp/payload/toast
 cmd/toastapp/payload/libghostty-vt.dylib
+cmd/toast/payload/rg
 *.test
 *.out
 .superpowers/

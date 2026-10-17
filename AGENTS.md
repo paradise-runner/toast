@@ -11,10 +11,14 @@ github.com/paradise-runner/toast
 ## Build & Run
 
 ```bash
-make build          # go build -o bin/toast ./cmd/toast
-make run            # go run ./cmd/toast .
-make clean          # rm -rf bin/
+make build          # go build -tags embed_rg -o bin/toast ./cmd/toast (embeds ripgrep)
+make run            # go run -tags embed_rg ./cmd/toast .
+make clean          # rm -rf bin/ cmd/toast/payload/rg
 ```
+
+The embed_rg tag pulls ripgrep from `cmd/toast/payload/rg`, which `make build`
+fetches via `scripts/fetch-ripgrep.sh` (pinned by `RIPGREP_VERSION`). A plain
+`go build ./cmd/toast` skips the embed and search uses `rg` from `PATH`.
 
 ## Testing
 
