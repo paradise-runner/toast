@@ -10,7 +10,7 @@
 </div>
 
 
-toast is a beautiful developer environment right in your terminal. vim, nvim, and emacs give you the pieces and leave the wiring to you — language servers included, since an LSP client still expects you to install the server yourself. toast ships wired up: managed language servers it offers to install for you, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
+toast is a beautiful developer environment right in your terminal. vim, nvim, and emacs have you build your editor from scratch, while toast ships with managed LSPs, an integrated file tree, multiple file tabs, and themes out of the box. toast is for the developer who wants to stay in their terminal without spending hours getting it up to snuff.
 
 > ⚠️ This project is in _early development_, you may encounter bugs. ⚠️
 
@@ -25,16 +25,16 @@ brew install paradise-runner/tap/toast
 
 ## Features
 
-| Editor | No AI features | No telemetry | File tree with git status | Mouse on by default |
-|--------|:---:|:---:|:---:|:---:|
-| **toast** | ✅ | ✅ | ✅ | ✅ |
-| nvim | ✅ | ✅ | ❌ | ✅ |
-| vim | ✅ | ✅ | ❌ | ❌ |
-| emacs | ✅ | ✅ | ❌ | ⚠️ |
-| vscode | ❌ | ❌ | ✅ | ✅ |
-| zed | ❌ | ❌ | ✅ | ✅ |
+| Editor | No AI features | No telemetry | File tree with git status |
+|--------|:---:|:---:|:---:|
+| **toast** | ✅ | ✅ | ✅ |
+| nvim | ✅ | ✅ | ❌ |
+| vim | ✅ | ✅ | ❌ |
+| emacs | ✅ | ✅ | ❌ |
+| vscode | ❌ | ❌ | ✅ |
+| zed | ❌ | ❌ | ✅ |
 
-⚠️ emacs enables the mouse in graphical frames; in a terminal it needs `xterm-mouse-mode`. vim needs `set mouse=a`. Both ship directory browsers (dired, speedbar, netrw), but none of them show git status in the tree.
+vim, nvim, and emacs all ship directory browsers (netrw, the built-in directory browser, dired/speedbar), but none of them show git status in the tree.
 
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
