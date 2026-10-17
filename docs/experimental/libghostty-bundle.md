@@ -102,8 +102,8 @@ the File menu).
 
 Requirements: Go, Git, CMake, Ninja, curl, tar. Zig 0.15.2 is downloaded to
 `build/` unless `ZIG` points at a working 0.15.2 binary. On macOS, if the
-active Xcode SDK is too new for Zig's tbd parser, the script falls back to the
-CommandLineTools SDK automatically.
+active Xcode SDK is too new for Zig's tbd parser, the script retries with the
+SDK of each other Xcode installed in `/Applications` (oldest first).
 
 ```bash
 make app

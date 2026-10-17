@@ -78,7 +78,7 @@ a complete desktop app with its own terminal window (libghostty), native menu
 bar, and dock icon. No terminal, Homebrew, or Go required.
 
 1. Grab the zip for your Mac from the [releases page](https://github.com/paradise-runner/toast/releases/latest):
-   `toast-app-darwin-arm64.zip` for Apple Silicon (M1/M2/M3/M4), `toast-app-darwin-amd64.zip` for Intel.
+   `toast-app-darwin-arm64.zip` (Apple Silicon only — no Intel build).
 2. Unzip it and drag **Toast.app** into your `Applications` folder.
 
 ```bash

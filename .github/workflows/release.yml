@@ -46,20 +46,13 @@ jobs:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}.zip
 
-  # Standalone macOS app: toast bundled with a libghostty terminal window.
-  # Built natively per-arch (arm64 on macos-latest, x86_64 on macos-14),
-  # wrapped in dist/Toast.app, and shipped as Toast.app zips.
+  # Standalone macOS app: toast bundled with a libghostty terminal window,
+  # wrapped in dist/Toast.app and shipped as a zip. Arm64 only: GitHub no
+  # longer offers Intel macOS runners.
   # See scripts/build-libghostty-bundle.sh and docs/experimental/libghostty-bundle.md.
   build-app:
-    name: Build ${{ matrix.asset }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - runner: macos-latest
-            asset: toast-app-darwin-arm64
-          - runner: macos-14
-            asset: toast-app-darwin-amd64
+    name: Build toast-app-darwin-arm64
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -76,12 +69,12 @@ jobs:
       - name: Archive (zip)
         run: |
           cd dist
-          zip -r ../${{ matrix.asset }}.zip Toast.app
+          zip -r ../toast-app-darwin-arm64.zip Toast.app
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}.zip
+          name: toast-app-darwin-arm64
+          path: toast-app-darwin-arm64.zip
 
   release:
     name: Create release
