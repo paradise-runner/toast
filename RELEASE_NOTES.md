@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.12.1](https://github.com/paradise-runner/toast/compare/v0.12.0...v0.12.1) (2026-10-19)
+
+
+### Fixes
+
+* keep mouse selection drag tracking past viewport edges ([#77](https://github.com/paradise-runner/toast/issues/77)) ([cc05cc3](https://github.com/paradise-runner/toast/commit/cc05cc317be0223c8ef0e3ae737904c0142b0804))
+
 ## v0.10.0 — 2026-10-16
 
 Fixes horizontal scrolling getting stuck after scrolling right on a long line: shorter lines rendered blank and clicks mapped to line ends, with no way back except moving the caret to column 0. Also adds horizontal wheel / shift+wheel scrolling in non-wrap mode, clamped to the longest visible line, and hides the caret instead of pinning it to the gutter when scrolled off-screen.
