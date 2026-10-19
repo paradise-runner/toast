@@ -104,3 +104,82 @@ func TestApp_EditorSelectionDragSurvivesLeavingTheTextArea(t *testing.T) {
 		t.Fatal("expected the release over the status bar to end the drag")
 	}
 }
+
+// dragScrollTicks drives the editor's edge auto-scroll loop through the app,
+// feeding each tick back without any new motion events. It returns the cursor
+// line after each tick.
+func dragScrollTicks(m *Model, cmd tea.Cmd, n int) ([]int, tea.Cmd) {
+	var lines []int
+	for i := 0; i < n && cmd != nil; i++ {
+		msg := cmd()
+		if msg == nil {
+			break
+		}
+		_, cmd = m.Update(msg)
+		lines = append(lines, m.editor.CursorLine())
+	}
+	return lines, cmd
+}
+
+// Both viewport edges must auto-scroll while the button is held, without the
+// pointer having to keep moving and without leaving the text area (issue #58).
+func TestApp_EditorSelectionDragAutoScrollsAtBothEdges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "long.txt")
+	var sb strings.Builder
+	for i := 0; i < 400; i++ {
+		fmt.Fprintf(&sb, "line%d\n", i)
+	}
+	if err := os.WriteFile(path, []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTestApp(t, dir)
+	_, cmd := m.Update(messages.FileSelectedMsg{Path: path})
+	runCmds(t, m, cmd)
+	if m.editor.Path() != path {
+		t.Fatalf("editor path = %q, want %q", m.editor.Path(), path)
+	}
+
+	editorX := m.sidebarWidth + 14
+	topRow := 2               // first text row: tab bar + breadcrumbs sit above it
+	bottomRow := m.height - 2 // last text row: the status bar sits below it
+
+	// Scroll down a bit so the upward direction has room to move.
+	for i := 0; i < 40; i++ {
+		_, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: editorX, Y: bottomRow})
+	}
+
+	// ── Top edge ────────────────────────────────────────────────────────────
+	_, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: editorX, Y: bottomRow - 5})
+	_, cmd = m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: editorX, Y: topRow})
+	if cmd == nil {
+		t.Fatal("expected auto-scroll to start on the top text row")
+	}
+	lines, cmd := dragScrollTicks(m, cmd, 4)
+	if len(lines) < 4 {
+		t.Fatalf("top edge: loop stopped after %d ticks, want 4", len(lines))
+	}
+	for i := 1; i < len(lines); i++ {
+		if lines[i] >= lines[i-1] {
+			t.Fatalf("top edge: cursor did not advance upward: %v", lines)
+		}
+	}
+	_, _ = m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: editorX, Y: topRow})
+
+	// ── Bottom edge ─────────────────────────────────────────────────────────
+	_, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: editorX, Y: 10})
+	_, cmd = m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: editorX, Y: bottomRow})
+	if cmd == nil {
+		t.Fatal("expected auto-scroll to start on the bottom text row")
+	}
+	lines, cmd = dragScrollTicks(m, cmd, 4)
+	if len(lines) < 4 {
+		t.Fatalf("bottom edge: loop stopped after %d ticks, want 4", len(lines))
+	}
+	for i := 1; i < len(lines); i++ {
+		if lines[i] <= lines[i-1] {
+			t.Fatalf("bottom edge: cursor did not advance downward: %v", lines)
+		}
+	}
+}

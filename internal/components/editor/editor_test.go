@@ -2188,8 +2188,8 @@ func TestBottomPadding_ScrollingWheelToBottomRevealsPadding(t *testing.T) {
 
 // ── Selection drag past the viewport edges (issue #58) ──────────────────────
 
-// newDragTestModel builds a tall buffer in a short viewport so drags can leave
-// the visible rows in both directions.
+// newDragTestModel builds a tall buffer in a short viewport so drags can reach
+// both viewport edges.
 func newDragTestModel(viewHeight, padding int) Model {
 	var sb strings.Builder
 	for i := 0; i < 200; i++ {
@@ -2204,32 +2204,49 @@ func newDragTestModel(viewHeight, padding int) Model {
 	return m
 }
 
-func TestMouseDrag_BelowViewportScrollsOneLinePerTick(t *testing.T) {
-	m := newDragTestModel(10, 3)
-
-	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 0})
+// dragTo presses at pressY and drags to y, returning the resulting model and
+// the command produced by the motion event.
+func dragTo(t *testing.T, m Model, pressY, y int) (Model, tea.Cmd) {
+	t.Helper()
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: pressY})
 	m = updated.(Model)
+	updated, cmd := m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: y})
+	return updated.(Model), cmd
+}
 
-	// Pointer held well below the last visible row. The selection head must
-	// stop at the bottom row and start an auto-scroll loop, not jump to the
-	// buffer line implied by the off-screen row.
-	updated, cmd := m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 14})
-	m = updated.(Model)
-	if cmd == nil {
-		t.Fatal("expected an auto-scroll tick to be scheduled below the viewport")
-	}
-	if m.viewportTop != 0 {
-		t.Fatalf("viewportTop = %d, want 0 (motion alone must not scroll)", m.viewportTop)
-	}
-	if want := (cursorPos{line: 9, col: 2}); m.cursor != want {
-		t.Fatalf("cursor = %v, want %v (clamped to the bottom visible row)", m.cursor, want)
-	}
-
-	for i := 1; i <= 5; i++ {
-		updated, cmd = m.Update(dragScrollTickMsg{})
+// runTicks feeds n auto-scroll ticks and reports how many kept the loop alive.
+func runTicks(m Model, n int) (Model, int) {
+	alive := 0
+	for i := 0; i < n; i++ {
+		updated, cmd := m.Update(dragScrollTickMsg{})
 		m = updated.(Model)
 		if cmd == nil {
-			t.Fatalf("tick %d: expected the loop to continue", i)
+			break
+		}
+		alive++
+	}
+	return m, alive
+}
+
+func TestMouseDrag_BottomEdgeRowScrollsWithoutNewMotionEvents(t *testing.T) {
+	m := newDragTestModel(10, 3)
+
+	// The pointer only has to reach the last visible row — no motion past the
+	// edge (or over the status bar) is required to start scrolling.
+	m, cmd := dragTo(t, m, 0, 9)
+	if cmd == nil {
+		t.Fatal("expected auto-scroll to start on the bottom visible row")
+	}
+	if m.viewportTop != 0 {
+		t.Fatalf("viewportTop = %d, want 0 before the first tick", m.viewportTop)
+	}
+
+	// The loop keeps moving the viewport with no further motion events.
+	for i := 1; i <= 5; i++ {
+		updated, cmd := m.Update(dragScrollTickMsg{})
+		m = updated.(Model)
+		if cmd == nil {
+			t.Fatalf("tick %d: expected the loop to keep running without new motion events", i)
 		}
 		if m.viewportTop != i {
 			t.Fatalf("tick %d: viewportTop = %d, want %d", i, m.viewportTop, i)
@@ -2240,15 +2257,11 @@ func TestMouseDrag_BelowViewportScrollsOneLinePerTick(t *testing.T) {
 	}
 
 	start, end, active := m.selectionRange()
-	if !active {
-		t.Fatal("expected an active selection while dragging")
-	}
-	if start != (cursorPos{line: 0, col: 2}) || end != (cursorPos{line: 14, col: 2}) {
-		t.Fatalf("selection = %v..%v, want {0,2}..{14,2}", start, end)
+	if !active || start != (cursorPos{line: 0, col: 2}) || end != (cursorPos{line: 14, col: 2}) {
+		t.Fatalf("selection = %v..%v active=%v, want {0,2}..{14,2}", start, end, active)
 	}
 
-	// Releasing stops the loop.
-	updated, _ = m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 14})
+	updated, _ := m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 9})
 	m = updated.(Model)
 	if m.dragScrolling || m.mouseDragging {
 		t.Fatal("expected the auto-scroll loop to stop on release")
@@ -2258,28 +2271,25 @@ func TestMouseDrag_BelowViewportScrollsOneLinePerTick(t *testing.T) {
 	}
 }
 
-func TestMouseDrag_AboveViewportScrollsOneLinePerTick(t *testing.T) {
+func TestMouseDrag_TopEdgeRowScrollsWithoutNewMotionEvents(t *testing.T) {
 	m := newDragTestModel(10, 3)
 	m.viewportTop = 100
 	m.cursor = cursorPos{line: 105, col: 0}
 
-	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 5})
-	m = updated.(Model)
-
-	updated, cmd := m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: -3})
-	m = updated.(Model)
+	// Row 0 is the first visible text row; the pointer never leaves the editor.
+	m, cmd := dragTo(t, m, 5, 0)
 	if cmd == nil {
-		t.Fatal("expected an auto-scroll tick to be scheduled above the viewport")
+		t.Fatal("expected auto-scroll to start on the top visible row")
 	}
 	if want := (cursorPos{line: 100, col: 2}); m.cursor != want {
 		t.Fatalf("cursor = %v, want %v (clamped to the top visible row)", m.cursor, want)
 	}
 
 	for i := 1; i <= 3; i++ {
-		updated, cmd = m.Update(dragScrollTickMsg{})
+		updated, cmd := m.Update(dragScrollTickMsg{})
 		m = updated.(Model)
 		if cmd == nil {
-			t.Fatalf("tick %d: expected the loop to continue", i)
+			t.Fatalf("tick %d: expected the loop to keep running without new motion events", i)
 		}
 		if m.viewportTop != 100-i {
 			t.Fatalf("tick %d: viewportTop = %d, want %d", i, m.viewportTop, 100-i)
@@ -2290,28 +2300,29 @@ func TestMouseDrag_AboveViewportScrollsOneLinePerTick(t *testing.T) {
 	}
 }
 
-func TestMouseDrag_StopsAtBufferBoundaries(t *testing.T) {
+func TestMouseDrag_EdgeDistanceAccelerates(t *testing.T) {
 	m := newDragTestModel(10, 3)
 
-	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth, Y: 0})
-	m = updated.(Model)
-	updated, _ = m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth, Y: 40})
-	m = updated.(Model)
-
-	// Drive the loop until it reports that it stopped.
-	var cmd tea.Cmd
-	for i := 0; i < 500; i++ {
-		updated, cmd = m.Update(dragScrollTickMsg{})
-		m = updated.(Model)
-		if cmd == nil {
-			break
-		}
+	m, cmd := dragTo(t, m, 0, 30) // far past the bottom row
+	if cmd == nil {
+		t.Fatal("expected auto-scroll to start below the viewport")
 	}
+	before := m.viewportTop
+	updated, _ := m.Update(dragScrollTickMsg{})
+	m = updated.(Model)
+	if step := m.viewportTop - before; step < 2 {
+		t.Fatalf("one tick far below the edge moved %d lines, want >= 2", step)
+	}
+}
+
+func TestMouseDrag_StopsAtBufferBoundaries(t *testing.T) {
+	m := newDragTestModel(10, 3)
+	m, _ = dragTo(t, m, 0, 40)
+
+	m, _ = runTicks(m, 500)
 	if m.dragScrolling {
 		t.Fatal("expected the auto-scroll loop to stop at the end of the buffer")
 	}
-	// The last line must be selected, and the viewport must not have scrolled
-	// past the end of the buffer.
 	lastLine := m.buf.LineCount() - 1
 	if m.cursor.line != lastLine {
 		t.Fatalf("cursor line = %d, want %d", m.cursor.line, lastLine)
@@ -2323,31 +2334,59 @@ func TestMouseDrag_StopsAtBufferBoundaries(t *testing.T) {
 	if !active || start.line != 0 || end.line != lastLine {
 		t.Fatalf("selection = %v..%v active=%v, want line 0..%d", start, end, active, lastLine)
 	}
+
+	// Upward from the bottom of the buffer stops at line 0.
+	m.viewportTop = 3
+	m.cursor = cursorPos{line: 5, col: 0}
+	m, _ = dragTo(t, m, 5, -4)
+	m, _ = runTicks(m, 500)
+	if m.dragScrolling {
+		t.Fatal("expected the upward loop to stop at the top of the buffer")
+	}
+	if m.viewportTop != 0 || m.cursor.line != 0 {
+		t.Fatalf("viewportTop=%d cursor line=%d, want 0/0", m.viewportTop, m.cursor.line)
+	}
+}
+
+func TestMouseDrag_DoesNotScrollAtBufferEndOnFirstPress(t *testing.T) {
+	// A short file leaves no room to scroll; reaching the last row must not arm
+	// a loop that cannot advance.
+	m := New(nil, config.Config{Editor: config.EditorConfig{BottomPadding: 3}})
+	m.buf = buffer.NewEditBuffer("a\nb\nc\n")
+	m.focused = true
+	m.viewHeight = 10
+	m.viewWidth = 40
+	m.recomputeGutterWidth()
+
+	m, cmd := dragTo(t, m, 0, 9)
+	if cmd != nil || m.dragScrolling {
+		t.Fatal("a drag at the end of a short file must not start an auto-scroll loop")
+	}
 }
 
 func TestMouseDrag_DoesNotApplyBottomPaddingWhileDragging(t *testing.T) {
 	// Bottom padding scrolls the viewport when the cursor lands near the last
-	// visible row. During a drag that would move the row under the pointer on
-	// every motion event, so padding must be suspended until the drag ends.
+	// visible row. During a drag that would move the row under the pointer, so
+	// padding is suspended until the drag ends.
 	m := newDragTestModel(10, 3)
 
 	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 0})
 	m = updated.(Model)
 	for i := 0; i < 3; i++ {
-		updated, _ = m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 9})
+		updated, _ = m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 7})
 		m = updated.(Model)
 	}
 	if m.viewportTop != 0 {
 		t.Fatalf("viewportTop = %d, want 0: padding must not scroll an in-viewport drag", m.viewportTop)
 	}
-	if want := (cursorPos{line: 9, col: 2}); m.cursor != want {
+	if want := (cursorPos{line: 7, col: 2}); m.cursor != want {
 		t.Fatalf("cursor = %v, want %v", m.cursor, want)
 	}
 
 	// After the release, padding applies again and the cursor stays visible.
-	updated, _ = m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 9})
+	updated, _ = m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 7})
 	m = updated.(Model)
-	if want := 9 - 10 + 3 + 1; m.viewportTop != want {
+	if want := 7 - 10 + 3 + 1; m.viewportTop != want {
 		t.Fatalf("viewportTop after release = %d, want %d", m.viewportTop, want)
 	}
 }
@@ -2355,11 +2394,7 @@ func TestMouseDrag_DoesNotApplyBottomPaddingWhileDragging(t *testing.T) {
 func TestMouseDrag_InViewportDoesNotStartScrollLoop(t *testing.T) {
 	m := newDragTestModel(10, 3)
 
-	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 1})
-	m = updated.(Model)
-	updated, cmd := m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 4})
-	m = updated.(Model)
-
+	m, cmd := dragTo(t, m, 1, 4)
 	if cmd != nil || m.dragScrolling {
 		t.Fatal("an in-viewport drag must not schedule an auto-scroll tick")
 	}
@@ -2368,5 +2403,28 @@ func TestMouseDrag_InViewportDoesNotStartScrollLoop(t *testing.T) {
 	}
 	if want := (cursorPos{line: 4, col: 2}); m.cursor != want {
 		t.Fatalf("cursor = %v, want %v", m.cursor, want)
+	}
+}
+
+func TestMouseDrag_LeavingEdgeStopsAutoScroll(t *testing.T) {
+	m := newDragTestModel(10, 3)
+
+	m, _ = dragTo(t, m, 0, 9)
+	m, _ = runTicks(m, 2)
+	if !m.dragScrolling {
+		t.Fatal("expected the loop to still be running at the edge")
+	}
+
+	// Moving back inside the text area must stop the loop on its next tick.
+	updated, _ := m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: m.gutterWidth + 2, Y: 3})
+	m = updated.(Model)
+	top := m.viewportTop
+	updated, cmd := m.Update(dragScrollTickMsg{})
+	m = updated.(Model)
+	if cmd != nil || m.dragScrolling {
+		t.Fatal("expected the loop to stop after the pointer left the edge")
+	}
+	if m.viewportTop != top {
+		t.Fatalf("viewportTop = %d, want %d", m.viewportTop, top)
 	}
 }

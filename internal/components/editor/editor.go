@@ -39,8 +39,8 @@ type cursorPos struct {
 
 const (
 	// dragScrollInterval is the auto-scroll cadence while a selection drag is
-	// held past the top or bottom edge of the editor viewport.
-	dragScrollInterval = 60 * time.Millisecond
+	// held on the top or bottom edge of the editor viewport.
+	dragScrollInterval = 40 * time.Millisecond
 )
 
 // dragScrollTickMsg advances the edge auto-scroll loop one row while a
@@ -85,15 +85,19 @@ type Model struct {
 	// Mouse drag tracking
 	mouseDragging   bool
 	mouseDragAnchor cursorPos
-	// mouseDragEdge is -1 while the pointer is held above the viewport, +1
-	// below it, and 0 inside. A non-zero edge keeps the auto-scroll tick loop
-	// running so the selection keeps growing while the button is held.
-	mouseDragEdge  int
-	dragScrolling  bool
-	mouseDragX     int // last pointer column during a drag, for edge auto-scroll
-	definitionLink definitionLinkState
-	hover          hoverState
-	hoverX, hoverY int // last mouse position, for tooltip placement
+	// mouseDragEdge is -1 while the pointer is held on the top row (or above
+	// it), +1 on the bottom row (or below it), and 0 in between. A non-zero
+	// edge keeps the auto-scroll tick loop running so the selection keeps
+	// growing while the button is held.
+	mouseDragEdge int
+	dragScrolling bool
+	// mouseDragX/mouseDragPointerY remember the last pointer position so the
+	// auto-scroll loop can keep extending the selection without new events.
+	mouseDragX        int
+	mouseDragPointerY int
+	definitionLink    definitionLinkState
+	hover             hoverState
+	hoverX, hoverY    int // last mouse position, for tooltip placement
 
 	// Multi-click detection
 	lastClickTime time.Time
@@ -1139,9 +1143,10 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		// edge is what follows the pointer instead (see dragScrollTickMsg).
 		m.mouseDragEdge = m.dragEdgeFor(msg.Y)
 		m.mouseDragX = msg.X
+		m.mouseDragPointerY = msg.Y
 		m.extendDragSelection(msg.X, m.clampDragY(msg.Y))
 		var cmd tea.Cmd
-		if m.mouseDragEdge != 0 && !m.dragScrolling {
+		if m.mouseDragEdge != 0 && !m.dragScrolling && m.dragScrollPossible(msg.Y) {
 			m.dragScrolling = true
 			cmd = dragScrollTick()
 		}
@@ -1153,17 +1158,67 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 // dragEdgeFor reports where the pointer sits relative to the viewport while a
-// selection drag is in flight: -1 above the top row, +1 below the bottom row,
-// 0 inside.
+// selection drag is in flight: -1 on the top row (or above it), +1 on the
+// bottom row (or below it), 0 in between. The visible first and last rows count
+// as edges so auto-scroll works from inside the text area; requiring the pointer
+// to leave the editor made the top edge unreachable and the bottom edge depend
+// on stray motion events over the status bar.
 func (m *Model) dragEdgeFor(y int) int {
+	if m.viewHeight <= 0 {
+		return 0
+	}
 	switch {
-	case y < 0:
+	case y <= 0:
 		return -1
-	case m.viewHeight > 0 && y >= m.viewHeight:
+	case y >= m.viewHeight-1:
 		return 1
 	default:
 		return 0
 	}
+}
+
+// dragScrollPossible reports whether the viewport can still move in the drag
+// direction, so a drag at the start or end of the buffer does not keep arming
+// a loop that cannot advance.
+func (m *Model) dragScrollPossible(pointerY int) bool {
+	return m.canScrollViewportForDrag(m.dragEdgeFor(pointerY))
+}
+
+// canScrollViewportForDrag reports whether the viewport can move one row in
+// direction dir without leaving the buffer.
+func (m *Model) canScrollViewportForDrag(dir int) bool {
+	lineCount := m.buf.LineCount()
+	if lineCount == 0 {
+		return false
+	}
+	if dir > 0 {
+		// Never scroll past the last line: the bottom row keeps showing it.
+		if m.viewHeight > 0 && m.viewportTop >= lineCount-m.viewHeight {
+			return false
+		}
+		return m.viewportTop < lineCount-1
+	}
+	return m.viewportTop > 0
+}
+
+// dragEdgeStep returns how many lines one auto-scroll tick should advance. The
+// step grows as the pointer is held further past the edge, so a small overshoot
+// scrolls gently and a large one moves faster.
+func (m *Model) dragEdgeStep() int {
+	distance := 0
+	if m.mouseDragEdge > 0 {
+		distance = m.mouseDragPointerY - (m.viewHeight - 1)
+	} else if m.mouseDragEdge < 0 {
+		distance = -m.mouseDragPointerY
+	}
+	if distance < 0 {
+		distance = 0
+	}
+	step := 1 + distance/4
+	if step > 4 {
+		step = 4
+	}
+	return step
 }
 
 // clampDragY pins a pointer row to the visible viewport rows so a drag target
@@ -1188,30 +1243,31 @@ func (m *Model) extendDragSelection(x, y int) {
 	m.selectionAnchor = &anchor
 }
 
-// handleDragScrollTick advances the viewport one row in the direction the
-// pointer is held past the edge and extends the selection with it, so a drag
-// below/above the viewport keeps selecting new lines instead of stalling on a
-// clamped line or scrolling the content out from under the selection.
+// handleDragScrollTick advances the viewport in the direction the pointer is
+// held at the edge and extends the selection with it, so a drag at the top or
+// bottom keeps selecting new lines while the button is held — without needing
+// further motion events, and without stalling on a clamped line or scrolling
+// the content out from under the selection.
 func (m Model) handleDragScrollTick() (tea.Model, tea.Cmd) {
 	if !m.mouseDragging || m.mouseDragEdge == 0 {
 		m.dragScrolling = false
 		return m, nil
 	}
-	if !m.scrollViewportForDrag(m.mouseDragEdge) {
+	if m.scrollViewportForDrag(m.mouseDragEdge, m.dragEdgeStep()) == 0 {
 		// At the top or bottom of the buffer: stop ticking, but keep the
 		// selection pinned to the edge row it reached.
 		m.dragScrolling = false
 		return m, nil
 	}
-	// The viewport moved, so the edge row now maps to the adjacent line.
+	// The viewport moved, so the edge row now maps to a fresh line.
 	m.extendDragSelection(m.mouseDragX, m.mouseDragEdgeTargetY())
 	m.clampViewport()
 	return m, dragScrollTick()
 }
 
 // mouseDragEdgeTargetY returns the pointer row that maps to the scrolled edge
-// row after the viewport moved one line: the bottom row when scrolling down,
-// the top row when scrolling up.
+// row after the viewport moved: the bottom row when scrolling down, the top row
+// when scrolling up.
 func (m *Model) mouseDragEdgeTargetY() int {
 	if m.mouseDragEdge > 0 {
 		if m.viewHeight > 0 {
@@ -1222,30 +1278,18 @@ func (m *Model) mouseDragEdgeTargetY() int {
 	return 0
 }
 
-// scrollViewportForDrag scrolls the viewport one row in direction dir and
-// reports whether it actually moved. Unlike a cursor move it does not touch the
-// cursor, so the caller decides where the selection head lands.
-func (m *Model) scrollViewportForDrag(dir int) bool {
-	lineCount := m.buf.LineCount()
-	if lineCount == 0 {
-		return false
+// scrollViewportForDrag scrolls the viewport up to maxRows in direction dir and
+// returns how many rows it actually moved. Unlike a cursor move it does not
+// touch the cursor, so the caller decides where the selection head lands.
+func (m *Model) scrollViewportForDrag(dir, maxRows int) int {
+	if maxRows < 1 {
+		maxRows = 1
 	}
-	if dir > 0 {
-		// Never scroll past the last line: the bottom row keeps showing it.
-		if m.viewHeight > 0 && m.viewportTop >= lineCount-m.viewHeight {
-			return false
-		}
-		if m.viewportTop >= lineCount-1 {
-			return false
-		}
-		m.viewportTop++
-		return true
+	moved := 0
+	for ; moved < maxRows && m.canScrollViewportForDrag(dir); moved++ {
+		m.viewportTop += dir
 	}
-	if m.viewportTop <= 0 {
-		return false
-	}
-	m.viewportTop--
-	return true
+	return moved
 }
 
 // handleMouseRelease handles mouse button release.
