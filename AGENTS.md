@@ -167,4 +167,7 @@ Releases run through Release Please (`.github/workflows/release-please.yml`,
 `release-please-config.json`); see `docs/releasing.md`. Practical consequence
 for agents: **commit and PR titles must be conventional** (`feat:`, `fix:`,
 `docs:`, `chore:`, …) — a title like `readme reorg` is invisible to Release
-Please and produces no release.
+Please and produces no release. Visible types release (`feat:` minor, `fix:`,
+`docs:`, `perf:`, `revert:` patch), so use a hidden type such as `chore:` when a
+change should not cut a release. Opening the release PR also needs the
+`GITHUB_TOKEN` permission described under "Prerequisites" in `docs/releasing.md`.
