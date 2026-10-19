@@ -1,0 +1,59 @@
+name: Release Please
+
+# Keeps a release PR open on main, describing the next version and updating
+# RELEASE_NOTES.md. Merging that PR tags the release and creates the GitHub
+# release; this workflow then hands off to release.yml to build the binaries
+# and update the Homebrew tap.
+#
+# Release Please only sees conventional commit titles (feat:, fix:, ...), so
+# squash-merge pull requests with a conventional title. See docs/releasing.md.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+# Never run two release passes at once: a release PR merged while another pass
+# is tagging would double-bump the manifest.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release_please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # `RELEASE_PLEASE_TOKEN` is optional. A PAT (repo scope) is only needed
+      # so that GitHub also runs CI on the release PR: events caused by
+      # GITHUB_TOKEN do not start further workflow runs. Publishing the
+      # release itself happens in the `publish` job below, which is called
+      # directly and therefore works with the default token too.
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Build and attach the release artifacts. Runs as a reusable workflow rather
+  # than on the tag push, because a tag created with GITHUB_TOKEN does not
+  # start another workflow run.
+  publish:
+    name: Build and publish
+    needs: release_please
+    if: needs.release_please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag_name: ${{ needs.release_please.outputs.tag_name }}
+    secrets: inherit

@@ -1,9 +1,30 @@
 name: Release
 
+# Builds the release artifacts for a tag and attaches them to the GitHub
+# release for that tag.
+#
+# Normally invoked by release-please.yml right after a release is tagged (see
+# docs/releasing.md). It can also be dispatched by hand for a tag that has no
+# artifacts yet:
+#
+#   gh workflow run release.yml -f tag_name=v0.13.0
+#
+# There is deliberately no `push: tags` trigger: Release Please already creates
+# the release, and a tag-triggered run would duplicate every build.
+
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Tag being released (e.g. v0.13.0)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing tag to build and publish (e.g. v0.13.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -27,6 +48,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
 
       - uses: actions/setup-go@v5
         with:
@@ -36,7 +59,7 @@ jobs:
         env:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
-        run: go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ${{ matrix.asset }} ./cmd/toast
+        run: go build -trimpath -ldflags="-s -w -X main.version=${{ inputs.tag_name }}" -o ${{ matrix.asset }} ./cmd/toast
 
       - name: Archive (zip)
         run: zip ${{ matrix.asset }}.zip ${{ matrix.asset }}
@@ -56,6 +79,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
 
       - uses: actions/setup-go@v5
         with:
@@ -63,7 +88,7 @@ jobs:
 
       - name: Build standalone app bundle
         env:
-          TOAST_VERSION: ${{ github.ref_name }}
+          TOAST_VERSION: ${{ inputs.tag_name }}
         run: scripts/build-libghostty-bundle.sh
 
       - name: Archive (zip)
@@ -77,7 +102,7 @@ jobs:
           path: toast-app-darwin-arm64.zip
 
   release:
-    name: Create release
+    name: Attach release artifacts
     needs: [build, build-app]
     runs-on: ubuntu-latest
     outputs:
@@ -95,11 +120,21 @@ jobs:
           echo "darwin_arm64=$(sha256sum toast-darwin-arm64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "darwin_amd64=$(sha256sum toast-darwin-amd64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: "*.zip"
+      # Release Please already created the release, with notes taken from
+      # RELEASE_NOTES.md, so only upload assets and leave the notes alone.
+      # A hand-dispatched tag has no release yet, so create one with GitHub's
+      # generated notes.
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" ./*.zip --clobber
+          else
+            gh release create "$TAG" ./*.zip --title "$TAG" --generate-notes
+          fi
 
   homebrew:
     name: Update homebrew tap
@@ -115,7 +150,7 @@ jobs:
 
       - name: Render formula
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.tag_name }}
           ARM64_SHA: ${{ needs.release.outputs.darwin_arm64_sha }}
           AMD64_SHA: ${{ needs.release.outputs.darwin_amd64_sha }}
         run: |
@@ -152,9 +187,11 @@ jobs:
 
       - name: Commit and push
         working-directory: homebrew-tap
+        env:
+          VERSION: ${{ inputs.tag_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add toast.rb
-          git diff --cached --quiet || git commit -m "toast ${GITHUB_REF_NAME}"
+          git diff --cached --quiet || git commit -m "toast ${VERSION}"
           git push

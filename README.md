@@ -239,3 +239,11 @@ make test              # go test ./...
 make test-integration  # run opt-in Ghostty/tmux terminal integration tests
 make test-integration-update  # refresh golden screenshots
 ```
+
+### Releasing
+
+Releases are automated with [Release Please](https://github.com/googleapis/release-please):
+conventional commit titles on `main` (`feat:`, `fix:`, …) drive the next
+version, a release PR carries the version and the `RELEASE_NOTES.md` entry, and
+merging it tags the release, builds the binaries and updates the Homebrew tap.
+See [docs/releasing.md](docs/releasing.md) for the details.
