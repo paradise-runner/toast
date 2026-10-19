@@ -523,3 +523,119 @@ func TestContextMenu_LeftClickReveal_EmitsMsg(t *testing.T) {
 		t.Errorf("RevealInFileManagerMsg.Path = %q, want %q", rm.Path, filePath)
 	}
 }
+
+// ── Overlay clamping ─────────────────────────────────────────────────────────
+//
+// The context menu is composited over the whole screen, so its stored position
+// must already fit the visible area. If the renderer has to shift the box (as
+// overlayAt does as a safety net), clicks keep testing the unshifted position
+// and land on the wrong item or outside the box entirely.
+
+func TestContextMenu_Clamp_KeepsBoxOnScreen(t *testing.T) {
+	items := []string{"New File", "New Folder", revealItemLabel()}
+	tests := []struct {
+		name       string
+		x, y       int
+		maxW, maxH int
+		wantX      int
+		wantY      int
+	}{
+		{name: "already fits", x: 2, y: 3, maxW: 100, maxH: 40, wantX: 2, wantY: 3},
+		{name: "flips up at bottom", x: 2, y: 38, maxW: 100, maxH: 40, wantX: 2, wantY: 35},
+		{name: "slides left at right edge", x: 95, y: 3, maxW: 100, maxH: 40, wantX: 80, wantY: 3},
+		{name: "clamps negative", x: -5, y: -2, maxW: 100, maxH: 40, wantX: 0, wantY: 0},
+		{name: "unbounded stays put", x: 90, y: 90, maxW: 0, maxH: 0, wantX: 90, wantY: 90},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cm := &ContextMenu{X: tc.x, Y: tc.y, items: items}
+			cm.clamp(tc.maxW, tc.maxH)
+			if cm.X != tc.wantX || cm.Y != tc.wantY {
+				t.Errorf("clamp(%d,%d) from (%d,%d) = (%d,%d), want (%d,%d)",
+					tc.maxW, tc.maxH, tc.x, tc.y, cm.X, cm.Y, tc.wantX, tc.wantY)
+			}
+			if tc.maxW > 0 && cm.X+cm.boxWidth() > tc.maxW {
+				t.Errorf("box width overflows: X=%d w=%d maxW=%d", cm.X, cm.boxWidth(), tc.maxW)
+			}
+			if tc.maxH > 0 && cm.Y+cm.boxHeight() > tc.maxH {
+				t.Errorf("box height overflows: Y=%d h=%d maxH=%d", cm.Y, cm.boxHeight(), tc.maxH)
+			}
+		})
+	}
+}
+
+// TestContextMenu_RightClickNearBottom_FlipsUpAndStaysClickable covers the
+// reported bug: right-clicking on the last rows of the tree used to open a menu
+// that the compositor shifted upward, after which clicking the drawn "New File"
+// row missed the box (or hit the wrong item).
+func TestContextMenu_RightClickNearBottom_FlipsUpAndStaysClickable(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir) // 30x10 viewport
+
+	// Bottom row of the tree.
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 9})
+	if m.ctxMenu == nil {
+		t.Fatal("expected context menu after right-click")
+	}
+	if got, want := m.ctxMenu.Y, 10-m.ctxMenu.boxHeight(); got != want {
+		t.Fatalf("menu Y = %d, want %d (flipped up to fit %d rows)", got, want, m.height)
+	}
+	if m.ctxMenu.Y+m.ctxMenu.boxHeight() > m.height {
+		t.Fatalf("menu box (%d rows from Y=%d) exceeds viewport height %d",
+			m.ctxMenu.boxHeight(), m.ctxMenu.Y, m.height)
+	}
+
+	// Clicking the first item where the menu is drawn must select "New File".
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 4, Y: m.ctxMenu.Y + 1})
+	if m.ctxMenu != nil {
+		t.Fatal("click on the drawn 'New File' row missed the menu box")
+	}
+	if m.inlineInput == nil {
+		t.Fatal("click on 'New File' did not start the inline create row")
+	}
+	if m.inlineInput.isDir {
+		t.Error("click on 'New File' started a folder create row")
+	}
+}
+
+// TestContextMenu_RightEdge_SlidesLeftAndStaysClickable covers the horizontal
+// case: a wide sidebar lets the menu overflow the window, which the compositor
+// used to shift left while hit-testing kept the original X.
+func TestContextMenu_RightEdge_SlidesLeftAndStaysClickable(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir) // 30 cols wide
+	m.SetScreenWidth(30)
+
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 28, Y: 2})
+	if m.ctxMenu == nil {
+		t.Fatal("expected context menu after right-click")
+	}
+	if got, want := m.ctxMenu.X, 30-m.ctxMenu.boxWidth(); got != want {
+		t.Fatalf("menu X = %d, want %d (slid left to fit 30 cols)", got, want)
+	}
+
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.ctxMenu.X + 2, Y: m.ctxMenu.Y + 1})
+	if m.ctxMenu != nil {
+		t.Fatal("click on the drawn first item missed the menu box")
+	}
+	if m.inlineInput == nil {
+		t.Fatal("click on 'New File' did not start the inline create row")
+	}
+}
+
+// TestContextMenu_ResizeReclamps verifies that shrinking the window while the
+// menu is open repositions it, so it stays clickable where it is drawn.
+func TestContextMenu_ResizeReclamps(t *testing.T) {
+	dir := t.TempDir()
+	m := newTestModel(t, dir) // 30x10
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 3})
+	if m.ctxMenu == nil {
+		t.Fatal("expected context menu after right-click")
+	}
+
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 30, Height: 6})
+	if m.ctxMenu.Y+m.ctxMenu.boxHeight() > m.height {
+		t.Fatalf("menu not re-clamped after resize: Y=%d h=%d height=%d",
+			m.ctxMenu.Y, m.ctxMenu.boxHeight(), m.height)
+	}
+}

@@ -260,3 +260,91 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// TestRightClick_NearBottom_MenuIsClickableWhereDrawn opens the sidebar context
+// menu on the last usable screen row and then clicks the row where the menu is
+// actually drawn. Drawn position and hit-test box must agree.
+func TestRightClick_NearBottom_MenuIsClickableWhereDrawn(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+
+	// Last row above the status bar.
+	clickY := 24 - 2
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: clickY})
+	if !model.fileTree.HasContextMenu() {
+		t.Fatal("expected context menu to be open after right-click")
+	}
+
+	lines := strings.Split(model.View().Content, "\n")
+	drawnRow := -1
+	for i, l := range lines {
+		if strings.Contains(l, "New File") {
+			drawnRow = i
+			break
+		}
+	}
+	if drawnRow < 0 {
+		t.Fatalf("menu not visible in view (rows=%d)", len(lines))
+	}
+	t.Logf("menu drawn starting at row %d of %d", drawnRow, len(lines))
+
+	model.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 7, Y: drawnRow})
+	if model.fileTree.HasContextMenu() {
+		t.Fatal("click on the drawn 'New File' row missed the menu box")
+	}
+	if !strings.Contains(model.View().Content, "▌") {
+		t.Error("click on the drawn 'New File' row did not start the inline create row")
+	}
+	if strings.Contains(model.View().Content, "▶ ▌") {
+		t.Error("click selected 'New Folder' instead of 'New File'")
+	}
+}
+
+// TestRightClick_MenuOverhangsSidebar_ClickIsRoutedToMenu verifies that clicks
+// on the part of the context menu that spills over the editor are routed to the
+// sidebar (which owns the menu) rather than to the editor.
+func TestRightClick_MenuOverhangsSidebar_ClickIsRoutedToMenu(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+
+	// Right-click near the sidebar's right edge so the 20-column menu overhangs.
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 25, Y: 2})
+	menuX, menuY, menuW, _, ok := model.fileTree.ContextMenuBounds()
+	if !ok {
+		t.Fatal("expected context menu to be open after right-click")
+	}
+	if menuX+menuW <= 30 {
+		t.Fatalf("test setup: menu does not overhang the sidebar (x=%d w=%d)", menuX, menuW)
+	}
+
+	// Click the first item at an X inside the sidebar's editor region.
+	// Bounds are content-relative (tab bar excluded), so screen row = menuY+1+1.
+	clickX := 35
+	if clickX >= menuX+menuW {
+		t.Fatalf("test setup: clickX %d outside menu box", clickX)
+	}
+	model.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: menuY + 2})
+
+	if model.fileTree.HasContextMenu() {
+		t.Fatal("click on the menu overhang was routed to the editor; menu still open")
+	}
+	if !strings.Contains(model.View().Content, "▌") {
+		t.Error("click on the menu overhang did not activate the 'New File' item")
+	}
+}

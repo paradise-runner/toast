@@ -1513,6 +1513,25 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 	x := msg.Mouse().X
 	y := msg.Mouse().Y
 
+	// Context menu takes precedence over regular region routing: the box can
+	// overhang the sidebar edge and is drawn above the editor, so a click on that
+	// overhang must reach the tree (which owns the menu) instead of the editor.
+	// Menu bounds are content-relative, so compare against contentY.
+	contentY := y - tabBarHeight
+	if menuX, menuY, menuW, menuH, ok := m.fileTree.ContextMenuBounds(); ok {
+		if x >= menuX && x < menuX+menuW && contentY >= menuY && contentY < menuY+menuH {
+			adjustedMsg := tea.MouseClickMsg{
+				Button: msg.Button,
+				Mod:    msg.Mod,
+				X:      x,
+				Y:      contentY,
+			}
+			var cmd tea.Cmd
+			m.fileTree, cmd = m.fileTree.Update(adjustedMsg)
+			return cmd
+		}
+	}
+
 	// Handle sidebar resize drag start
 	if msg.Button == tea.MouseLeft && m.sidebarVisible {
 		if x >= sidebarW-1 && x <= sidebarW+1 && y > tabBarHeight && y < m.height-statusBarHeight {
@@ -1539,8 +1558,6 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) tea.Cmd {
 		m.statusBar = updated.(statusbar.Model)
 		return cmd
 	}
-
-	contentY := y - tabBarHeight
 
 	if m.sidebarVisible && x < sidebarW {
 		m.setFocus(FocusFileTree)

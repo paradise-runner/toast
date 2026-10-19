@@ -46,7 +46,11 @@ type Model struct {
 	offset  int
 	height  int
 	width   int
-	focused bool
+	// screenWidth is the full window width in columns. The context menu is
+	// composited over the whole screen, so it is clamped against this rather
+	// than against the sidebar width.
+	screenWidth int
+	focused     bool
 
 	gitStatuses map[string]messages.GitStatus
 
@@ -137,6 +141,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
 		m.width = msg.Width
+		m.clampContextMenu()
 
 	case tea.KeyPressMsg:
 		// Keyboard input abandons any pending or in-flight mouse drag.
@@ -221,6 +226,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 			m.ctxMenu = newContextMenu(msg.X, msg.Y, targetDir, targetNode, m.theme)
+			m.clampContextMenu()
 			return m, nil
 		}
 		if msg.Button == tea.MouseLeft {
@@ -606,7 +612,7 @@ func (m Model) ContextMenuBounds() (x, y, w, h int, ok bool) {
 		return 0, 0, 0, 0, false
 	}
 	c := m.ctxMenu
-	return c.X, c.Y, contextMenuInnerW + 4, len(c.items) + 2, true
+	return c.X, c.Y, c.boxWidth(), c.boxHeight(), true
 }
 
 func (m Model) renderNodeLabel(node *TreeNode, indent, prefix string, maxWidth int, labelStyle, markerStyle lipgloss.Style) (string, int) {
@@ -975,6 +981,25 @@ func (m *Model) Focus() { m.focused = true }
 func (m *Model) Blur() { m.focused = false }
 
 // ── Context menu & inline edit ────────────────────────────────────────────────
+
+// SetScreenWidth records the full window width in columns. The context menu is
+// composited in screen space, so the app must tell the tree how wide the window
+// is for the overlay to be clamped to visible columns.
+func (m *Model) SetScreenWidth(width int) {
+	m.screenWidth = width
+	m.clampContextMenu()
+}
+
+// clampContextMenu repositions the open context menu so the whole box stays
+// inside the tree's content rows and the window width. Rendering and
+// hit-testing share the stored position, so clamping here (instead of letting
+// the overlay compositor shift the box) keeps clicks aligned with what is drawn.
+func (m *Model) clampContextMenu() {
+	if m.ctxMenu == nil {
+		return
+	}
+	m.ctxMenu.clamp(m.screenWidth, m.height)
+}
 
 // enterInlineEdit transitions from context menu to inline edit mode.
 func (m *Model) enterInlineEdit() {

@@ -66,16 +66,50 @@ func revealItemLabel() string {
 	}
 }
 
+// boxWidth returns the rendered width of the menu box in columns:
+// content width plus 1 column of padding and 1 of border on each side.
+func (c ContextMenu) boxWidth() int { return contextMenuInnerW + 4 }
+
+// boxHeight returns the rendered height of the menu box in rows:
+// top border + items + bottom border.
+func (c ContextMenu) boxHeight() int { return len(c.items) + 2 }
+
+// clamp repositions the menu so its whole box stays inside a maxWidth ×
+// maxHeight area. A non-positive bound disables clamping on that axis.
+//
+// This must happen before rendering: the overlay compositor also clamps, and a
+// silent shift there would draw the menu somewhere other than the box that
+// HandleClick tests against, leaving items unclickable or selecting the wrong
+// one. Clamping the stored position keeps drawing and hit-testing in sync.
+func (c *ContextMenu) clamp(maxWidth, maxHeight int) {
+	if maxWidth > 0 {
+		if maxX := maxWidth - c.boxWidth(); c.X > maxX {
+			c.X = maxX
+		}
+		if c.X < 0 {
+			c.X = 0
+		}
+	}
+	if maxHeight > 0 {
+		if maxY := maxHeight - c.boxHeight(); c.Y > maxY {
+			c.Y = maxY
+		}
+		if c.Y < 0 {
+			c.Y = 0
+		}
+	}
+}
+
 // HandleClick returns the index of the item at sidebar-local (x, y),
 // or -1 if the click missed all items or landed outside the menu box.
 //
 // Box geometry:
-//   - X span: [c.X, c.X + contextMenuInnerW + 4)   (border 1 + padding 1 on each side = 4)
-//   - Y span: [c.Y, c.Y + len(c.items) + 2)         (top border + items + bottom border)
+//   - X span: [c.X, c.X + boxWidth())
+//   - Y span: [c.Y, c.Y + boxHeight())
 //   - Item i is at row c.Y + 1 + i
 func (c *ContextMenu) HandleClick(x, y int) int {
-	boxRight := c.X + contextMenuInnerW + 4
-	boxBottom := c.Y + len(c.items) + 2
+	boxRight := c.X + c.boxWidth()
+	boxBottom := c.Y + c.boxHeight()
 
 	if x < c.X || x >= boxRight || y < c.Y || y >= boxBottom {
 		return -1
