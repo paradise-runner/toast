@@ -1644,6 +1644,25 @@ func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) tea.Cmd {
 		return cmd
 	}
 
+	// A release that ends an editor selection drag always goes to the editor,
+	// even when the pointer is over the tab bar, breadcrumbs, or status bar, so
+	// the drag state and auto-scroll loop are torn down.
+	if msg.Button == tea.MouseLeft && m.editor.IsDraggingSelection() {
+		editorX := x - sidebarW
+		if editorX < 0 {
+			editorX = 0
+		}
+		adjustedMsg := tea.MouseReleaseMsg{
+			Button: msg.Button,
+			Mod:    msg.Mod,
+			X:      editorX,
+			Y:      y - tabBarHeight - breadcrumbHeight,
+		}
+		updated, cmd := m.editor.Update(adjustedMsg)
+		m.editor = updated.(editor.Model)
+		return cmd
+	}
+
 	// Route tab bar row to tab bar (close button × and middle-click).
 	if y == 0 {
 		var cmd tea.Cmd
@@ -1844,6 +1863,15 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 		return cmd
 	}
 
+	// An in-flight editor selection drag owns the pointer until release. Motion
+	// and release events must keep reaching the editor even when the pointer
+	// crosses the tab bar, breadcrumbs, or status bar, otherwise the selection
+	// freezes at whatever row it had when the pointer left the text area. The
+	// editor clamps the pointer row to its viewport and scrolls on its own.
+	if m.editor.IsDraggingSelection() {
+		return m.routeMotionToEditor(x, y, msg)
+	}
+
 	// Route motion to appropriate component region
 	if y == 0 {
 		var cmd tea.Cmd
@@ -1916,6 +1944,32 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) tea.Cmd {
 		Mod:    msg.Mod,
 		X:      editorX,
 		Y:      adjustedY,
+	}
+	updated, cmd := m.editor.Update(adjustedMsg)
+	m.editor = updated.(editor.Model)
+	return cmd
+}
+
+// routeMotionToEditor forwards a motion event to the editor as editor-local
+// coordinates, without the region gating used for ordinary hover routing. It is
+// used while a selection drag is in flight so the drag keeps tracking the
+// pointer across the tab bar, breadcrumbs, and status bar.
+func (m *Model) routeMotionToEditor(x, y int, msg tea.MouseMotionMsg) tea.Cmd {
+	sidebarW := 0
+	if m.sidebarVisible {
+		sidebarW = m.sidebarWidth
+	}
+	editorX := x - sidebarW
+	if editorX < 0 {
+		editorX = 0
+	}
+	// tabBar + breadcrumb rows sit above the editor's own row 0.
+	editorY := y - 2
+	adjustedMsg := tea.MouseMotionMsg{
+		Button: msg.Button,
+		Mod:    msg.Mod,
+		X:      editorX,
+		Y:      editorY,
 	}
 	updated, cmd := m.editor.Update(adjustedMsg)
 	m.editor = updated.(editor.Model)

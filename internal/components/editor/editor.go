@@ -37,6 +37,23 @@ type cursorPos struct {
 	col  int // byte offset within the line (not including the newline)
 }
 
+const (
+	// dragScrollInterval is the auto-scroll cadence while a selection drag is
+	// held past the top or bottom edge of the editor viewport.
+	dragScrollInterval = 60 * time.Millisecond
+)
+
+// dragScrollTickMsg advances the edge auto-scroll loop one row while a
+// selection drag is in flight.
+type dragScrollTickMsg struct{}
+
+// dragScrollTick schedules the next edge auto-scroll step.
+func dragScrollTick() tea.Cmd {
+	return tea.Tick(dragScrollInterval, func(time.Time) tea.Msg {
+		return dragScrollTickMsg{}
+	})
+}
+
 // fileLoadedMsg is an internal message dispatched when an async file load completes.
 type fileLoadedMsg struct {
 	bufferID int
@@ -68,9 +85,15 @@ type Model struct {
 	// Mouse drag tracking
 	mouseDragging   bool
 	mouseDragAnchor cursorPos
-	definitionLink  definitionLinkState
-	hover           hoverState
-	hoverX, hoverY  int // last mouse position, for tooltip placement
+	// mouseDragEdge is -1 while the pointer is held above the viewport, +1
+	// below it, and 0 inside. A non-zero edge keeps the auto-scroll tick loop
+	// running so the selection keeps growing while the button is held.
+	mouseDragEdge  int
+	dragScrolling  bool
+	mouseDragX     int // last pointer column during a drag, for edge auto-scroll
+	definitionLink definitionLinkState
+	hover          hoverState
+	hoverX, hoverY int // last mouse position, for tooltip placement
 
 	// Multi-click detection
 	lastClickTime time.Time
@@ -176,6 +199,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleMouseRelease(msg)
 		}
 
+	case dragScrollTickMsg:
+		return m.handleDragScrollTick()
+
 	case tea.MouseWheelMsg:
 		if m.focused {
 			m.completion.hide()
@@ -224,6 +250,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursor = cursorPos{}
 		m.selectionAnchor = nil
 		m.mouseDragging = false
+		m.mouseDragEdge = 0
+		m.dragScrolling = false
 		m.preferredCol = 0
 		m.viewportTop = 0
 		m.viewportLeft = 0
@@ -498,6 +526,8 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.pendingBufferID = bufferID
 	m.path = path
 	m.mouseDragging = false
+	m.mouseDragEdge = 0
+	m.dragScrolling = false
 	m.completion.hide()
 	m.visualRowCache = nil
 	m.chunkCache = nil
@@ -535,6 +565,11 @@ func (m Model) SelectedText() string {
 
 // BufferID returns the buffer ID of the currently loaded file.
 func (m Model) BufferID() int { return m.bufferID }
+
+// IsDraggingSelection reports whether a mouse selection drag is in flight. The
+// app uses this to keep routing motion and release events to the editor even
+// when the pointer is dragged over the tab bar, breadcrumbs, or status bar.
+func (m Model) IsDraggingSelection() bool { return m.mouseDragging }
 
 // BufferGeneration returns the active buffer's edit generation.
 func (m Model) BufferGeneration() int {
@@ -1020,6 +1055,10 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		m.lastClickTime = time.Now()
 		m.lastClickPos = newPos
+		// A new press supersedes any drag state left behind by an earlier
+		// gesture (for example a release that arrived outside the app).
+		m.mouseDragEdge = 0
+		m.dragScrolling = false
 
 		switch m.clickCount {
 		case 2: // double-click: select word
@@ -1095,14 +1134,118 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 	m.definitionLink.hide()
 	if msg.Button == tea.MouseLeft && m.mouseDragging {
-		dragLine, dragCol := m.screenToBuffer(msg.X, msg.Y)
-		m.cursor = cursorPos{line: dragLine, col: dragCol}
-		m.preferredCol = dragCol
-		anchor := m.mouseDragAnchor
-		m.selectionAnchor = &anchor
+		// A drag selects to the nearest visible row, never to a buffer line
+		// extrapolated from a pointer that left the viewport: the viewport
+		// edge is what follows the pointer instead (see dragScrollTickMsg).
+		m.mouseDragEdge = m.dragEdgeFor(msg.Y)
+		m.mouseDragX = msg.X
+		m.extendDragSelection(msg.X, m.clampDragY(msg.Y))
+		var cmd tea.Cmd
+		if m.mouseDragEdge != 0 && !m.dragScrolling {
+			m.dragScrolling = true
+			cmd = dragScrollTick()
+		}
+		m.clampViewport()
+		return m, cmd
 	}
 	m.clampViewport()
 	return m, nil
+}
+
+// dragEdgeFor reports where the pointer sits relative to the viewport while a
+// selection drag is in flight: -1 above the top row, +1 below the bottom row,
+// 0 inside.
+func (m *Model) dragEdgeFor(y int) int {
+	switch {
+	case y < 0:
+		return -1
+	case m.viewHeight > 0 && y >= m.viewHeight:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// clampDragY pins a pointer row to the visible viewport rows so a drag target
+// never depends on how far past the edge the pointer travelled.
+func (m *Model) clampDragY(y int) int {
+	if y < 0 {
+		return 0
+	}
+	if m.viewHeight > 0 && y > m.viewHeight-1 {
+		return m.viewHeight - 1
+	}
+	return y
+}
+
+// extendDragSelection moves the selection head to the buffer position under
+// (x, y) while keeping the anchor fixed at the press position.
+func (m *Model) extendDragSelection(x, y int) {
+	dragLine, dragCol := m.screenToBuffer(x, y)
+	m.cursor = cursorPos{line: dragLine, col: dragCol}
+	m.preferredCol = dragCol
+	anchor := m.mouseDragAnchor
+	m.selectionAnchor = &anchor
+}
+
+// handleDragScrollTick advances the viewport one row in the direction the
+// pointer is held past the edge and extends the selection with it, so a drag
+// below/above the viewport keeps selecting new lines instead of stalling on a
+// clamped line or scrolling the content out from under the selection.
+func (m Model) handleDragScrollTick() (tea.Model, tea.Cmd) {
+	if !m.mouseDragging || m.mouseDragEdge == 0 {
+		m.dragScrolling = false
+		return m, nil
+	}
+	if !m.scrollViewportForDrag(m.mouseDragEdge) {
+		// At the top or bottom of the buffer: stop ticking, but keep the
+		// selection pinned to the edge row it reached.
+		m.dragScrolling = false
+		return m, nil
+	}
+	// The viewport moved, so the edge row now maps to the adjacent line.
+	m.extendDragSelection(m.mouseDragX, m.mouseDragEdgeTargetY())
+	m.clampViewport()
+	return m, dragScrollTick()
+}
+
+// mouseDragEdgeTargetY returns the pointer row that maps to the scrolled edge
+// row after the viewport moved one line: the bottom row when scrolling down,
+// the top row when scrolling up.
+func (m *Model) mouseDragEdgeTargetY() int {
+	if m.mouseDragEdge > 0 {
+		if m.viewHeight > 0 {
+			return m.viewHeight - 1
+		}
+		return 0
+	}
+	return 0
+}
+
+// scrollViewportForDrag scrolls the viewport one row in direction dir and
+// reports whether it actually moved. Unlike a cursor move it does not touch the
+// cursor, so the caller decides where the selection head lands.
+func (m *Model) scrollViewportForDrag(dir int) bool {
+	lineCount := m.buf.LineCount()
+	if lineCount == 0 {
+		return false
+	}
+	if dir > 0 {
+		// Never scroll past the last line: the bottom row keeps showing it.
+		if m.viewHeight > 0 && m.viewportTop >= lineCount-m.viewHeight {
+			return false
+		}
+		if m.viewportTop >= lineCount-1 {
+			return false
+		}
+		m.viewportTop++
+		return true
+	}
+	if m.viewportTop <= 0 {
+		return false
+	}
+	m.viewportTop--
+	return true
 }
 
 // handleMouseRelease handles mouse button release.
@@ -1112,6 +1255,8 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 	}
 	if msg.Button == tea.MouseLeft && m.mouseDragging {
 		m.mouseDragging = false
+		m.mouseDragEdge = 0
+		m.dragScrolling = false
 		// If cursor didn't move from press position, clear the selection.
 		if m.selectionAnchor != nil && *m.selectionAnchor == m.cursor {
 			m.clearSelection()
@@ -2670,6 +2815,13 @@ func (m Model) bottomPadding() int {
 // below the last line of content so it is not glued to the bottom edge.
 func (m *Model) clampViewport() {
 	pad := m.bottomPadding()
+	if m.mouseDragging {
+		// While a selection drag is in flight the pointer owns the viewport
+		// edge. Reserving bottom padding here would scroll the content up on
+		// every motion event, so the row under the pointer keeps changing and
+		// the selection runs away.
+		pad = 0
+	}
 	// The padding can never exceed the viewport height: clamp it so the
 	// cursor-visible trigger below still fires on tiny viewports.
 	if pad >= m.viewHeight {
