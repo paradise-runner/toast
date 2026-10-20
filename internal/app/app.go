@@ -707,7 +707,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.runGitStatus())
 		// If the changed file is currently open and unmodified, silently reload it.
 		if msg.Path == m.editor.Path() && !m.editor.IsModified() {
-			cmd := m.editor.OpenFile(m.editor.BufferID(), msg.Path)
+			cmd := m.editor.ReloadFile(m.editor.BufferID(), msg.Path)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
