@@ -15,6 +15,36 @@ push to main ──▶ release-please.yml ──▶ release PR (version + RELEAS
                             └─▶ release.yml: build zips, attach assets, update homebrew-tap
 ```
 
+## Prerequisites
+
+One repository setting must be on before the workflow can open a release PR:
+
+**Settings → Actions → General → Workflow permissions → Allow GitHub Actions to
+create and approve pull requests** must be checked.
+
+Release Please opens the release PR with the repository's `GITHUB_TOKEN`, and
+GitHub blocks that identity from creating pull requests unless the setting (or
+an organisation policy allowing it) is enabled. With it off, Release Please
+still does all the work — creates the release branch and commit, bumps the
+version, writes the notes — and then fails at the very last step:
+
+```
+release-please failed: GitHub Actions is not permitted to create or approve pull requests.
+```
+
+Enable it with:
+
+```bash
+gh api -X PUT repos/OWNER/REPO/actions/permissions/workflow \
+  -F default_workflow_permissions=read \
+  -F can_approve_pull_request_reviews=true
+```
+
+`default_workflow_permissions` can stay `read`; only the pull-request permission
+is needed. Alternatively, add a `RELEASE_PLEASE_TOKEN` secret (see
+[Tokens](#tokens)) so the action runs as your user instead of `GITHUB_TOKEN` —
+useful when the repository cannot enable the setting.
+
 ## Writing commits
 
 Release Please only sees [Conventional Commits](https://www.conventionalcommits.org/),
@@ -24,9 +54,16 @@ Repository settings squash-merge with the PR title, so title your PRs:
 | Prefix                                | Release                        |
 | ------------------------------------- | ------------------------------ |
 | `fix: …`                              | patch (`0.12.0` → `0.12.1`)    |
+| `docs: …`, `perf: …`, `revert: …`     | patch — they have visible changelog sections |
 | `feat: …`                             | minor (`0.12.0` → `0.13.0`)    |
 | any type with `!`, or `BREAKING CHANGE:` footer | minor while pre-1.0 (`bump-minor-pre-major`) |
-| `docs:`, `chore:`, `refactor:`, `test:`, `ci:`, `build:` | no release on their own |
+| `chore:`, `refactor:`, `test:`, `ci:`, `build:`, `style:` | no release on their own |
+
+The rule is the `changelog-sections` list in `release-please-config.json`: a
+commit whose type has a **visible** section produces a release — `feat` bumps
+minor, every other visible type bumps patch — while types marked `hidden`
+produce no release on their own. So `docs:`, `perf:` and `revert:` *do* cut a
+release; use a hidden type such as `chore:` for a change that must not.
 
 Prefixes outside that list (`readme: …`, `sidebar: …`) are invisible to Release
 Please, so a PR with a non-conventional title silently never releases. If a
@@ -73,12 +110,12 @@ The Go release strategy keeps no version file: the version is the git tag, and
 
 ## Tokens
 
-`release-please.yml` uses `GITHUB_TOKEN` by default, which is enough to open the
-release PR, tag, publish, and build. Adding a `RELEASE_PLEASE_TOKEN` secret (a
-PAT with `repo` scope) is optional but recommended: events caused by
-`GITHUB_TOKEN` do not start other workflows, so with the default token CI does
-not run on the release PR. The workflow picks up the PAT automatically when the
-secret exists.
+`release-please.yml` uses `GITHUB_TOKEN` by default. With the permission in
+[Prerequisites](#prerequisites) enabled, that is enough to open the release PR,
+tag, publish, and build. Adding a `RELEASE_PLEASE_TOKEN` secret (a PAT with
+`repo` scope) is optional but recommended: events caused by `GITHUB_TOKEN` do
+not start other workflows, so with the default token CI does not run on the
+release PR. The workflow picks up the PAT automatically when the secret exists.
 
 `HOMEBREW_TAP_TOKEN` is still required for the tap push.
 
