@@ -61,6 +61,54 @@ type fileLoadedMsg struct {
 	content  string
 	isBinary bool
 	loadErr  string
+	// preserveCursor asks the editor to keep the cursor, selection and
+	// viewport when the loaded content replaces the current buffer. Set for
+	// watcher-triggered reloads so an external change does not move the caret.
+	preserveCursor bool
+}
+
+// reloadState holds the editing state that a watcher-triggered reload must
+// preserve so an external change does not move the caret.
+type reloadState struct {
+	cursor       cursorPos
+	preferredCol int
+	viewportTop  int
+	viewportLeft int
+	anchor       *cursorPos
+}
+
+// captureReloadState snapshots the cursor, selection and viewport.
+func (m Model) captureReloadState() reloadState {
+	s := reloadState{
+		cursor:       m.cursor,
+		preferredCol: m.preferredCol,
+		viewportTop:  m.viewportTop,
+		viewportLeft: m.viewportLeft,
+	}
+	if m.selectionAnchor != nil {
+		cp := *m.selectionAnchor
+		s.anchor = &cp
+	}
+	return s
+}
+
+// restoreReloadState reapplies a captured reloadState, clamping the cursor,
+// selection anchor and viewport to the newly loaded buffer.
+func (m *Model) restoreReloadState(s reloadState) {
+	m.cursor = s.cursor
+	m.preferredCol = s.preferredCol
+	m.viewportTop = s.viewportTop
+	m.viewportLeft = s.viewportLeft
+	m.selectionAnchor = s.anchor
+	m.clampCursor()
+	if m.selectionAnchor != nil {
+		if m.selectionAnchor.line >= m.buf.LineCount() {
+			m.selectionAnchor = nil
+		} else if maxCol := m.lineContentLen(m.selectionAnchor.line); m.selectionAnchor.col > maxCol {
+			m.selectionAnchor.col = maxCol
+		}
+	}
+	m.clampViewport()
 }
 
 // Model is the bubbletea model for the editor component.
@@ -247,6 +295,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.bufferID != m.pendingBufferID {
 			return m, nil
 		}
+		// A reload whose content matches the buffer byte-for-byte is a no-op.
+		// That is the common case for the editor's own auto-save write: fsnotify
+		// often delivers the write event after FileSavedMsg cleared isSavingPath,
+		// so the app asks for a reload of content the buffer already holds.
+		if msg.preserveCursor && msg.path == m.path && m.buf != nil &&
+			!msg.isBinary && msg.loadErr == "" && msg.content == m.buf.String() {
+			return m, nil
+		}
+		preserve := msg.preserveCursor && msg.path == m.path && m.buf != nil
+		var prev reloadState
+		if preserve {
+			prev = m.captureReloadState()
+		}
 		m.binaryFile = msg.isBinary
 		m.loadError = msg.loadErr
 		m.bufferID = msg.bufferID
@@ -281,6 +342,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.highlighter = h
 		if m.highlighter != nil {
 			m.highlighter.Parse([]byte(m.buf.String()))
+		}
+		if preserve {
+			m.restoreReloadState(prev)
 		}
 		// Notify app that file content is ready (e.g. for markdown preview).
 		bufID := msg.bufferID
@@ -383,16 +447,16 @@ func normalizePasteText(s string) string {
 	return strings.ReplaceAll(s, "\r", "\n")
 }
 
-func openFile(bufferID int, path string) tea.Cmd {
+func openFile(bufferID int, path string, preserveCursor bool) tea.Cmd {
 	return func() tea.Msg {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return fileLoadedMsg{bufferID: bufferID, path: path, loadErr: err.Error()}
+			return fileLoadedMsg{bufferID: bufferID, path: path, loadErr: err.Error(), preserveCursor: preserveCursor}
 		}
 		if IsBinary(data) {
-			return fileLoadedMsg{bufferID: bufferID, path: path, isBinary: true}
+			return fileLoadedMsg{bufferID: bufferID, path: path, isBinary: true, preserveCursor: preserveCursor}
 		}
-		return fileLoadedMsg{bufferID: bufferID, path: path, content: string(data)}
+		return fileLoadedMsg{bufferID: bufferID, path: path, content: string(data), preserveCursor: preserveCursor}
 	}
 }
 
@@ -400,7 +464,17 @@ func openFile(bufferID int, path string) tea.Cmd {
 // trigger an asynchronous file load into the editor.
 func (m *Model) OpenFile(bufferID int, path string) tea.Cmd {
 	m.pendingBufferID = bufferID
-	return openFile(bufferID, path)
+	return openFile(bufferID, path, false)
+}
+
+// ReloadFile re-reads path from disk into the existing buffer, keeping the
+// cursor, selection and viewport in place. Used for watcher-triggered reloads
+// so an external change does not move the caret. When the on-disk content is
+// identical to the buffer the reload is a no-op, which is the common case for
+// the editor's own save writes echoed back by the file watcher.
+func (m *Model) ReloadFile(bufferID int, path string) tea.Cmd {
+	m.pendingBufferID = bufferID
+	return openFile(bufferID, path, true)
 }
 
 // BufferSnapshot captures the editing state of one buffer so it can be

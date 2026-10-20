@@ -2428,3 +2428,116 @@ func TestMouseDrag_LeavingEdgeStopsAutoScroll(t *testing.T) {
 		t.Fatalf("viewportTop = %d, want %d", m.viewportTop, top)
 	}
 }
+
+// ── Watcher reloads (issue #83) ─────────────────────────────────────────────
+
+// TestFileLoadedMsg_ReloadIdenticalContentIsNoop verifies that a reload whose
+// content matches the buffer does not touch the cursor, viewport or buffer.
+// This is what happens when the file watcher echoes the editor's own save.
+func TestFileLoadedMsg_ReloadIdenticalContentIsNoop(t *testing.T) {
+	m := newTestModel("one\ntwo\nthree\nfour\n")
+	m.path = "main.go"
+	m.bufferID = 1
+	m.pendingBufferID = 1
+	m.viewHeight = 2
+	m.cursor = cursorPos{line: 2, col: 2}
+	m.viewportTop, m.viewportLeft = 1, 3
+
+	prevBuf := m.buf
+	updated, cmd := m.Update(fileLoadedMsg{
+		bufferID: 1, path: "main.go", content: "one\ntwo\nthree\nfour\n", preserveCursor: true,
+	})
+	m = updated.(Model)
+
+	if cmd != nil {
+		t.Fatalf("expected no command for identical reload, got %v", cmd)
+	}
+	if m.buf != prevBuf {
+		t.Fatal("expected identical reload to keep the existing buffer (undo history)")
+	}
+	if want := (cursorPos{line: 2, col: 2}); m.cursor != want {
+		t.Fatalf("cursor = %v, want %v", m.cursor, want)
+	}
+	if m.viewportTop != 1 || m.viewportLeft != 3 {
+		t.Fatalf("viewport = (%d,%d), want (1,3)", m.viewportTop, m.viewportLeft)
+	}
+}
+
+// TestFileLoadedMsg_ReloadPreservesCursor verifies that an external change
+// reload keeps the caret in place instead of jumping to the top.
+func TestFileLoadedMsg_ReloadPreservesCursor(t *testing.T) {
+	long := strings.Repeat("a", 40) + "\n" + strings.Repeat("b", 40) + "\n" + strings.Repeat("c", 40) + "\n"
+	changed := strings.Repeat("d", 40) + "\n" + strings.Repeat("e", 40) + "\n" + strings.Repeat("f", 40) + "\n"
+	m := newTestModel(long)
+	m.path = "main.go"
+	m.bufferID = 1
+	m.pendingBufferID = 1
+	m.viewWidth = 40
+	m.viewHeight = 2
+	m.recomputeGutterWidth()
+	m.cursor = cursorPos{line: 1, col: 20}
+	m.viewportTop, m.viewportLeft = 1, 4
+
+	updated, _ := m.Update(fileLoadedMsg{
+		bufferID: 1, path: "main.go", content: changed, preserveCursor: true,
+	})
+	m = updated.(Model)
+
+	if want := (cursorPos{line: 1, col: 20}); m.cursor != want {
+		t.Fatalf("cursor = %v, want %v", m.cursor, want)
+	}
+	if m.viewportTop != 1 || m.viewportLeft != 4 {
+		t.Fatalf("viewport = (%d,%d), want (1,4)", m.viewportTop, m.viewportLeft)
+	}
+	if got := m.Content(); got != changed {
+		t.Fatalf("content = %q, want reloaded content", got)
+	}
+}
+
+// TestFileLoadedMsg_ReloadClampsCursorWhenFileShrinks verifies the restored
+// cursor stays within the newly loaded buffer.
+func TestFileLoadedMsg_ReloadClampsCursorWhenFileShrinks(t *testing.T) {
+	m := newTestModel("one\ntwo\nthree\nfour\n")
+	m.path = "main.go"
+	m.bufferID = 1
+	m.pendingBufferID = 1
+	m.viewHeight = 2
+	m.cursor = cursorPos{line: 3, col: 4}
+	m.viewportTop = 2
+
+	updated, _ := m.Update(fileLoadedMsg{
+		bufferID: 1, path: "main.go", content: "short\n", preserveCursor: true,
+	})
+	m = updated.(Model)
+
+	if want := (cursorPos{line: 0, col: 4}); m.cursor != want {
+		t.Fatalf("cursor = %v, want %v", m.cursor, want)
+	}
+	if m.viewportTop != 0 {
+		t.Fatalf("viewportTop = %d, want 0", m.viewportTop)
+	}
+}
+
+// TestFileLoadedMsg_OpenResetsCursor verifies that opening a different file
+// still starts at the top; only reloads preserve the caret.
+func TestFileLoadedMsg_OpenResetsCursor(t *testing.T) {
+	m := newTestModel("one\ntwo\nthree\nfour\n")
+	m.path = "first.go"
+	m.bufferID = 1
+	m.pendingBufferID = 2
+	m.viewHeight = 2
+	m.cursor = cursorPos{line: 3, col: 4}
+	m.viewportTop, m.viewportLeft = 2, 1
+
+	updated, _ := m.Update(fileLoadedMsg{
+		bufferID: 2, path: "second.go", content: "alpha\nbeta\n",
+	})
+	m = updated.(Model)
+
+	if want := (cursorPos{}); m.cursor != want {
+		t.Fatalf("cursor = %v, want zero after opening a new file", m.cursor)
+	}
+	if m.viewportTop != 0 || m.viewportLeft != 0 {
+		t.Fatalf("viewport = (%d,%d), want (0,0)", m.viewportTop, m.viewportLeft)
+	}
+}
