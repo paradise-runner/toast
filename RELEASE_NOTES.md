@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.12.2](https://github.com/paradise-runner/toast/compare/v0.12.1...v0.12.2) (2026-10-19)
+
+
+### Fixes
+
+* keep sidebar context menu clickable at the window edge ([#80](https://github.com/paradise-runner/toast/issues/80)) ([6426548](https://github.com/paradise-runner/toast/commit/64265486d6e9922fa2f977b73e854e81d63ebab8)), closes [#60](https://github.com/paradise-runner/toast/issues/60)
+
 ## [0.12.1](https://github.com/paradise-runner/toast/compare/v0.12.0...v0.12.1) (2026-10-19)
 
 
