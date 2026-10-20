@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.12.3](https://github.com/paradise-runner/toast/compare/v0.12.2...v0.12.3) (2026-10-20)
+
+
+### Fixes
+
+* keep cursor in place on watcher-triggered reloads ([#83](https://github.com/paradise-runner/toast/issues/83)) ([#84](https://github.com/paradise-runner/toast/issues/84)) ([b018385](https://github.com/paradise-runner/toast/commit/b018385cae9c583b1399f44497f090b8c78fe3d0))
+
 ## [0.12.2](https://github.com/paradise-runner/toast/compare/v0.12.1...v0.12.2) (2026-10-19)
 
 
