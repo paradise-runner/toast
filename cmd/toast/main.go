@@ -31,24 +31,55 @@ func findGitRoot(path string) (string, bool) {
 	}
 }
 
+const migrateThemeUsage = `usage: toast migrate-theme <source> <path-to-theme.json> [output-dir]
+
+Sources:
+  vscode  A VSCode colour theme (.json)
+  zed     A Zed theme file (.json); every variant it contains is converted
+
+Without output-dir, themes are written to ~/.config/toast/themes/.
+`
+
 func runMigrateTheme(args []string) int {
-	if len(args) < 2 || args[0] != "vscode" {
-		fmt.Fprintf(os.Stderr, "usage: toast migrate-theme vscode <path-to-theme.json>\n")
+	if len(args) < 2 {
+		fmt.Fprint(os.Stderr, migrateThemeUsage)
 		return 1
 	}
-	themePath := args[1]
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	source, themePath := args[0], args[1]
+
+	outDir := ""
+	if len(args) >= 3 {
+		outDir = args[2]
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		outDir = filepath.Join(home, ".config", "toast", "themes")
+	}
+
+	switch source {
+	case "vscode":
+		result, err := migrate.ConvertVSCode(themePath, outDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Printf("Theme %q written to %s\n", result.Name, result.OutputPath)
+	case "zed":
+		results, err := migrate.ConvertZed(themePath, outDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		for _, result := range results {
+			fmt.Printf("Theme %q written to %s\n", result.Name, result.OutputPath)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown theme source %q\n\n%s", source, migrateThemeUsage)
 		return 1
 	}
-	outDir := filepath.Join(home, ".config", "toast", "themes")
-	result, err := migrate.ConvertVSCode(themePath, outDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	fmt.Printf("Theme %q written to %s\n", result.Name, result.OutputPath)
 	return 0
 }
 
@@ -63,7 +94,8 @@ func main() {
 
 Usage:
   toast [path]           Open a file or directory (defaults to current directory)
-  toast migrate-theme vscode <path>  Convert a VSCode theme to toast format
+  toast migrate-theme <source> <path> [out-dir]
+                         Convert a VSCode or Zed theme to toast format
 
 Options:
   -v, --version  Print version and exit

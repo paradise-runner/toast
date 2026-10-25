@@ -58,11 +58,11 @@ func (tc *vsCodeTokenColor) scopes() []string {
 
 // scopeEntry is a flattened (scope, settings) pair from tokenColors.
 type scopeEntry struct {
-	scope    string
-	fg       string
-	bold     bool
-	italic   bool
-	order    int // position in tokenColors array (later = higher priority)
+	scope  string
+	fg     string
+	bold   bool
+	italic bool
+	order  int // position in tokenColors array (later = higher priority)
 }
 
 // ConvertResult holds the output of a successful conversion.
@@ -157,7 +157,7 @@ func ConvertVSCode(inputPath, outputDir string) (*ConvertResult, error) {
 	}
 
 	if len(missing) > 0 {
-		return nil, formatMissingError(missing)
+		return nil, formatMissingError("VSCode", missing)
 	}
 
 	// Determine variant.
@@ -277,9 +277,22 @@ func scopeMatches(tokenScope, queryScope string) bool {
 
 var nonAlphanumRe = regexp.MustCompile(`[^a-z0-9]+`)
 
-// toKebab converts a name like "Kanagawa Wave" to "kanagawa-wave".
+// diacriticFold maps the accented Latin letters that show up in theme names
+// (Catppuccin Frappé, Rosé Pine, ...) to ASCII, so file names stay portable.
+var diacriticFold = strings.NewReplacer(
+	"à", "a", "á", "a", "â", "a", "ã", "a", "ä", "a", "å", "a",
+	"ç", "c", "è", "e", "é", "e", "ê", "e", "ë", "e",
+	"ì", "i", "í", "i", "î", "i", "ï", "i",
+	"ñ", "n", "ò", "o", "ó", "o", "ô", "o", "õ", "o", "ö", "o", "ø", "o",
+	"ù", "u", "ú", "u", "û", "u", "ü", "u", "ß", "ss", "æ", "ae",
+)
+
+// toKebab converts a name like "Kanagawa Wave" to "kanagawa-wave". Accented
+// letters are folded to ASCII so "Catppuccin Frappé" becomes
+// "catppuccin-frappe" rather than "catppuccin-frapp".
 func toKebab(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
+	s = diacriticFold.Replace(s)
 	s = nonAlphanumRe.ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
 }
@@ -328,10 +341,11 @@ func describeMappingSearch(m mapping) string {
 	return strings.Join(keys, " or ") + " in theme colors object"
 }
 
-// formatMissingError builds a detailed error message from a list of missing tokens.
-func formatMissingError(missing []missingToken) error {
+// formatMissingError builds a detailed error message from a list of missing
+// tokens. source names the theme format the converter read ("VSCode", "Zed").
+func formatMissingError(source string, missing []missingToken) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "migration failed -- %d required color(s) not found in VSCode theme\n", len(missing))
+	fmt.Fprintf(&b, "migration failed -- %d required color(s) not found in %s theme\n", len(missing), source)
 
 	categories := []string{"UI", "Syntax", "Git"}
 	for _, cat := range categories {
