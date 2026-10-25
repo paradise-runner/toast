@@ -83,6 +83,23 @@ func TestLanguageForPathDetectsMarkdown(t *testing.T) {
 	}
 }
 
+func TestLanguageForPathDetectsElixir(t *testing.T) {
+	for _, path := range []string{"lib/app.ex", "test/app_test.exs", "mix.exs", "/tmp/x/APP.EXS"} {
+		if got := LanguageForPath(path); got != "elixir" {
+			t.Fatalf("LanguageForPath(%q) = %q, want elixir", path, got)
+		}
+	}
+	if got := languageIDForPath("lib/app.ex", "elixir", config.LSPCmd{}); got != "elixir" {
+		t.Fatalf("ex language id = %q, want elixir", got)
+	}
+	// HEEx templates are not Elixir source; they must not reach the server as
+	// "elixir" files.
+	cfg := config.Defaults()
+	if got := LanguageForPathConfig("lib/app_web/page.html.heex", cfg.LSP); got == "elixir" {
+		t.Fatalf("heex files should not map to the elixir server")
+	}
+}
+
 func TestLanguageIDForMarkdownAndPlainText(t *testing.T) {
 	if got := languageIDForPath("README.md", "markdown", config.LSPCmd{}); got != "markdown" {
 		t.Fatalf("md language id = %q", got)

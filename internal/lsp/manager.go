@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"fmt"
@@ -206,10 +207,11 @@ func (m *Manager) runInstallCommand(language string, install config.LSPInstall) 
 	return nil
 }
 
-// installFromDownload downloads a prebuilt binary archive and installs the
-// server executable into {install_dir}/bin. The archive must contain a single
-// executable file (a wrapping top-level directory is tolerated and stripped);
-// a GitHub-style {target} placeholder selects the platform's asset.
+// installFromDownload downloads a prebuilt language server and installs the
+// executable into {install_dir}/bin. The default format is a .tar.gz holding a
+// single executable (a wrapping top-level directory is tolerated and stripped);
+// "zip" and "raw" (a plain executable download) are also supported. A
+// GitHub-style {target}/{os}/{arch} placeholder selects the platform's asset.
 func (m *Manager) installFromDownload(language string, install config.LSPInstall) error {
 	installDir := m.installDir(language)
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
@@ -250,19 +252,45 @@ func (m *Manager) installFromDownload(language string, install config.LSPInstall
 	if err != nil {
 		return fmt.Errorf("read archive: %w", err)
 	}
-	entries, err := readArchiveEntries(archive)
-	if err != nil {
-		return fmt.Errorf("extract archive: %w", err)
-	}
-	exe, err := pickExecutable(entries)
+	exe, err := extractServerExecutable(archive, install.Download.Format)
 	if err != nil {
 		return err
 	}
-	binPath := filepath.Join(binDir, exe.name)
+	name := m.expand(language, install.Download.Binary)
+	if name == "" {
+		name = exe.name
+	}
+	if name == "" {
+		return fmt.Errorf("download format %q needs a binary name", install.Download.Format)
+	}
+	binPath := filepath.Join(binDir, name)
 	if err := os.WriteFile(binPath, exe.data, 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", binPath, err)
 	}
 	return nil
+}
+
+// extractServerExecutable picks the server executable out of a downloaded
+// payload. Unknown formats are rejected rather than guessed.
+func extractServerExecutable(payload []byte, format string) (downloadEntry, error) {
+	switch format {
+	case "raw":
+		return downloadEntry{data: payload}, nil
+	case "zip":
+		entries, err := readZipEntries(payload)
+		if err != nil {
+			return downloadEntry{}, fmt.Errorf("extract archive: %w", err)
+		}
+		return pickExecutable(entries)
+	case "", "tar.gz", "tgz":
+		entries, err := readArchiveEntries(payload)
+		if err != nil {
+			return downloadEntry{}, fmt.Errorf("extract archive: %w", err)
+		}
+		return pickExecutable(entries)
+	default:
+		return downloadEntry{}, fmt.Errorf("unsupported download format %q", format)
+	}
 }
 
 // downloadEntry is one regular file found in a downloaded archive.
@@ -299,6 +327,35 @@ func readArchiveEntries(archive []byte) ([]downloadEntry, error) {
 		entries = append(entries, downloadEntry{
 			name:  filepath.Base(hdr.Name),
 			depth: strings.Count(hdr.Name, "/"),
+			data:  content,
+		})
+	}
+	return entries, nil
+}
+
+// readZipEntries reads the regular files of a .zip archive.
+func readZipEntries(archive []byte) ([]downloadEntry, error) {
+	r, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, err
+	}
+	var entries []downloadEntry
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		content, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, downloadEntry{
+			name:  filepath.Base(f.Name),
+			depth: strings.Count(f.Name, "/"),
 			data:  content,
 		})
 	}
@@ -473,12 +530,19 @@ func (m *Manager) installDir(language string) string {
 
 func (m *Manager) expand(language, value string) string {
 	home, _ := os.UserHomeDir()
+	exe := ""
+	if runtime.GOOS == "windows" {
+		exe = ".exe"
+	}
 	return strings.NewReplacer(
 		"{install_dir}", m.installDir(language),
 		"{install_root}", m.installRoot,
 		"{root_dir}", m.rootDir,
 		"{home}", home,
 		"{target}", rustTargetTriple(),
+		"{os}", runtime.GOOS,
+		"{arch}", runtime.GOARCH,
+		"{exe}", exe,
 	).Replace(value)
 }
 
@@ -552,6 +616,8 @@ func LanguageForPath(path string) string {
 		return "javascript"
 	case strings.HasSuffix(lower, ".rs"):
 		return "rust"
+	case strings.HasSuffix(lower, ".ex"), strings.HasSuffix(lower, ".exs"):
+		return "elixir"
 	case strings.HasSuffix(lower, ".md"), strings.HasSuffix(lower, ".markdown"), strings.HasSuffix(lower, ".mdx"), strings.HasSuffix(lower, ".txt"):
 		return "markdown"
 	case strings.HasSuffix(lower, ".tf"), strings.HasSuffix(lower, ".tfvars"):

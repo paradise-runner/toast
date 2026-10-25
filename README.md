@@ -36,8 +36,8 @@ brew install paradise-runner/tap/toast
 
 
 - **Multi-tab editing** with unsaved-changes indicators, mouse-close buttons, and quit confirmation
-- **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, CSS, HTML, YAML, Bash, Markdown)
-- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, TypeScript, and Markdown (harper), with an extensible config for other languages
+- **Syntax highlighting** via tree-sitter (Go, Python, JavaScript, TypeScript, Rust, Elixir, CSS, HTML, YAML, Bash, Markdown)
+- **Managed language servers** — Toast offers to install missing servers for Go, Rust, Python, JavaScript, TypeScript, Elixir (Next LS), and Markdown (harper), with an extensible config for other languages
 - **Spell checking** — misspelled words in Markdown and plain-text files are underlined in the theme's diagnostic color via harper
 - **Go to definition** — hold `Ctrl` and hover to underline symbols with a target, then `Ctrl`-click to jump to the exact definition
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
@@ -199,7 +199,24 @@ All default keybindings can be overridden with the `keybindings` object. Each ac
 
 Available actions: `quit`, `toggle_sidebar`, `save`, `new_file`, `close_tab`, `undo`, `redo`, `next_tab`, `prev_tab`, `search`, `find_replace`, `quick_open`, `command_palette`, `theme_picker`, `go_to_line`, `go_to_definition`, `toggle_focus`, `markdown_preview`, `show_hover`, `trigger_completion`.
 
-Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, TypeScript, and Markdown; set `"lsp": {}` to disable all language servers. 
+Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, TypeScript, Elixir, and Markdown; set `"lsp": {}` to disable all language servers. Note that a `lsp` object replaces the defaults as a whole, so a custom entry means listing the servers you still want.
+
+Elixir projects get Next LS ([next-ls](https://github.com/elixir-tools/next-ls)), which is downloaded as a self-contained executable and still needs `mix` on `PATH`. ElixirLS works as a custom entry if you prefer it:
+
+```json
+{
+  "lsp": {
+    "elixir": {
+      "command": "/path/to/elixir-ls/language_server.sh",
+      "args": [],
+      "extensions": [".ex", ".exs"],
+      "language_id": "elixir"
+    }
+  }
+}
+```
+
+Adding a language of your own looks like this:
 
 ```json
 {
