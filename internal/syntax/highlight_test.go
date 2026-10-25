@@ -1,6 +1,7 @@
 package syntax_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/yourusername/toast/internal/syntax"
@@ -238,5 +239,118 @@ func TestHighlightTerraformExtensions(t *testing.T) {
 		if !h.HasQuery() {
 			t.Errorf("expected HasQuery for %s", tc.path)
 		}
+	}
+}
+
+// elixirSample exercises the constructs the Elixir query targets: keywords that
+// the grammar parses as identifiers, atoms, strings, comments and operators.
+const elixirSample = `defmodule Foo.Bar do
+  @moduledoc "Docs."
+
+  def add(a, b), do: a + b
+
+  defp helper(x) do
+    # comment
+    case x do
+      {:ok, value} -> value
+      :error -> nil
+    end
+  end
+
+  def key(map), do: map.key
+end
+`
+
+func newElixirHighlighter(t *testing.T) *syntax.Highlighter {
+	t.Helper()
+	tm, err := theme.NewManager("toast-dark", "")
+	if err != nil {
+		t.Fatalf("theme: %v", err)
+	}
+	h, err := syntax.NewHighlighter("sample.ex", tm)
+	if err != nil {
+		t.Fatalf("highlighter: %v", err)
+	}
+	if !h.HasQuery() {
+		t.Fatal("expected a highlight query for .ex files")
+	}
+	h.Parse([]byte(elixirSample))
+	return h
+}
+
+// hasSpan reports whether spans contain a span covering want with style.
+func hasSpan(spans []syntax.Span, line, want, style string) bool {
+	for _, s := range spans {
+		if s.Style != style || s.Start < 0 || s.End > len(line) || s.Start >= s.End {
+			continue
+		}
+		if line[s.Start:s.End] == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHighlightElixir(t *testing.T) {
+	h := newElixirHighlighter(t)
+	lines := strings.Split(elixirSample, "\n")
+
+	tests := []struct {
+		line  int
+		want  string
+		style string
+	}{
+		{0, "defmodule", "keyword"}, // identifier in the grammar, gated by Keywords
+		{0, "do", "keyword"},        // anonymous keyword token
+		{0, "Foo.Bar", "type"},
+		{1, "@", "punctuation"},
+		{1, `"Docs."`, "string"},
+		{3, "def", "keyword"},
+		{3, "+", "operator"},
+		{6, "# comment", "comment"},
+		{8, "{", "punctuation"},
+		{8, ":ok", "constant"},
+		{8, "->", "operator"},
+		{9, "nil", "constant"},
+		{13, "key", "property"}, // map.key field access
+	}
+	for _, tc := range tests {
+		line := lines[tc.line]
+		spans := h.HighlightLine(tc.line, line)
+		if !hasSpan(spans, line, tc.want, tc.style) {
+			t.Errorf("line %d %q: expected %q as %s, got %+v", tc.line, line, tc.want, tc.style, spans)
+		}
+	}
+}
+
+func TestHighlightElixirKeywordGate(t *testing.T) {
+	h := newElixirHighlighter(t)
+	lines := strings.Split(elixirSample, "\n")
+
+	// "helper" is a call target, i.e. the same grammar node as "defp" -- it must
+	// not be highlighted as a keyword.
+	line := lines[5] // "  defp helper(x) do"
+	spans := h.HighlightLine(5, line)
+	if hasSpan(spans, line, "helper", "keyword") {
+		t.Fatalf("call target helper must not be a keyword: %+v", spans)
+	}
+	if !hasSpan(spans, line, "defp", "keyword") {
+		t.Fatalf("defp should be a keyword: %+v", spans)
+	}
+}
+
+func TestElixirExtensions(t *testing.T) {
+	tm, _ := theme.NewManager("toast-dark", "")
+	for _, path := range []string{"lib/app.ex", "test/app_test.exs", "mix.exs"} {
+		h, err := syntax.NewHighlighter(path, tm)
+		if err != nil {
+			t.Fatalf("NewHighlighter(%q) error: %v", path, err)
+		}
+		if !h.HasQuery() {
+			t.Errorf("expected HasQuery for %s", path)
+		}
+	}
+	if lang := syntax.ForName("elixir"); lang == nil || lang.Language == nil {
+		t.Fatal("expected a registered elixir grammar")
 	}
 }

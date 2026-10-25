@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yourusername/toast/internal/config"
@@ -37,11 +38,20 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
 		t.Errorf("expected default file icon color mode accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
 	}
-	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform", "markdown"} {
+	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform", "markdown", "elixir"} {
 		server, ok := cfg.LSP[language]
 		if !ok || len(server.Extensions) == 0 || server.Install == nil {
 			t.Fatalf("expected managed default LSP metadata for %s, got %#v", language, server)
 		}
+	}
+	// Next LS publishes per-platform executables, not archives, and the asset
+	// names follow Go's GOOS/GOARCH.
+	elixir := cfg.LSP["elixir"]
+	if elixir.Install.Download == nil || elixir.Install.Download.Format != "raw" {
+		t.Fatalf("expected a raw download for elixir, got %#v", elixir.Install)
+	}
+	if !strings.Contains(elixir.Install.Download.URL, "{os}") || !strings.Contains(elixir.Install.Download.URL, "{arch}") {
+		t.Fatalf("elixir download url should select the platform: %q", elixir.Install.Download.URL)
 	}
 }
 

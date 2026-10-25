@@ -2,6 +2,8 @@ package syntax
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -62,7 +64,10 @@ func NewHighlighter(path string, tm *theme.Manager) (*Highlighter, error) {
 		var err error
 		q, err = sitter.NewQuery(lang.Query, lang.Language)
 		if err != nil {
-			// Bad query – fall back to no highlighting rather than hard-failing.
+			// Bad query – fall back to no highlighting rather than hard-failing,
+			// but say so: a broken query silently disables highlighting for the
+			// whole language.
+			fmt.Fprintf(os.Stderr, "toast: %s highlight query: %v\n", lang.Name, err)
 			q = nil
 		}
 	}
@@ -205,6 +210,13 @@ func (h *Highlighter) HighlightLine(lineStart int, lineContent string) []Span {
 			// Strip dotted suffix: "function.call" -> "function"
 			if dot := strings.IndexByte(name, '.'); dot != -1 {
 				name = name[:dot]
+			}
+
+			// Some grammars parse keywords as ordinary identifiers, so the query
+			// captures them broadly and the language's keyword set decides.
+			if name == "keyword" && h.lang.Keywords != nil &&
+				!h.lang.Keywords[string(h.content[nodeStart:nodeEnd])] {
+				continue
 			}
 
 			spans = append(spans, Span{
