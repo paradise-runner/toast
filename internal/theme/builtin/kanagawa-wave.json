@@ -1,0 +1,106 @@
+{
+  "name": "Kanagawa Wave",
+  "variant": "dark",
+  "ui": {
+    "background": "#1f1f28",
+    "border": "#2a2a37",
+    "breadcrumbs_active_fg": "#dcd7ba",
+    "breadcrumbs_fg": "#727169",
+    "completion_bg": "#181820",
+    "completion_fg": "#dcd7ba",
+    "completion_selected": "#252531",
+    "cursor": "#dcd7ba",
+    "diagnostic_error": "#e82424",
+    "diagnostic_hint": "#6a9589",
+    "diagnostic_info": "#7e9cd8",
+    "diagnostic_warning": "#ff9e3b",
+    "find_replace_border": "#9cabca",
+    "foreground": "#dcd7ba",
+    "gutter_active_fg": "#9cabca",
+    "gutter_fg": "#6a9589",
+    "hover_bg": "#181820",
+    "hover_border": "#7e9cd8",
+    "hover_fg": "#dcd7ba",
+    "line_highlight": "#28282f",
+    "muted": "#727169",
+    "search_current_bg": "#2e363b",
+    "search_current_fg": "#dcd7ba",
+    "search_match_bg": "#2e363b",
+    "search_match_fg": "#dcd7ba",
+    "selection": "#262631",
+    "settings_bg": "#181820",
+    "settings_border": "#7e9cd8",
+    "settings_fg": "#dcd7ba",
+    "settings_selected": "#252531",
+    "settings_separator": "#9cabca",
+    "sidebar_bg": "#1a1a22",
+    "sidebar_fg": "#dcd7ba",
+    "sidebar_icon_fg": "#dcd7ba",
+    "sidebar_selected_bg": "#252531",
+    "sidebar_selected_fg": "#dcd7ba",
+    "statusbar_bg": "#181820",
+    "statusbar_fg": "#727169",
+    "tab_active_bg": "#1f1f28",
+    "tab_active_fg": "#dcd7ba",
+    "tab_inactive_bg": "#1a1a22",
+    "tab_inactive_fg": "#727169"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#dca561"
+    },
+    "builtin": {
+      "fg": "#957fb8",
+      "italic": true
+    },
+    "comment": {
+      "fg": "#727169",
+      "italic": true
+    },
+    "constant": {
+      "fg": "#ffa066"
+    },
+    "function": {
+      "fg": "#7e9cd8",
+      "italic": true
+    },
+    "keyword": {
+      "fg": "#957fb8"
+    },
+    "module": {
+      "fg": "#6a9589"
+    },
+    "number": {
+      "fg": "#d27e99"
+    },
+    "operator": {
+      "fg": "#c0a36e"
+    },
+    "property": {
+      "fg": "#7e9cd8"
+    },
+    "punctuation": {
+      "fg": "#6a9589"
+    },
+    "string": {
+      "fg": "#98bb6c"
+    },
+    "tag": {
+      "fg": "#7e9cd8"
+    },
+    "type": {
+      "fg": "#6a9589"
+    },
+    "variable": {
+      "fg": "#dcd7ba"
+    }
+  },
+  "git": {
+    "added": "#76946a",
+    "conflict": "#9cabca",
+    "deleted": "#c34043",
+    "ignored": "#4f4f66",
+    "modified": "#dca561",
+    "untracked": "#4f4f66"
+  }
+}

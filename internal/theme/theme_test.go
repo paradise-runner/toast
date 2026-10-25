@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yourusername/toast/internal/theme"
@@ -296,5 +297,114 @@ func TestSettingsBorderFallsBackToAccent(t *testing.T) {
 	// Separator keeps the plain-border fallback path (no accent).
 	if sep := m.Settings("separator"); sep != "" {
 		t.Errorf("Settings(separator) = %q, want empty when border missing", sep)
+	}
+}
+
+// requiredUITokens lists the UI colours every builtin theme must define. The
+// builtin themes are generated from Zed themes (see builtin/SOURCES.md), so
+// this guards against a conversion regression silently shipping an invisible
+// dialog or unreadable sidebar.
+var requiredUITokens = []string{
+	"background", "foreground", "cursor", "selection", "line_highlight", "border",
+	"tab_active_bg", "tab_active_fg", "tab_inactive_bg", "tab_inactive_fg",
+	"sidebar_bg", "sidebar_fg", "sidebar_selected_bg", "sidebar_selected_fg",
+	"statusbar_bg", "statusbar_fg", "breadcrumbs_fg", "breadcrumbs_active_fg",
+	"gutter_fg", "gutter_active_fg", "muted",
+	"diagnostic_error", "diagnostic_warning", "diagnostic_info", "diagnostic_hint",
+	"completion_bg", "completion_fg", "completion_selected",
+	"settings_bg", "settings_fg", "settings_selected", "settings_separator", "settings_border",
+	"hover_bg", "hover_fg", "hover_border", "find_replace_border",
+	"search_match_bg", "search_match_fg", "search_current_bg", "search_current_fg",
+}
+
+var requiredSyntaxTokens = []string{
+	"keyword", "string", "number", "comment", "function", "type", "variable",
+	"constant", "operator", "punctuation", "tag", "attribute", "property",
+	"module", "builtin",
+}
+
+var requiredGitTokens = []string{"added", "modified", "deleted", "untracked", "conflict", "ignored"}
+
+func TestAllBuiltinThemesLoad(t *testing.T) {
+	for _, name := range theme.ListBuiltin() {
+		t.Run(name, func(t *testing.T) {
+			m, err := theme.NewManager(name, "")
+			if err != nil {
+				t.Fatalf("NewManager(%q): %v", name, err)
+			}
+			// A failed load silently falls back to toast-dark, so check the name.
+			if m.Name() != name {
+				t.Fatalf("loaded %q but got theme %q", name, m.Name())
+			}
+			if v := m.Variant(); v != "dark" && v != "light" {
+				t.Errorf("variant = %q, want dark or light", v)
+			}
+			if name == "system" {
+				return
+			}
+			for _, key := range requiredUITokens {
+				if m.UI(key) == "" {
+					t.Errorf("ui token %q is empty", key)
+				}
+			}
+			for _, key := range requiredSyntaxTokens {
+				if m.SyntaxFG(key) == "" {
+					t.Errorf("syntax token %q is empty", key)
+				}
+			}
+			for _, key := range requiredGitTokens {
+				if m.Git(key) == "" {
+					t.Errorf("git token %q is empty", key)
+				}
+			}
+		})
+	}
+}
+
+func TestBuiltinThemeFilesAreKebabCase(t *testing.T) {
+	// Sorted names in the picker are only grouped by vendor when the file
+	// names are lower-case and hyphenated.
+	for _, name := range theme.ListBuiltin() {
+		if name == "system" {
+			continue
+		}
+		if strings.ToLower(name) != name {
+			t.Errorf("builtin %q is not lower case", name)
+		}
+		for _, r := range name {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				t.Errorf("builtin %q contains %q; use kebab-case", name, r)
+			}
+		}
+	}
+}
+
+func TestDiscoverSortsFamiliesAndPinsSystem(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"kanagawa-wave", "kanagawa", "aaa-custom", "dracula-solid"} {
+		if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(`{"name":"x","variant":"dark"}`), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	names := theme.Discover(dir)
+	if len(names) == 0 || names[0] != "system" {
+		t.Fatalf("expected system first, got %v", names)
+	}
+
+	index := make(map[string]int, len(names))
+	for i, n := range names {
+		index[n] = i
+	}
+	// A family base name sorts before its variants, whichever order the
+	// filesystem hands them over in.
+	if !(index["kanagawa"] < index["kanagawa-wave"]) {
+		t.Errorf("kanagawa should sort before kanagawa-wave: %v", names)
+	}
+	if !(index["dracula"] < index["dracula-solid"]) {
+		t.Errorf("dracula should sort before dracula-solid: %v", names)
+	}
+	if !(index["aaa-custom"] < index["dracula"]) {
+		t.Errorf("user themes should sort with the builtins: %v", names)
 	}
 }

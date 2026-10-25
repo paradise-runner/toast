@@ -1,0 +1,104 @@
+{
+  "name": "Dracula Solid",
+  "variant": "dark",
+  "ui": {
+    "background": "#282a36",
+    "border": "#3c324b",
+    "breadcrumbs_active_fg": "#f8f8f2",
+    "breadcrumbs_fg": "#a186c7",
+    "completion_bg": "#1e1925",
+    "completion_fg": "#f8f8f2",
+    "completion_selected": "#65547d",
+    "cursor": "#f8f8f2",
+    "diagnostic_error": "#e67373",
+    "diagnostic_hint": "#6272a4",
+    "diagnostic_info": "#73ece5",
+    "diagnostic_warning": "#e6e373",
+    "find_replace_border": "#c9a8f9",
+    "foreground": "#f8f8f2",
+    "gutter_active_fg": "#c9a8f9",
+    "gutter_fg": "#7c7c79",
+    "hover_bg": "#1e1925",
+    "hover_border": "#c9a8f9",
+    "hover_fg": "#f8f8f2",
+    "line_highlight": "#44475a",
+    "muted": "#a186c7",
+    "search_current_bg": "#287d3e",
+    "search_current_fg": "#f8f8f2",
+    "search_match_bg": "#287d3e",
+    "search_match_fg": "#f8f8f2",
+    "selection": "#504364",
+    "settings_bg": "#1e1925",
+    "settings_border": "#c9a8f9",
+    "settings_fg": "#f8f8f2",
+    "settings_selected": "#65547d",
+    "settings_separator": "#504364",
+    "sidebar_bg": "#0a080c",
+    "sidebar_fg": "#f8f8f2",
+    "sidebar_icon_fg": "#f8f8f2",
+    "sidebar_selected_bg": "#65547d",
+    "sidebar_selected_fg": "#f8f8f2",
+    "statusbar_bg": "#141119",
+    "statusbar_fg": "#a186c7",
+    "tab_active_bg": "#282a36",
+    "tab_active_fg": "#f8f8f2",
+    "tab_inactive_bg": "#1c1d26",
+    "tab_inactive_fg": "#a186c7"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#8be9fd"
+    },
+    "builtin": {
+      "fg": "#bd93f9",
+      "italic": true
+    },
+    "comment": {
+      "fg": "#6272a4"
+    },
+    "constant": {
+      "fg": "#bd93f9"
+    },
+    "function": {
+      "fg": "#50fa7b"
+    },
+    "keyword": {
+      "fg": "#ff79c6"
+    },
+    "module": {
+      "fg": "#8be9fd"
+    },
+    "number": {
+      "fg": "#bd93f9"
+    },
+    "operator": {
+      "fg": "#ff79c6"
+    },
+    "property": {
+      "fg": "#8be9fd"
+    },
+    "punctuation": {
+      "fg": "#ff79c6"
+    },
+    "string": {
+      "fg": "#f1fa8c"
+    },
+    "tag": {
+      "fg": "#ff79c6"
+    },
+    "type": {
+      "fg": "#8be9fd"
+    },
+    "variable": {
+      "fg": "#f8f8f2"
+    }
+  },
+  "git": {
+    "added": "#73fb95",
+    "conflict": "#dec184",
+    "deleted": "#ff5555",
+    "ignored": "#65547d",
+    "modified": "#a2edfd",
+    "untracked": "#65547d"
+  }
+}

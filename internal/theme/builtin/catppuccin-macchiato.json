@@ -1,0 +1,106 @@
+{
+  "name": "Catppuccin Macchiato",
+  "variant": "dark",
+  "ui": {
+    "background": "#24273a",
+    "border": "#363a4f",
+    "breadcrumbs_active_fg": "#cad3f5",
+    "breadcrumbs_fg": "#b8c0e0",
+    "completion_bg": "#1e2030",
+    "completion_fg": "#cad3f5",
+    "completion_selected": "#292c40",
+    "cursor": "#cad3f5",
+    "diagnostic_error": "#ed8796",
+    "diagnostic_hint": "#5b6078",
+    "diagnostic_info": "#8bd5ca",
+    "diagnostic_warning": "#eed49f",
+    "find_replace_border": "#c6a0f6",
+    "foreground": "#cad3f5",
+    "gutter_active_fg": "#c6a0f6",
+    "gutter_fg": "#8087a2",
+    "hover_bg": "#1e2030",
+    "hover_border": "#b7bdf8",
+    "hover_fg": "#cad3f5",
+    "line_highlight": "#2f3347",
+    "muted": "#b8c0e0",
+    "search_current_bg": "#604355",
+    "search_current_fg": "#cad3f5",
+    "search_match_bg": "#435b65",
+    "search_match_fg": "#cad3f5",
+    "selection": "#383c51",
+    "settings_bg": "#1e2030",
+    "settings_border": "#b7bdf8",
+    "settings_fg": "#cad3f5",
+    "settings_selected": "#292c40",
+    "settings_separator": "#313148",
+    "sidebar_bg": "#1e2030",
+    "sidebar_fg": "#cad3f5",
+    "sidebar_icon_fg": "#cad3f5",
+    "sidebar_selected_bg": "#292c40",
+    "sidebar_selected_fg": "#cad3f5",
+    "statusbar_bg": "#181926",
+    "statusbar_fg": "#b8c0e0",
+    "tab_active_bg": "#24273a",
+    "tab_active_fg": "#cad3f5",
+    "tab_inactive_bg": "#12121c",
+    "tab_inactive_fg": "#b8c0e0"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#eed49f"
+    },
+    "builtin": {
+      "fg": "#ed8796",
+      "italic": true
+    },
+    "comment": {
+      "fg": "#939ab7",
+      "italic": true
+    },
+    "constant": {
+      "fg": "#f5a97f"
+    },
+    "function": {
+      "fg": "#8aadf4"
+    },
+    "keyword": {
+      "fg": "#c6a0f6"
+    },
+    "module": {
+      "fg": "#eed49f",
+      "italic": true
+    },
+    "number": {
+      "fg": "#f5a97f"
+    },
+    "operator": {
+      "fg": "#91d7e3"
+    },
+    "property": {
+      "fg": "#b7bdf8"
+    },
+    "punctuation": {
+      "fg": "#939ab7"
+    },
+    "string": {
+      "fg": "#a6da95"
+    },
+    "tag": {
+      "fg": "#8aadf4"
+    },
+    "type": {
+      "fg": "#eed49f"
+    },
+    "variable": {
+      "fg": "#cad3f5"
+    }
+  },
+  "git": {
+    "added": "#a6da95",
+    "conflict": "#f5a97f",
+    "deleted": "#ed8796",
+    "ignored": "#6e738d",
+    "modified": "#eed49f",
+    "untracked": "#6e738d"
+  }
+}

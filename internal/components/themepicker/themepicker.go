@@ -16,6 +16,11 @@ import (
 const (
 	dialogWidth = 50
 
+	// maxVisibleRows caps the theme list. With dozens of builtin themes the
+	// dialog would otherwise grow taller than the terminal and clip the action
+	// row, so the list scrolls instead.
+	maxVisibleRows = 12
+
 	// Action row button texts and their content-relative X positions.
 	// Layout: "  [ confirm ]   [ cancel ]   [o] folder      "
 	confirmBtnText  = "[ confirm ]"
@@ -33,6 +38,7 @@ const (
 type Model struct {
 	themes      []string
 	selected    int
+	offset      int    // index of the first visible theme row
 	activeTheme string // the theme active when the picker was opened (for esc revert)
 	themeDir    string
 	theme       *theme.Manager
@@ -57,16 +63,43 @@ func (m Model) Init() (Model, tea.Cmd) {
 			break
 		}
 	}
+	m.clampOffset()
 	return m, nil
 }
 
 // ActiveTheme returns the theme name that was active when the picker opened (used to revert on cancel).
 func (m Model) ActiveTheme() string { return m.activeTheme }
 
+// visibleRows returns how many theme rows the dialog shows at once.
+func (m Model) visibleRows() int {
+	return min(len(m.themes), maxVisibleRows)
+}
+
+// clampOffset scrolls the window so the selected theme is visible.
+func (m *Model) clampOffset() {
+	rows := m.visibleRows()
+	if rows == 0 {
+		m.offset = 0
+		return
+	}
+	if m.selected < m.offset {
+		m.offset = m.selected
+	}
+	if m.selected >= m.offset+rows {
+		m.offset = m.selected - rows + 1
+	}
+	if maxOffset := len(m.themes) - rows; m.offset > maxOffset {
+		m.offset = maxOffset
+	}
+	if m.offset < 0 {
+		m.offset = 0
+	}
+}
+
 // Dimensions returns the visual outer width and height of the rendered picker.
 // Used by app.go to compute the picker's screen position for hit-testing clicks.
 func (m Model) Dimensions() (w, h int) {
-	return dialogWidth + 2, len(m.themes) + 4 // +2 borders (width); +4 borders+sep+btn (height)
+	return dialogWidth + 2, m.visibleRows() + 4 // +2 borders (width); +4 borders+sep+btn (height)
 }
 
 // Update handles key and mouse events for the picker.
@@ -80,12 +113,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		// Coordinates are picker-local (app.go subtracts the picker's top-left corner).
-		// Y=0 top border, Y=1..N theme rows, Y=N+1 separator, Y=N+2 action row.
-		actionRowY := len(m.themes) + 2
+		// Y=0 top border, Y=1..visibleRows theme rows, Y=rows+1 separator, Y=rows+2 action row.
+		rows := m.visibleRows()
+		actionRowY := rows + 2
 		switch {
-		case msg.Y >= 1 && msg.Y <= len(m.themes):
+		case msg.Y >= 1 && msg.Y <= rows:
 			// Theme row: move selection and preview, but don't confirm.
-			row := msg.Y - 1
+			row := m.offset + msg.Y - 1
+			if row >= len(m.themes) {
+				return m, nil
+			}
 			m.selected = row
 			name := m.themes[row]
 			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
@@ -114,6 +151,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.selected < 0 {
 				m.selected = len(m.themes) - 1
 			}
+			m.clampOffset()
 			name := m.themes[m.selected]
 			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
 
@@ -122,6 +160,31 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.selected >= len(m.themes) {
 				m.selected = 0
 			}
+			m.clampOffset()
+			name := m.themes[m.selected]
+			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+
+		case "home":
+			m.selected = 0
+			m.clampOffset()
+			name := m.themes[m.selected]
+			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+
+		case "end":
+			m.selected = len(m.themes) - 1
+			m.clampOffset()
+			name := m.themes[m.selected]
+			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+
+		case "pgup":
+			m.selected = max(m.selected-m.visibleRows(), 0)
+			m.clampOffset()
+			name := m.themes[m.selected]
+			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+
+		case "pgdown":
+			m.selected = min(m.selected+m.visibleRows(), len(m.themes)-1)
+			m.clampOffset()
 			name := m.themes[m.selected]
 			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
 
@@ -160,7 +223,10 @@ func (m Model) Render() string {
 	innerW := dialogWidth
 
 	var rows []string
-	for i, name := range m.themes {
+	start := m.offset
+	end := min(start+m.visibleRows(), len(m.themes))
+	for i := start; i < end; i++ {
+		name := m.themes[i]
 		// ● marks the original (revert) theme; the highlight tracks the current selection.
 		// These can differ after the user navigates away from the starting position.
 		marker := "  "
@@ -172,6 +238,16 @@ func (m Model) Render() string {
 		// Pad to inner width (rune-aware: ● is 3 bytes but 1 display column)
 		if utf8.RuneCountInString(label) < innerW {
 			label += strings.Repeat(" ", innerW-utf8.RuneCountInString(label))
+		}
+		// Scroll indicators sit in the last column of the first/last visible row.
+		indicator := ""
+		if i == start && start > 0 {
+			indicator = "▴"
+		} else if i == end-1 && end < len(m.themes) {
+			indicator = "▾"
+		}
+		if indicator != "" {
+			label = strings.TrimSuffix(label, " ") + indicator
 		}
 		if i == m.selected {
 			rows = append(rows, selectedStyle.Render(label))

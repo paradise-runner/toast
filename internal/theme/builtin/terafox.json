@@ -1,0 +1,104 @@
+{
+  "name": "Terafox",
+  "variant": "dark",
+  "ui": {
+    "background": "#152528",
+    "border": "#1d3337",
+    "breadcrumbs_active_fg": "#eaeeee",
+    "breadcrumbs_fg": "#e6eaea",
+    "completion_bg": "#0f1c1e",
+    "completion_fg": "#eaeeee",
+    "completion_selected": "#5b4132",
+    "cursor": "#e6eaea",
+    "diagnostic_error": "#e85c51",
+    "diagnostic_hint": "#7aa4a1",
+    "diagnostic_info": "#5a93aa",
+    "diagnostic_warning": "#fda47f",
+    "find_replace_border": "#ff8349",
+    "foreground": "#e6eaea",
+    "gutter_active_fg": "#fda47f",
+    "gutter_fg": "#587b7b",
+    "hover_bg": "#0f1c1e",
+    "hover_border": "#293e40",
+    "hover_fg": "#eaeeee",
+    "line_highlight": "#1b2d30",
+    "muted": "#e6eaea",
+    "search_current_bg": "#425e5e",
+    "search_current_fg": "#e6eaea",
+    "search_match_bg": "#1e3133",
+    "search_match_fg": "#e6eaea",
+    "selection": "#24383a",
+    "settings_bg": "#0f1c1e",
+    "settings_border": "#293e40",
+    "settings_fg": "#eaeeee",
+    "settings_selected": "#5b4132",
+    "settings_separator": "#2d4f56",
+    "sidebar_bg": "#0f1c1e",
+    "sidebar_fg": "#eaeeee",
+    "sidebar_icon_fg": "#ff8349",
+    "sidebar_selected_bg": "#5b4132",
+    "sidebar_selected_fg": "#eaeeee",
+    "statusbar_bg": "#0f1c1e",
+    "statusbar_fg": "#e6eaea",
+    "tab_active_bg": "#1f3235",
+    "tab_active_fg": "#eaeeee",
+    "tab_inactive_bg": "#152528",
+    "tab_inactive_fg": "#e6eaea"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#5a93aa",
+      "italic": true
+    },
+    "builtin": {
+      "fg": "#e85c51"
+    },
+    "comment": {
+      "fg": "#6d7f8b"
+    },
+    "constant": {
+      "fg": "#ff9664"
+    },
+    "function": {
+      "fg": "#73a3b7"
+    },
+    "keyword": {
+      "fg": "#ad5c7c"
+    },
+    "module": {
+      "fg": "#afd4de"
+    },
+    "number": {
+      "fg": "#ff8349"
+    },
+    "operator": {
+      "fg": "#cbd9d8"
+    },
+    "property": {
+      "fg": "#5a93aa"
+    },
+    "punctuation": {
+      "fg": "#cbd9d8"
+    },
+    "string": {
+      "fg": "#7aa4a1"
+    },
+    "tag": {
+      "fg": "#ad5c7c"
+    },
+    "type": {
+      "fg": "#fda47f"
+    },
+    "variable": {
+      "fg": "#ebebeb"
+    }
+  },
+  "git": {
+    "added": "#7aa4a1",
+    "conflict": "#ff8349",
+    "deleted": "#e85c51",
+    "ignored": "#6d7f8b",
+    "modified": "#fda47f",
+    "untracked": "#6d7f8b"
+  }
+}

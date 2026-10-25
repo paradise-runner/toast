@@ -1,0 +1,103 @@
+{
+  "name": "GitHub Light High Contrast",
+  "variant": "light",
+  "ui": {
+    "background": "#ffffff",
+    "border": "#454c54",
+    "breadcrumbs_active_fg": "#010409",
+    "breadcrumbs_fg": "#010409",
+    "completion_bg": "#ffffff",
+    "completion_fg": "#010409",
+    "completion_selected": "#e0e6eb",
+    "cursor": "#010409",
+    "diagnostic_error": "#86061d",
+    "diagnostic_hint": "#454c54",
+    "diagnostic_info": "#023b95",
+    "diagnostic_warning": "#603700",
+    "find_replace_border": "#023b95",
+    "foreground": "#010409",
+    "gutter_active_fg": "#010409",
+    "gutter_fg": "#454c54",
+    "hover_bg": "#ffffff",
+    "hover_border": "#0349b4",
+    "hover_fg": "#010409",
+    "line_highlight": "#e6eaef",
+    "muted": "#010409",
+    "search_current_bg": "#faf0cb",
+    "search_current_fg": "#010409",
+    "search_match_bg": "#faf0cb",
+    "search_match_fg": "#010409",
+    "selection": "#b2c3de",
+    "settings_bg": "#ffffff",
+    "settings_border": "#0349b4",
+    "settings_fg": "#010409",
+    "settings_selected": "#e0e6eb",
+    "settings_separator": "#454c54",
+    "sidebar_bg": "#eff2f5",
+    "sidebar_fg": "#010409",
+    "sidebar_icon_fg": "#010409",
+    "sidebar_selected_bg": "#e0e6eb",
+    "sidebar_selected_fg": "#010409",
+    "statusbar_bg": "#eff2f5",
+    "statusbar_fg": "#010409",
+    "tab_active_bg": "#ffffff",
+    "tab_active_fg": "#010409",
+    "tab_inactive_bg": "#eff2f5",
+    "tab_inactive_fg": "#010409"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#023b95"
+    },
+    "builtin": {
+      "fg": "#023b95"
+    },
+    "comment": {
+      "fg": "#59636e"
+    },
+    "constant": {
+      "fg": "#023b95"
+    },
+    "function": {
+      "fg": "#622cbc"
+    },
+    "keyword": {
+      "fg": "#a0111f"
+    },
+    "module": {
+      "fg": "#702c00"
+    },
+    "number": {
+      "fg": "#023b95"
+    },
+    "operator": {
+      "fg": "#a0111f"
+    },
+    "property": {
+      "fg": "#010409"
+    },
+    "punctuation": {
+      "fg": "#a0111f"
+    },
+    "string": {
+      "fg": "#032563"
+    },
+    "tag": {
+      "fg": "#024c1a"
+    },
+    "type": {
+      "fg": "#702c00"
+    },
+    "variable": {
+      "fg": "#010409"
+    }
+  },
+  "git": {
+    "added": "#024c1a",
+    "conflict": "#702c00",
+    "deleted": "#86061d",
+    "ignored": "#454c54",
+    "modified": "#603700",
+    "untracked": "#454c54"
+  }
+}

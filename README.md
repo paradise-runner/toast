@@ -45,7 +45,7 @@ brew install paradise-runner/tap/toast
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
 - **Command palette** — `Ctrl+Shift+P` fuzzy search over every action, with keybinding hints, live toggle state, MRU ordering, and a status-bar confirmation flash
 - **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
-- **Theme system** — built-in `system` (derived from terminal colors at runtime), `toast-dark`, and `toast-light`, plus a VSCode theme importer
+- **Theme system** — 30+ built-in themes (Catppuccin, Tokyo Night, GitHub, Dracula, Nord, Kanagawa, Nightfox, macOS Classic, plus Toast's own dark and light), a `system` theme derived from your terminal colours at runtime, and importers for VSCode and Zed themes
 - **Auto-save** — dirty files are written to disk after a configurable inactivity delay (default 300 ms), with an optional manual-save mode
 - **Configurable** via `~/.config/toast/config.json`
 
@@ -215,16 +215,40 @@ Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, Typ
 
 ### Themes
 
-Built-in themes: `system`, `toast-dark`, `toast-light`. Custom themes live in `~/.config/toast/themes/`.
+Toast ships 34 themes out of the box:
 
-**Import a VSCode theme:**
+| Family | Themes |
+| --- | --- |
+| Toast | `toast-dark`, `toast-light` |
+| Catppuccin | `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` |
+| Tokyo Night | `tokyo-night`, `tokyo-night-storm`, `tokyo-night-moon`, `tokyo-night-light` |
+| GitHub | `github-light`, `github-light-high-contrast`, `github-dark`, `github-dark-high-contrast`, `github-dark-dimmed` |
+| Dracula | `dracula`, `dracula-solid`, `dracula-light-alucard` |
+| Nord | `nord-dark`, `nord-darker`, `nord-light` |
+| Kanagawa | `kanagawa-wave`, `kanagawa`, `kanagawa-dragon`, `kanagawa-lotus` |
+| Nightfox | `nightfox`, `dayfox`, `dawnfox`, `duskfox`, `nordfox`, `terafox`, `carbonfox` |
+| macOS Classic | `macos-classic-light`, `macos-classic-dark` |
+| System | `system` (derived from your terminal's colours) |
+
+The imported themes are converted from Zed theme extensions; see
+[internal/theme/builtin/SOURCES.md](internal/theme/builtin/SOURCES.md) for the
+upstream repositories, commits and licences.
+
+Custom themes live in `~/.config/toast/themes/`. Set `"theme": "<theme-name>"`
+in your config, or pick one with the theme picker.
+
+**Import a VSCode or Zed theme:**
 
 ```bash
 toast migrate-theme vscode path/to/theme.json
 # writes ~/.config/toast/themes/<theme-name>.json
+
+toast migrate-theme zed path/to/theme.json ~/.config/toast/themes
+# a Zed theme file holds a whole family; every variant is written
 ```
 
-Then set `"theme": "<theme-name>"` in your config.
+Both commands default to `~/.config/toast/themes/`; pass a directory to write
+somewhere else.
 
 ## Feedback & Issues
 

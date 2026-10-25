@@ -190,6 +190,8 @@ func TestDiscoverThemes_UserThemesDir(t *testing.T) {
 
 func TestClick_ThemeRowPreviewsOnly(t *testing.T) {
 	m := newTestModel()
+	m.selected = 0
+	m.offset = 0
 	// Y=2 → row index 1 (second theme). Should emit ThemeChangedMsg but NOT close.
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: 2}
 	updated, cmd := m.Update(click)
@@ -214,7 +216,7 @@ func TestClick_ConfirmButtonClosesWithSelected(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
 	// Click within the confirm button region: contentX = confirmBtnStart+1, Y = action row
-	actionY := len(m.themes) + 2
+	actionY := m.visibleRows() + 2
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: confirmBtnStart + 2, Y: actionY}
 	_, cmd := m.Update(click)
 	if cmd == nil {
@@ -233,7 +235,7 @@ func TestClick_ConfirmButtonClosesWithSelected(t *testing.T) {
 func TestClick_CancelButtonRevertsAndCloses(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1 // navigated away from toast-dark
-	actionY := len(m.themes) + 2
+	actionY := m.visibleRows() + 2
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: cancelBtnStart + 2, Y: actionY}
 	_, cmd := m.Update(click)
 	if cmd == nil {
@@ -251,11 +253,92 @@ func TestClick_CancelButtonRevertsAndCloses(t *testing.T) {
 
 func TestClick_SeparatorRowNoOp(t *testing.T) {
 	m := newTestModel()
-	sepY := len(m.themes) + 1
+	sepY := m.visibleRows() + 1
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: sepY}
 	_, cmd := m.Update(click)
 	if cmd != nil {
 		t.Error("expected no cmd when clicking separator row")
+	}
+}
+
+func TestVisibleRows_Capped(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	if got := m.visibleRows(); got != maxVisibleRows {
+		t.Errorf("visibleRows = %d, want %d", got, maxVisibleRows)
+	}
+	if _, h := m.Dimensions(); h != maxVisibleRows+4 {
+		t.Errorf("Dimensions height = %d, want %d", h, maxVisibleRows+4)
+	}
+}
+
+func TestSelectionScrollsIntoView(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	// Jump to the last theme; the window must follow so it stays visible.
+	m.selected = len(m.themes) - 1
+	m.clampOffset()
+	if m.offset != len(m.themes)-maxVisibleRows {
+		t.Errorf("offset = %d, want %d", m.offset, len(m.themes)-maxVisibleRows)
+	}
+	// Walking back up with arrows keeps the selection inside the window.
+	for range 3 {
+		m, _ = m.Update(keyMsg("up"))
+		if m.selected < m.offset || m.selected >= m.offset+m.visibleRows() {
+			t.Fatalf("selection %d outside window [%d,%d)", m.selected, m.offset, m.offset+m.visibleRows())
+		}
+	}
+}
+
+func TestClick_MapsThroughScrollOffset(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.offset = 5
+	// First visible row is offset 5, so Y=2 is the theme at index 6.
+	updated, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: 2})
+	m = updated
+	if cmd == nil {
+		t.Fatal("expected cmd from click")
+	}
+	if m.selected != 6 {
+		t.Errorf("selected = %d, want 6", m.selected)
+	}
+	result := cmd()
+	tc, ok := result.(messages.ThemeChangedMsg)
+	if !ok {
+		t.Fatalf("expected ThemeChangedMsg, got %T", result)
+	}
+	if tc.ThemeName != m.themes[6] {
+		t.Errorf("expected %q, got %q", m.themes[6], tc.ThemeName)
+	}
+}
+
+func TestRender_ScrollIndicators(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.selected = 0
+	m.clampOffset()
+	out := m.Render()
+	if !strings.Contains(out, "▾") {
+		t.Error("expected a down indicator when themes are below the window")
+	}
+	if strings.Contains(out, "▴") {
+		t.Error("did not expect an up indicator at the top of the list")
+	}
+
+	m.selected = len(m.themes) - 1
+	m.clampOffset()
+	out = m.Render()
+	if !strings.Contains(out, "▴") {
+		t.Error("expected an up indicator after scrolling to the end")
 	}
 }
 
@@ -266,6 +349,10 @@ func keyMsg(key string) tea.KeyPressMsg {
 		"down":   tea.KeyDown,
 		"enter":  tea.KeyEnter,
 		"escape": tea.KeyEscape,
+		"home":   tea.KeyHome,
+		"end":    tea.KeyEnd,
+		"pgup":   tea.KeyPgUp,
+		"pgdown": tea.KeyPgDown,
 	}
 	if code, ok := codes[key]; ok {
 		return tea.KeyPressMsg{Code: code}

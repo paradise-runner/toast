@@ -1,0 +1,103 @@
+{
+  "name": "Tokyo Night Light",
+  "variant": "light",
+  "ui": {
+    "background": "#d5d6db",
+    "border": "#c1c2c7",
+    "breadcrumbs_active_fg": "#343b58",
+    "breadcrumbs_fg": "#4c505e",
+    "completion_bg": "#d5d6db",
+    "completion_fg": "#343b58",
+    "completion_selected": "#9699a3",
+    "cursor": "#343b59",
+    "diagnostic_error": "#8c4351",
+    "diagnostic_hint": "#634f30",
+    "diagnostic_info": "#0da0ba",
+    "diagnostic_warning": "#8f5e15",
+    "find_replace_border": "0f4b6e",
+    "foreground": "#343b59",
+    "gutter_active_fg": "#343b59",
+    "gutter_fg": "#9da0ab",
+    "hover_bg": "#d5d6db",
+    "hover_border": "#828594",
+    "hover_fg": "#343b58",
+    "line_highlight": "#dcdee3",
+    "muted": "#4c505e",
+    "search_current_bg": "#9699a3",
+    "search_current_fg": "#343b59",
+    "search_match_bg": "#9699a3",
+    "search_match_fg": "#343b59",
+    "selection": "#9da0ab",
+    "settings_bg": "#d5d6db",
+    "settings_border": "#828594",
+    "settings_fg": "#343b58",
+    "settings_selected": "#9699a3",
+    "settings_separator": "#c1c2c7",
+    "sidebar_bg": "#cbccd1",
+    "sidebar_fg": "#343b58",
+    "sidebar_icon_fg": "#4c505e",
+    "sidebar_selected_bg": "#9699a3",
+    "sidebar_selected_fg": "#343b58",
+    "statusbar_bg": "#cbccd1",
+    "statusbar_fg": "#4c505e",
+    "tab_active_bg": "#d5d6db",
+    "tab_active_fg": "#343b58",
+    "tab_inactive_bg": "#cbccd1",
+    "tab_inactive_fg": "#4c505e"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#5a4a78"
+    },
+    "builtin": {
+      "fg": "#8c4351"
+    },
+    "comment": {
+      "fg": "#9699a3"
+    },
+    "constant": {
+      "fg": "#965027"
+    },
+    "function": {
+      "fg": "#34548a"
+    },
+    "keyword": {
+      "fg": "#5a4a78"
+    },
+    "module": {
+      "fg": "#343b58"
+    },
+    "number": {
+      "fg": "#965027"
+    },
+    "operator": {
+      "fg": "#4c505e"
+    },
+    "property": {
+      "fg": "#343b58"
+    },
+    "punctuation": {
+      "fg": "#4c505e"
+    },
+    "string": {
+      "fg": "#485e30"
+    },
+    "tag": {
+      "fg": "#8c4351"
+    },
+    "type": {
+      "fg": "#166775"
+    },
+    "variable": {
+      "fg": "#343b58"
+    }
+  },
+  "git": {
+    "added": "#485e30",
+    "conflict": "#5a4a78",
+    "deleted": "#8c4351",
+    "ignored": "#828594",
+    "modified": "#8f5e15",
+    "untracked": "#828594"
+  }
+}
