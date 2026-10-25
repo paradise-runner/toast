@@ -385,6 +385,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
+		// Context menu takes precedence: when its viewport is scrolled, the wheel
+		// moves through items instead of scrolling the tree behind it.
+		if m.ctxMenu != nil {
+			switch msg.Button {
+			case tea.MouseWheelUp:
+				m.ctxMenu.scrollBy(-1)
+			case tea.MouseWheelDown:
+				m.ctxMenu.scrollBy(1)
+			}
+			return m, nil
+		}
 		switch msg.Button {
 		case tea.MouseWheelUp:
 			if m.offset > 0 {
@@ -991,9 +1002,11 @@ func (m *Model) SetScreenWidth(width int) {
 }
 
 // clampContextMenu repositions the open context menu so the whole box stays
-// inside the tree's content rows and the window width. Rendering and
-// hit-testing share the stored position, so clamping here (instead of letting
-// the overlay compositor shift the box) keeps clicks aligned with what is drawn.
+// inside the tree's content rows and the window width, and fits its items into
+// those rows (the menu scrolls when it cannot show them all). Rendering and
+// hit-testing share the stored position and viewport, so clamping here (instead
+// of letting the overlay compositor shift the box) keeps clicks aligned with
+// what is drawn.
 func (m *Model) clampContextMenu() {
 	if m.ctxMenu == nil {
 		return

@@ -348,3 +348,123 @@ func TestRightClick_MenuOverhangsSidebar_ClickIsRoutedToMenu(t *testing.T) {
 		t.Error("click on the menu overhang did not activate the 'New File' item")
 	}
 }
+
+// ── Viewport: menus taller than the content area ──────────────────────────────
+
+// newShortWindowCtxMenuApp opens a sidebar context menu on a file row in a
+// window of the given height so the menu carries all four items (incl. Delete).
+func newShortWindowCtxMenuApp(t *testing.T, height int) *Model {
+	t.Helper()
+	cfg := config.Defaults()
+	cfg.Sidebar.Visible = true
+	cfg.Sidebar.Width = 30
+
+	rootDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rootDir, "main.go"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	model, err := New(cfg, "", rootDir, "")
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: height})
+	// Screen row 2 = first content row = the file row (root is content row 0).
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 5, Y: 2})
+	if !model.fileTree.HasContextMenu() {
+		t.Fatal("expected context menu to be open after right-click")
+	}
+	return model
+}
+
+// TestRightClick_ShortWindow_MenuFitsContentArea is the issue-81 regression test
+// at the app level: in a window too short for the whole menu, the box must stay
+// inside the content area and every item must stay clickable where it is drawn.
+func TestRightClick_ShortWindow_MenuFitsContentArea(t *testing.T) {
+	const tabBarHeight = 1
+	for _, h := range []int{5, 6, 7, 8} {
+		model := newShortWindowCtxMenuApp(t, h)
+		menuX, menuY, menuW, menuH, ok := model.fileTree.ContextMenuBounds()
+		if !ok {
+			t.Fatalf("height %d: expected context menu bounds", h)
+		}
+		contentRows := h - 2 // tab bar and status bar excluded
+		if menuY+menuH > contentRows {
+			t.Fatalf("height %d: menu content rows %d..%d exceed the %d-row content area",
+				h, menuY, menuY+menuH, contentRows)
+		}
+		if menuX+menuW > 100 {
+			t.Fatalf("height %d: menu cols %d..%d exceed the window width", h, menuX, menuX+menuW)
+		}
+
+		// Walk focus to the last item, then click it where the menu draws it.
+		for i := 0; i < 3; i++ {
+			model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		}
+		_, menuY, _, menuH, ok = model.fileTree.ContextMenuBounds()
+		if !ok {
+			t.Fatalf("height %d: menu closed while navigating", h)
+		}
+		if menuY+menuH > contentRows {
+			t.Fatalf("height %d: menu left the content area while navigating", h)
+		}
+	}
+}
+
+// TestRightClick_ShortWindow_ClickOnScrolledDelete verifies that activating an
+// item that is only reachable after scrolling selects that item — not whatever
+// item happens to sit at the same row in the unscrolled list.
+func TestRightClick_ShortWindow_ClickOnScrolledDelete(t *testing.T) {
+	const tabBarHeight = 1
+	model := newShortWindowCtxMenuApp(t, 6) // 4 content rows → 2-item viewport
+
+	// Focus the fourth item ("Delete"), which scrolls the viewport.
+	for i := 0; i < 3; i++ {
+		model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	_, menuY, _, menuH, ok := model.fileTree.ContextMenuBounds()
+	if !ok {
+		t.Fatal("expected context menu bounds")
+	}
+	if menuH > 4 {
+		t.Fatalf("test setup: menu height %d does not overflow the 4-row content area", menuH)
+	}
+
+	// The focused row is the last row of the box (bottom border is below it).
+	drawnRow := menuY + menuH - 2
+	model.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 7, Y: drawnRow + tabBarHeight})
+
+	if !model.fileTree.HasDeleteDialog() {
+		t.Fatal("click on the drawn 'Delete' row did not open the delete dialog")
+	}
+	if model.fileTree.HasContextMenu() {
+		t.Error("expected the context menu to close after selecting Delete")
+	}
+}
+
+// TestWheelOverMenuOverhang_ScrollsMenuViewport verifies that the wheel over the
+// part of the menu that spills past the sidebar edge scrolls the menu instead of
+// the editor behind it.
+func TestWheelOverMenuOverhang_ScrollsMenuViewport(t *testing.T) {
+	model := newShortWindowCtxMenuApp(t, 6)
+
+	// Move the menu so it overhangs the sidebar's right edge.
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 6})
+	model.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 25, Y: 2})
+	menuX, menuY, menuW, _, ok := model.fileTree.ContextMenuBounds()
+	if !ok {
+		t.Fatal("expected context menu bounds after reopening")
+	}
+	if menuX+menuW <= 30 {
+		t.Fatalf("test setup: menu does not overhang the sidebar (x=%d w=%d)", menuX, menuW)
+	}
+
+	scrollX := 30 + 5 // inside the overhang, past the sidebar edge
+	if scrollX >= menuX+menuW {
+		t.Fatalf("test setup: scrollX %d outside menu box (x=%d w=%d)", scrollX, menuX, menuW)
+	}
+	model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: scrollX, Y: menuY + 1 + 1})
+
+	if content := model.View().Content; !strings.Contains(content, "\u25b2") {
+		t.Error("wheel over the menu overhang did not scroll the menu viewport")
+	}
+}

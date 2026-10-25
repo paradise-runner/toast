@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/yourusername/toast/internal/config"
 	"github.com/yourusername/toast/internal/messages"
@@ -421,8 +422,8 @@ func TestContextMenu_Bounds(t *testing.T) {
 	if w != contextMenuInnerW+4 {
 		t.Errorf("expected width %d, got %d", contextMenuInnerW+4, w)
 	}
-	if h != len(m.ctxMenu.items)+2 {
-		t.Errorf("expected height %d, got %d", len(m.ctxMenu.items)+2, h)
+	if h != m.ctxMenu.visibleCount()+2 {
+		t.Errorf("expected height %d, got %d", m.ctxMenu.visibleCount()+2, h)
 	}
 	if !m.HasContextMenu() {
 		t.Error("expected HasContextMenu=true with menu open")
@@ -533,6 +534,7 @@ func TestContextMenu_LeftClickReveal_EmitsMsg(t *testing.T) {
 
 func TestContextMenu_Clamp_KeepsBoxOnScreen(t *testing.T) {
 	items := []string{"New File", "New Folder", revealItemLabel()}
+	boxW := contextMenuInnerW + 4 // boxWidth, independent of item count
 	tests := []struct {
 		name       string
 		x, y       int
@@ -542,7 +544,7 @@ func TestContextMenu_Clamp_KeepsBoxOnScreen(t *testing.T) {
 	}{
 		{name: "already fits", x: 2, y: 3, maxW: 100, maxH: 40, wantX: 2, wantY: 3},
 		{name: "flips up at bottom", x: 2, y: 38, maxW: 100, maxH: 40, wantX: 2, wantY: 35},
-		{name: "slides left at right edge", x: 95, y: 3, maxW: 100, maxH: 40, wantX: 80, wantY: 3},
+		{name: "slides left at right edge", x: 95, y: 3, maxW: 100, maxH: 40, wantX: 100 - boxW, wantY: 3},
 		{name: "clamps negative", x: -5, y: -2, maxW: 100, maxH: 40, wantX: 0, wantY: 0},
 		{name: "unbounded stays put", x: 90, y: 90, maxW: 0, maxH: 0, wantX: 90, wantY: 90},
 	}
@@ -637,5 +639,346 @@ func TestContextMenu_ResizeReclamps(t *testing.T) {
 	if m.ctxMenu.Y+m.ctxMenu.boxHeight() > m.height {
 		t.Fatalf("menu not re-clamped after resize: Y=%d h=%d height=%d",
 			m.ctxMenu.Y, m.ctxMenu.boxHeight(), m.height)
+	}
+}
+
+// ── Viewport: menus taller than the window ───────────────────────────────────
+//
+// A menu with more items than the content area can show must scroll inside a
+// viewport that fits the window. The drawn rows and the hit-test rows stay
+// one-to-one (row i ↔ items[scroll+i]) so clicks land on the item they overlap.
+
+// contextMenuTestItems returns the four-item menu (incl. Delete) a right-click on
+// a file row produces.
+func contextMenuTestItems() []string {
+	return []string{"New File", "New Folder", revealItemLabel(), "Delete"}
+}
+
+func TestContextMenu_SetRows_FitsItems(t *testing.T) {
+	items := contextMenuTestItems()
+	tests := []struct {
+		name       string
+		maxHeight  int
+		focused    int
+		wantRows   int
+		wantScroll int
+	}{
+		{name: "unlimited", maxHeight: 0, focused: 0, wantRows: 0, wantScroll: 0},
+		{name: "taller than items", maxHeight: 40, focused: 3, wantRows: 0, wantScroll: 0},
+		{name: "exactly fits items", maxHeight: 6, focused: 0, wantRows: 0, wantScroll: 0},
+		{name: "one item hidden", maxHeight: 5, focused: 0, wantRows: 3, wantScroll: 0},
+		{name: "two rows", maxHeight: 4, focused: 0, wantRows: 2, wantScroll: 0},
+		{name: "single row", maxHeight: 3, focused: 0, wantRows: 1, wantScroll: 0},
+		{name: "focus below viewport scrolls", maxHeight: 4, focused: 3, wantRows: 2, wantScroll: 2},
+		{name: "degenerate height keeps one row", maxHeight: 2, focused: 1, wantRows: 1, wantScroll: 1},
+		{name: "height of one keeps one row", maxHeight: 1, focused: 0, wantRows: 1, wantScroll: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cm := &ContextMenu{items: items, focused: tc.focused}
+			cm.setRows(tc.maxHeight)
+			if cm.rows != tc.wantRows {
+				t.Errorf("rows = %d, want %d", cm.rows, tc.wantRows)
+			}
+			if cm.scroll != tc.wantScroll {
+				t.Errorf("scroll = %d, want %d", cm.scroll, tc.wantScroll)
+			}
+			if got, want := cm.boxHeight(), cm.visibleCount()+2; got != want {
+				t.Errorf("boxHeight = %d, want %d", got, want)
+			}
+			if tc.maxHeight >= 3 && cm.boxHeight() > tc.maxHeight {
+				t.Errorf("boxHeight %d exceeds maxHeight %d", cm.boxHeight(), tc.maxHeight)
+			}
+			if cm.visibleCount() > len(cm.items)-cm.scroll {
+				t.Errorf("viewport shows %d items but only %d remain from scroll=%d",
+					cm.visibleCount(), len(cm.items)-cm.scroll, cm.scroll)
+			}
+		})
+	}
+}
+
+func TestContextMenu_ScrollBy_Bounded(t *testing.T) {
+	cm := &ContextMenu{items: contextMenuTestItems(), rows: 2}
+	cm.scrollBy(-3)
+	if cm.scroll != 0 {
+		t.Errorf("scroll = %d, want 0 after scrolling up past the first item", cm.scroll)
+	}
+	cm.scrollBy(1)
+	if cm.scroll != 1 {
+		t.Errorf("scroll = %d, want 1", cm.scroll)
+	}
+	cm.scrollBy(99)
+	if want := len(cm.items) - cm.rows; cm.scroll != want {
+		t.Errorf("scroll = %d, want %d (last full page)", cm.scroll, want)
+	}
+	// Without a viewport the menu never scrolls.
+	unbounded := &ContextMenu{items: contextMenuTestItems()}
+	unbounded.scrollBy(2)
+	if unbounded.scroll != 0 {
+		t.Errorf("unbounded menu scrolled to %d, want 0", unbounded.scroll)
+	}
+}
+
+func TestContextMenu_HandleClick_MapsThroughScroll(t *testing.T) {
+	cm := &ContextMenu{X: 5, Y: 3, items: contextMenuTestItems(), rows: 2, scroll: 2}
+	// Row Y+1 is the first visible row → item index scroll+0 = 2.
+	if got := cm.HandleClick(6, 4); got != 2 {
+		t.Errorf("first visible row: got %d, want 2", got)
+	}
+	if got := cm.HandleClick(6, 5); got != 3 {
+		t.Errorf("second visible row: got %d, want 3", got)
+	}
+	// Bottom border row is not an item.
+	if got := cm.HandleClick(6, 6); got != -1 {
+		t.Errorf("bottom border: got %d, want -1", got)
+	}
+	// Hover uses the same mapping.
+	if got := cm.HoverItem(6, 5); got != 3 {
+		t.Errorf("hover second visible row: got %d, want 3", got)
+	}
+}
+
+// TestContextMenu_ShortViewport_EveryItemReachable is the issue-81 regression
+// test: in a window too short for the whole menu, every item must still be
+// reachable by keyboard and clickable where it is drawn.
+func TestContextMenu_ShortViewport_EveryItemReachable(t *testing.T) {
+	tests := []struct {
+		name   string
+		index  int
+		verify func(t *testing.T, m Model)
+	}{
+		{name: "New File", index: 0, verify: func(t *testing.T, m Model) {
+			t.Helper()
+			if m.inlineInput == nil {
+				t.Fatal("click on 'New File' did not start the inline create row")
+			}
+			if m.inlineInput.isDir {
+				t.Error("click on 'New File' started a folder create row")
+			}
+		}},
+		{name: "New Folder", index: 1, verify: func(t *testing.T, m Model) {
+			t.Helper()
+			if m.inlineInput == nil {
+				t.Fatal("click on 'New Folder' did not start the inline create row")
+			}
+			if !m.inlineInput.isDir {
+				t.Error("click on 'New Folder' started a file create row")
+			}
+		}},
+		{name: "Reveal", index: 2, verify: func(t *testing.T, m Model) {
+			t.Helper()
+			if m.deleteDialog != nil {
+				t.Error("click on the reveal item opened the delete dialog")
+			}
+		}},
+		{name: "Delete", index: 3, verify: func(t *testing.T, m Model) {
+			t.Helper()
+			if m.deleteDialog == nil {
+				t.Error("click on 'Delete' did not open the delete dialog")
+			}
+			if m.inlineInput != nil {
+				t.Error("click on 'Delete' started an inline create row")
+			}
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(""), 0644); err != nil {
+				t.Fatal(err)
+			}
+			m := newTestModel(t, dir)
+			// Content area of 5 rows: room for 3 item rows plus borders.
+			m, _ = m.Update(tea.WindowSizeMsg{Width: 30, Height: 5})
+
+			// Right-click the file row so the menu carries all four items.
+			m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+			if m.ctxMenu == nil {
+				t.Fatal("expected context menu after right-click")
+			}
+			if got, want := len(m.ctxMenu.items), 4; got != want {
+				t.Fatalf("menu has %d items, want %d", got, want)
+			}
+
+			// Walk down to the target item, checking the box never leaves the
+			// content area and the focused item stays inside the viewport.
+			for i := 0; i < tc.index; i++ {
+				m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+				assertMenuFits(t, m)
+				c := m.ctxMenu
+				if c.focused < c.scroll || c.focused >= c.scroll+c.visibleCount() {
+					t.Fatalf("focused %d outside viewport [%d,%d)",
+						c.focused, c.scroll, c.scroll+c.visibleCount())
+				}
+			}
+			if got := m.ctxMenu.focused; got != tc.index {
+				t.Fatalf("focused = %d, want %d", got, tc.index)
+			}
+
+			// Click the row where the focused item is drawn.
+			c := m.ctxMenu
+			drawnY := c.Y + 1 + (c.focused - c.scroll)
+			if idx := c.HandleClick(c.X+2, drawnY); idx != tc.index {
+				t.Fatalf("HandleClick at the drawn row = %d, want %d", idx, tc.index)
+			}
+			m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: c.X + 2, Y: drawnY})
+			if m.ctxMenu != nil {
+				t.Fatal("expected ctxMenu to close after activating an item")
+			}
+			tc.verify(t, m)
+		})
+	}
+}
+
+// TestContextMenu_ShortViewport_ShowsScrollMarkers verifies the viewport
+// advertises the items it hides.
+func TestContextMenu_ShortViewport_ShowsScrollMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, dir)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 30, Height: 5})
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+	if m.ctxMenu == nil {
+		t.Fatal("expected context menu after right-click")
+	}
+
+	if out := m.ctxMenu.Render(); !strings.Contains(out, markerDown) {
+		t.Errorf("expected a down marker while items are hidden below:\n%s", out)
+	}
+	if out := m.ctxMenu.Render(); strings.Contains(out, markerUp) {
+		t.Errorf("unexpected up marker at the top of the list:\n%s", out)
+	}
+
+	// Scroll to the end: the marker flips.
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: 2, Y: 2})
+	if out := m.ctxMenu.Render(); !strings.Contains(out, markerUp) {
+		t.Errorf("expected an up marker after scrolling down:\n%s", out)
+	}
+}
+
+// TestContextMenu_WheelScrollsViewport verifies the wheel moves the menu
+// viewport instead of scrolling the tree behind it.
+func TestContextMenu_WheelScrollsViewport(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, dir)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 30, Height: 4}) // 2 item rows
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+	if m.ctxMenu == nil {
+		t.Fatal("expected context menu after right-click")
+	}
+	if got, want := m.ctxMenu.visibleCount(), 2; got != want {
+		t.Fatalf("visibleCount = %d, want %d", got, want)
+	}
+	treeOffset := m.offset
+
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: 2, Y: 2})
+	if m.ctxMenu.scroll != 1 {
+		t.Errorf("scroll = %d, want 1 after one wheel down", m.ctxMenu.scroll)
+	}
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp, X: 2, Y: 2})
+	if m.ctxMenu.scroll != 0 {
+		t.Errorf("scroll = %d, want 0 after one wheel up", m.ctxMenu.scroll)
+	}
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp, X: 2, Y: 2})
+	if m.ctxMenu.scroll != 0 {
+		t.Errorf("scroll = %d, want 0 (bounded)", m.ctxMenu.scroll)
+	}
+	if m.offset != treeOffset {
+		t.Errorf("tree offset moved to %d (was %d): wheel leaked past the menu", m.offset, treeOffset)
+	}
+}
+
+// TestContextMenu_RenderHeightMatchesBounds pins the invariant that keeps the
+// compositor from shifting the box: the rendered height/width must equal the
+// geometry used for hit-testing, for every window height.
+func TestContextMenu_RenderHeightMatchesBounds(t *testing.T) {
+	for h := 3; h <= 12; h++ {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(""), 0644); err != nil {
+			t.Fatal(err)
+		}
+		m := newTestModel(t, dir)
+		m, _ = m.Update(tea.WindowSizeMsg{Width: 30, Height: h})
+		m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+		if m.ctxMenu == nil {
+			t.Fatalf("height %d: expected context menu after right-click", h)
+		}
+
+		out, x, y, ok := m.ContextMenuOverlay()
+		bx, by, bw, bh, okBounds := m.ContextMenuBounds()
+		if !ok || !okBounds {
+			t.Fatalf("height %d: expected overlay and bounds", h)
+		}
+		if x != bx || y != by {
+			t.Errorf("height %d: overlay at (%d,%d), bounds at (%d,%d)", h, x, y, bx, by)
+		}
+
+		lines := strings.Split(out, "\n")
+		if len(lines) != bh {
+			t.Errorf("height %d: rendered %d rows, bounds say %d", h, len(lines), bh)
+		}
+		if w := lipgloss.Width(lines[0]); w != bw {
+			t.Errorf("height %d: rendered width %d, bounds say %d", h, w, bw)
+		}
+		// The box must fit the content area; overlayAt must never have to shift it.
+		if by+bh > m.height {
+			t.Errorf("height %d: menu box rows %d..%d exceed content area", h, by, by+bh)
+		}
+		if bx+bw > m.screenWidth && m.screenWidth > 0 {
+			t.Errorf("height %d: menu box cols %d..%d exceed window width %d",
+				h, bx, bx+bw, m.screenWidth)
+		}
+	}
+}
+
+// TestContextMenu_ResizeShrinkKeepsFocusVisible verifies that shrinking the
+// window while a late item is focused scrolls it back into view.
+func TestContextMenu_ResizeShrinkKeepsFocusVisible(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, dir) // 30x10
+	m, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 2, Y: 1})
+	for i := 0; i < 3; i++ { // focus the "Delete" item
+		m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	if m.ctxMenu.focused != 3 {
+		t.Fatalf("focused = %d, want 3", m.ctxMenu.focused)
+	}
+
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 30, Height: 4})
+	assertMenuFits(t, m)
+	c := m.ctxMenu
+	if c.focused < c.scroll || c.focused >= c.scroll+c.visibleCount() {
+		t.Fatalf("focused %d left the viewport [%d,%d) after resize",
+			c.focused, c.scroll, c.scroll+c.visibleCount())
+	}
+	// It must still be clickable where it is drawn.
+	drawnY := c.Y + 1 + (c.focused - c.scroll)
+	if idx := c.HandleClick(c.X+2, drawnY); idx != 3 {
+		t.Fatalf("HandleClick at the drawn focused row = %d, want 3", idx)
+	}
+}
+
+// assertMenuFits fails if the open context menu does not fit the tree's content
+// area.
+func assertMenuFits(t *testing.T, m Model) {
+	t.Helper()
+	if m.ctxMenu == nil {
+		t.Fatal("expected an open context menu")
+	}
+	if bottom := m.ctxMenu.Y + m.ctxMenu.boxHeight(); bottom > m.height {
+		t.Fatalf("menu rows %d..%d exceed the %d-row content area",
+			m.ctxMenu.Y, bottom, m.height)
+	}
+	if m.ctxMenu.Y < 0 {
+		t.Fatalf("menu Y = %d, want >= 0", m.ctxMenu.Y)
 	}
 }
