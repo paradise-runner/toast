@@ -117,6 +117,9 @@ func DefaultCommands() []Command {
 
 		{ID: config.ActionUndo, Label: "Undo", Category: "Edit", Description: "Undo the last edit"},
 		{ID: config.ActionRedo, Label: "Redo", Category: "Edit", Description: "Redo the last undone edit"},
+		{ID: config.ActionToggleFold, Label: "Toggle Fold", Category: "Edit", Description: "Fold or unfold the block under the cursor"},
+		{ID: config.ActionFoldAll, Label: "Fold All", Category: "Edit", Description: "Collapse every top-level block or heading"},
+		{ID: config.ActionUnfoldAll, Label: "Unfold All", Category: "Edit", Description: "Expand every folded block"},
 
 		{ID: config.ActionToggleSidebar, Label: "Toggle Sidebar", Category: "View", Description: "Show or hide the file tree sidebar", Toggle: true},
 		{ID: config.ActionMarkdownPreview, Label: "Toggle Markdown Preview", Category: "View", Description: "Show or hide the markdown preview pane", Toggle: true},

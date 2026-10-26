@@ -43,6 +43,7 @@ brew install paradise-runner/tap/toast
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
 - **Project-wide search** powered by `rg` (ripgrep), bundled into `make build`
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
+- **Line folding** — click the `▾` caret in the gutter (or press `Ctrl+Shift+[`) to collapse an indentation block or Markdown heading; the gutter shows the hidden line count, and `Fold All` collapses every top-level block
 - **Command palette** — `Ctrl+Shift+P` fuzzy search over every action, with keybinding hints, live toggle state, MRU ordering, and a status-bar confirmation flash
 - **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
 - **Theme system** — 30+ built-in themes (Catppuccin, Tokyo Night, GitHub, Dracula, Nord, Kanagawa, Nightfox, macOS Classic, plus Toast's own dark and light), a `system` theme derived from your terminal colours at runtime, and importers for VSCode and Zed themes
@@ -145,6 +146,9 @@ All keybindings can be remapped in `~/.config/toast/config.json` (see [Configura
 | `Ctrl+Y` / `Ctrl+Shift+Z` / `Cmd+Y` / `Cmd+Shift+Z` | Redo |
 | `Ctrl+Space` / `Cmd+Space` | Trigger completion |
 | `Ctrl+Shift+K` | Show hover |
+| `Ctrl+Shift+[` / `Alt+T` | Toggle fold at the cursor |
+| `Ctrl+Shift+Alt+[` / `Alt+Shift+T` | Fold all top-level blocks |
+| `Ctrl+Shift+Alt+]` / `Alt+Shift+U` | Unfold all |
 | `Ctrl`+hover / `Ctrl`-click | Check for and follow a definition |
 | `F12` | Go to the definition at the cursor |
 
@@ -197,7 +201,7 @@ All default keybindings can be overridden with the `keybindings` object. Each ac
 }
 ```
 
-Available actions: `quit`, `toggle_sidebar`, `save`, `new_file`, `close_tab`, `undo`, `redo`, `next_tab`, `prev_tab`, `search`, `find_replace`, `quick_open`, `command_palette`, `theme_picker`, `go_to_line`, `go_to_definition`, `toggle_focus`, `markdown_preview`, `show_hover`, `trigger_completion`.
+Available actions: `quit`, `toggle_sidebar`, `save`, `new_file`, `close_tab`, `undo`, `redo`, `next_tab`, `prev_tab`, `search`, `find_replace`, `quick_open`, `command_palette`, `theme_picker`, `go_to_line`, `go_to_definition`, `toggle_focus`, `markdown_preview`, `show_hover`, `trigger_completion`, `toggle_fold`, `fold_all`, `unfold_all`.
 
 Omit `lsp` to use Toast's managed defaults for Go, Rust, Python, JavaScript, TypeScript, and Markdown; set `"lsp": {}` to disable all language servers. 
 

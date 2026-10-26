@@ -33,13 +33,15 @@ func (m *Model) wrapWidth() int {
 	return w
 }
 
-// ensureWrapCache rebuilds visualRowCache and chunkCache if the buffer or wrap
-// width has changed since the last build.
+// ensureWrapCache rebuilds visualRowCache (and chunkCache in wrap mode) if the
+// buffer, wrap width or fold state has changed since the last build.
 //
 // visualRowCache[i] holds the total number of visual rows occupied by buffer
 // lines 0..i-1 (a prefix-sum array), so visualRowCache[0] == 0 and
-// visualRowCache[lineCount] == total visual rows. chunkCache[l] holds the
-// cached word-wrap chunk start offsets for line l.
+// visualRowCache[lineCount] == total visual rows. Hidden (folded) lines
+// contribute zero rows, which is what makes every row-based lookup fold-aware
+// in both wrap and non-wrap mode. chunkCache[l] holds the cached word-wrap
+// chunk start offsets for line l (wrap mode only).
 //
 // Both caches are rebuilt in a single O(total) pass over the buffer text via
 // buf.String(), rather than calling LineAt per line — which would be
@@ -47,17 +49,18 @@ func (m *Model) wrapWidth() int {
 // After this call, lineChunks and visual-row lookups are O(1).
 //
 // Cache validity is keyed on buf.Generation() (bumped on every edit) plus the
-// wrap width; cursor-only moves never trigger a rebuild.
+// wrap width and fold revision; cursor-only moves never trigger a rebuild.
 func (m *Model) ensureWrapCache() {
-	if !m.wrapMode {
+	if m.buf == nil {
 		m.visualRowCache = nil
 		m.chunkCache = nil
 		return
 	}
+	m.ensureFolds()
 	gen := m.buf.Generation()
 	w := m.wrapWidth()
-	if m.visualRowCache != nil && m.chunkCache != nil &&
-		m.wrapCacheGen == gen && m.wrapCacheWidth == w {
+	if m.visualRowCache != nil && m.wrapCacheGen == gen && m.wrapCacheWidth == w &&
+		m.wrapCacheFolds == m.foldRev {
 		return // still valid
 	}
 
@@ -69,43 +72,90 @@ func (m *Model) ensureWrapCache() {
 	} else {
 		m.visualRowCache = make([]int, lineCount+1)
 	}
-	if cap(m.chunkCache) >= lineCount {
-		m.chunkCache = m.chunkCache[:lineCount]
+	if m.wrapMode {
+		if cap(m.chunkCache) >= lineCount {
+			m.chunkCache = m.chunkCache[:lineCount]
+		} else {
+			m.chunkCache = make([][]int, lineCount)
+		}
 	} else {
-		m.chunkCache = make([][]int, lineCount)
+		m.chunkCache = nil
 	}
 
 	m.visualRowCache[0] = 0
 	tw := m.cfg.Editor.TabWidth
 	for l, raw := range rawLines {
-		chunks := wordWrapChunksWithTabWidth(raw, w, tw)
-		m.chunkCache[l] = chunks
-		m.visualRowCache[l+1] = m.visualRowCache[l] + len(chunks)
+		rows := 0
+		if !m.isHidden(l) {
+			if m.wrapMode {
+				chunks := wordWrapChunksWithTabWidth(raw, w, tw)
+				m.chunkCache[l] = chunks
+				rows = len(chunks)
+			} else {
+				rows = 1
+			}
+		}
+		m.visualRowCache[l+1] = m.visualRowCache[l] + rows
 	}
 	m.wrapCacheGen = gen
 	m.wrapCacheWidth = w
+	m.wrapCacheFolds = m.foldRev
+}
+
+// totalRows returns the number of visible screen rows occupied by the whole
+// buffer (folded lines contribute zero).
+func (m *Model) totalRows() int {
+	if m.buf == nil {
+		return 0
+	}
+	return m.visualRowFromTop(m.buf.LineCount())
+}
+
+// lineAtRow maps an absolute visible-row index to its buffer line. Rows past
+// the end of the buffer map to the last line.
+func (m *Model) lineAtRow(row int) int {
+	if m.buf == nil || m.buf.LineCount() == 0 {
+		return 0
+	}
+	line, _ := m.bufPosFromVisualRow(row)
+	return line
+}
+
+// lineAtRowOrAfter maps a visible-row index to the first line whose first row
+// is at or after row. Used when scrolling down so a wrapped line is not cut off
+// at the bottom edge.
+func (m *Model) lineAtRowOrAfter(row int) int {
+	if row <= 0 {
+		return 0
+	}
+	line := m.lineAtRow(row)
+	if m.visualRowFromTop(line) >= row {
+		return line
+	}
+	if next, ok := m.nextVisibleLine(line); ok {
+		return next
+	}
+	return line
 }
 
 // visualRowsForLine returns the number of screen rows that buffer line bufLine
-// occupies in wrap mode. Always returns at least 1. In non-wrap mode, always 1.
+// occupies. Hidden lines occupy zero rows; every visible line occupies at least
+// one.
 func (m *Model) visualRowsForLine(bufLine int) int {
-	if !m.wrapMode {
-		return 1
-	}
 	m.ensureWrapCache()
-	if bufLine+1 < len(m.visualRowCache) {
-		return m.visualRowCache[bufLine+1] - m.visualRowCache[bufLine]
+	if bufLine < 0 || bufLine+1 >= len(m.visualRowCache) {
+		return 0
 	}
-	return len(m.lineChunks(bufLine))
+	return m.visualRowCache[bufLine+1] - m.visualRowCache[bufLine]
 }
 
 // visualRowFromTop returns the 0-based absolute visual row index of the first
 // visual row of bufLine, counting from the top of the buffer.
 func (m *Model) visualRowFromTop(bufLine int) int {
-	if !m.wrapMode {
-		return bufLine
-	}
 	m.ensureWrapCache()
+	if bufLine < 0 {
+		return 0
+	}
 	if bufLine < len(m.visualRowCache) {
 		return m.visualRowCache[bufLine]
 	}
@@ -239,6 +289,9 @@ func (m *Model) bufPosFromVisualRow(targetVR int) (bufLine, bufCol int) {
 	lineCount := m.buf.LineCount()
 	if lineCount == 0 {
 		return 0, 0
+	}
+	if targetVR < 0 {
+		targetVR = 0
 	}
 	m.ensureWrapCache()
 

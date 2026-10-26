@@ -116,8 +116,17 @@ in component packages.
 - `cursorPos{line, col}` is **zero-based**. `col` is a **byte offset** (not rune/display).
 - `buffer.EditBuffer` is rope-backed. Use `Insert`, `Delete`, `Undo`, `Redo`;
   do not manipulate the underlying rope directly.
-- `gutterWidth = len(strconv.Itoa(lineCount)) + 5` (digits + space + diff-bar + fold-indicator + space before content).
+- `gutterWidth = len(strconv.Itoa(lineCount)) + gutterChrome` where `gutterChrome = 7`
+  (space + diff bar + fold cell + space; the fold cell is the caret plus a
+  3-column hidden-line count). The digits themselves are `editor.lineNumWidth()`.
 - `editor.screenToBuffer(x, y)` converts adjusted screen coords to `(line, col)`.
+- **Folding** (`fold.go`): fold regions are derived from the buffer text on each
+  `buf.Generation()` change — indentation blocks for code, heading sections for
+  Markdown. Only `Model.collapsed` (`[]foldSpan`, sorted and non-overlapping) is
+  user state. Screen-row math in `wrap.go` treats hidden lines as zero rows, so
+  the viewport, cursor movement and hit-testing are fold-aware in both wrap and
+  non-wrap mode. The cursor must never land on a hidden line: call
+  `revealLine`/`snapCursorToVisible` after moving it programmatically.
 
 ## Import Grouping
 
