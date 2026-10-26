@@ -121,8 +121,8 @@ func TestHoverShowsDiagnosticMessage(t *testing.T) {
 	})
 	m = updated.(Model)
 
-	// Hover over "quikc" (byte col 4..9, gutter is 6 wide).
-	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: 6 + 4, Y: 0})
+	// Hover over "quikc" (byte col 4..9).
+	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: m.gutterWidth + 4, Y: 0})
 	m = updated.(Model)
 	if !m.hover.visible {
 		t.Fatal("expected hover tooltip over diagnostic")
@@ -138,7 +138,7 @@ func TestHoverShowsDiagnosticMessage(t *testing.T) {
 	}
 
 	// Hovering a clean word hides the tooltip.
-	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: 6 + 10, Y: 0}) // "brown"
+	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: m.gutterWidth + 10, Y: 0}) // "brown"
 	m = updated.(Model)
 	if m.hover.visible {
 		t.Fatal("expected tooltip hidden over clean text")
@@ -155,7 +155,7 @@ func TestHoverShowsDiagnosticOnMultiLineSpan(t *testing.T) {
 	})
 	m = updated.(Model)
 
-	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: 6, Y: 1}) // line 1, col 0
+	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: m.gutterWidth, Y: 1}) // line 1, col 0
 	m = updated.(Model)
 	if !m.hover.visible || m.hover.contents != "harper: spans lines" {
 		t.Fatalf("expected tooltip on spanned line, got visible=%v contents=%q", m.hover.visible, m.hover.contents)
@@ -192,7 +192,7 @@ func TestHoverTooltipUsesThemedBorderBackground(t *testing.T) {
 	})
 	m = updated.(Model)
 
-	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: 6, Y: 0})
+	updated, _ = m.handleMouseMotion(tea.MouseMotionMsg{X: m.gutterWidth, Y: 0})
 	m = updated.(Model)
 	if !m.hover.visible {
 		t.Fatal("expected hover tooltip")

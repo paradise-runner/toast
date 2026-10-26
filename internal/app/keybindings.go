@@ -90,6 +90,18 @@ func (m *Model) isSettings(msg tea.KeyPressMsg) bool {
 	return m.cfg.Keybindings.Match(msg, config.ActionOpenSettings)
 }
 
+func (m *Model) isToggleFold(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionToggleFold)
+}
+
+func (m *Model) isFoldAll(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionFoldAll)
+}
+
+func (m *Model) isUnfoldAll(msg tea.KeyPressMsg) bool {
+	return m.cfg.Keybindings.Match(msg, config.ActionUnfoldAll)
+}
+
 func (m *Model) isEscape(msg tea.KeyPressMsg) bool {
 	return m.cfg.Keybindings.MatchEscape(msg)
 }

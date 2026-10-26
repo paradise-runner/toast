@@ -169,12 +169,23 @@ type Model struct {
 
 	// wrap-mode caches, rebuilt lazily whenever buf.Generation() or
 	// wrapWidth() changes (i.e. only on edits / resize, never on cursor moves).
-	// visualRowCache[i] = total visual rows for lines 0..i-1 (prefix sum).
+	// visualRowCache[i] = total visible rows for lines 0..i-1 (prefix sum).
 	// chunkCache[l] = cached word-wrap chunk start offsets for line l.
 	visualRowCache []int
 	chunkCache     [][]int
 	wrapCacheGen   int
 	wrapCacheWidth int
+	wrapCacheFolds int
+
+	// Folding: foldRegions is derived from the buffer text whenever its
+	// generation changes; foldStarts[l] is end+1 for the region starting at l
+	// (0 = none); collapsed holds the folded headers (sorted, non-overlapping).
+	foldRegions   []foldRegion
+	foldStarts    []int
+	collapsed     []foldSpan
+	foldCacheGen  int
+	foldCachePath string
+	foldRev       int
 }
 
 // New creates a new editor Model with an empty buffer.
@@ -323,6 +334,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.completion.hide()
 		m.clearFindState()
 		m.wrapMode = isMarkdownPath(msg.path)
+		m.invalidateFolds()
+		if !preserve {
+			// Fold state belongs to the document; a fresh open starts unfolded.
+			m.collapsed = nil
+		}
 		if msg.isBinary || msg.loadErr != "" {
 			m.buf = buffer.NewEditBuffer("")
 			m.highlighter = nil
@@ -498,6 +514,7 @@ type BufferSnapshot struct {
 	diagnostics     []messages.Diagnostic
 	highlighter     *syntax.Highlighter
 	gutterWidth     int
+	collapsed       []foldSpan
 }
 
 // Modified reports whether the snapshot's buffer has unsaved changes.
@@ -577,6 +594,7 @@ func (m Model) Snapshot() BufferSnapshot {
 		diagnostics:     m.diagnostics,
 		highlighter:     m.highlighter,
 		gutterWidth:     m.gutterWidth,
+		collapsed:       append([]foldSpan(nil), m.collapsed...),
 	}
 }
 
@@ -600,6 +618,8 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.diagnostics = snap.diagnostics
 	m.highlighter = snap.highlighter
 	m.gutterWidth = snap.gutterWidth
+	m.collapsed = append([]foldSpan(nil), snap.collapsed...)
+	m.invalidateFolds()
 	m.bufferID = bufferID
 	m.pendingBufferID = bufferID
 	m.path = path
@@ -611,6 +631,7 @@ func (m *Model) RestoreSnapshot(snap BufferSnapshot, bufferID int, path string) 
 	m.chunkCache = nil
 	m.wrapCacheGen = 0
 	m.wrapCacheWidth = 0
+	m.wrapCacheFolds = 0
 }
 
 // Path returns the path of the currently loaded file.
@@ -1101,6 +1122,14 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.Button {
 	case tea.MouseLeft:
+		// A click on the fold indicator toggles the region instead of moving
+		// the caret.
+		if !msg.Mod.Contains(tea.ModCtrl) && m.foldCaretHit(msg.X, msg.Y) {
+			if line, ok := m.foldCaretLine(msg.Y); ok && m.toggleFoldAt(line) {
+				m.clampViewport()
+				return m, nil
+			}
+		}
 		clickLine, clickCol := m.screenToBuffer(msg.X, msg.Y)
 		if msg.Mod.Contains(tea.ModCtrl) && msg.X >= m.gutterWidth {
 			if m.definitionLink.contains(clickLine, clickCol) && m.definitionLink.targetPath != "" {
@@ -1261,18 +1290,16 @@ func (m *Model) dragScrollPossible(pointerY int) bool {
 // canScrollViewportForDrag reports whether the viewport can move one row in
 // direction dir without leaving the buffer.
 func (m *Model) canScrollViewportForDrag(dir int) bool {
-	lineCount := m.buf.LineCount()
-	if lineCount == 0 {
+	if m.buf == nil || m.buf.LineCount() == 0 {
 		return false
 	}
+	m.ensureWrapCache()
+	topRow := m.visualRowFromTop(m.viewportTop)
 	if dir > 0 {
-		// Never scroll past the last line: the bottom row keeps showing it.
-		if m.viewHeight > 0 && m.viewportTop >= lineCount-m.viewHeight {
-			return false
-		}
-		return m.viewportTop < lineCount-1
+		// Never scroll past the last row: the bottom row keeps showing it.
+		return topRow < m.totalRows()-m.viewHeight
 	}
-	return m.viewportTop > 0
+	return topRow > 0
 }
 
 // dragEdgeStep returns how many lines one auto-scroll tick should advance. The
@@ -1361,7 +1388,7 @@ func (m *Model) scrollViewportForDrag(dir, maxRows int) int {
 	}
 	moved := 0
 	for ; moved < maxRows && m.canScrollViewportForDrag(dir); moved++ {
-		m.viewportTop += dir
+		m.viewportTop = m.lineAtRow(m.visualRowFromTop(m.viewportTop) + dir)
 	}
 	return moved
 }
@@ -1423,13 +1450,14 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // ── Cursor movement ──────────────────────────────────────────────────────────
 
 func (m *Model) moveCursorUp(n int) {
+	m.ensureFolds()
+	currentRow := m.visualRowOfCursor()
 	if m.wrapMode {
-		currentVR := m.visualRowOfCursor()
-		targetVR := currentVR - n
-		if targetVR < 0 {
-			targetVR = 0
+		targetRow := currentRow - n
+		if targetRow < 0 {
+			targetRow = 0
 		}
-		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
+		bufLine, chunkStart := m.bufPosFromVisualRow(targetRow)
 		chunks := m.lineChunks(bufLine)
 		chunkIdx := chunkContaining(chunks, chunkStart)
 		lineLen := m.lineContentLen(bufLine)
@@ -1457,26 +1485,29 @@ func (m *Model) moveCursorUp(n int) {
 		m.preferredCol = 0
 		return
 	}
-	m.cursor.line -= n
-	if m.cursor.line < 0 {
-		m.cursor.line = 0
+	targetRow := currentRow - n
+	if targetRow < 0 {
+		targetRow = 0
 	}
-	m.cursor.col = m.clampCol(m.cursor.line, m.preferredCol)
+	line := m.lineAtRow(targetRow)
+	m.cursor.line = line
+	m.cursor.col = m.clampCol(line, m.preferredCol)
 }
 
 func (m *Model) moveCursorDown(n int) {
+	m.ensureFolds()
+	currentRow := m.visualRowOfCursor()
 	if m.wrapMode {
-		currentVR := m.visualRowOfCursor()
-		targetVR := currentVR + n
+		targetRow := currentRow + n
 		lineCount := m.buf.LineCount()
-		maxVR := m.visualRowFromTop(lineCount) - 1
-		if maxVR < 0 {
-			maxVR = 0
+		maxRow := m.visualRowFromTop(lineCount) - 1
+		if maxRow < 0 {
+			maxRow = 0
 		}
-		if targetVR > maxVR {
-			targetVR = maxVR
+		if targetRow > maxRow {
+			targetRow = maxRow
 		}
-		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
+		bufLine, chunkStart := m.bufPosFromVisualRow(targetRow)
 		chunks := m.lineChunks(bufLine)
 		chunkIdx := chunkContaining(chunks, chunkStart)
 		lineLen := m.lineContentLen(bufLine)
@@ -1497,20 +1528,22 @@ func (m *Model) moveCursorDown(n int) {
 		m.cursor.col = targetCol
 		return
 	}
-	lastLine := m.buf.LineCount() - 1
-	if lastLine < 0 {
-		lastLine = 0
+	maxRow := m.totalRows() - 1
+	if maxRow < 0 {
+		maxRow = 0
 	}
-	if m.cursor.line >= lastLine {
-		m.cursor.col = m.lineContentLen(lastLine)
+	if currentRow >= maxRow {
+		m.cursor.col = m.lineContentLen(m.cursor.line)
 		m.preferredCol = m.cursor.col
 		return
 	}
-	m.cursor.line += n
-	if m.cursor.line > lastLine {
-		m.cursor.line = lastLine
+	targetRow := currentRow + n
+	if targetRow > maxRow {
+		targetRow = maxRow
 	}
-	m.cursor.col = m.clampCol(m.cursor.line, m.preferredCol)
+	line := m.lineAtRow(targetRow)
+	m.cursor.line = line
+	m.cursor.col = m.clampCol(line, m.preferredCol)
 }
 
 func (m *Model) moveCursorLeft() {
@@ -1521,8 +1554,8 @@ func (m *Model) moveCursorLeft() {
 		sub := line[:m.cursor.col]
 		_, size := utf8.DecodeLastRuneInString(sub)
 		m.cursor.col -= size
-	} else if m.cursor.line > 0 {
-		m.cursor.line--
+	} else if prev, ok := m.prevVisibleLine(m.cursor.line); ok {
+		m.cursor.line = prev
 		m.cursor.col = m.lineContentLen(m.cursor.line)
 	}
 	if m.wrapMode {
@@ -1541,12 +1574,8 @@ func (m *Model) moveCursorRight() {
 		_, size := utf8.DecodeRuneInString(line[m.cursor.col:])
 		m.cursor.col += size
 	} else {
-		lastLine := m.buf.LineCount() - 1
-		if lastLine < 0 {
-			lastLine = 0
-		}
-		if m.cursor.line < lastLine {
-			m.cursor.line++
+		if next, ok := m.nextVisibleLine(m.cursor.line); ok {
+			m.cursor.line = next
 			m.cursor.col = 0
 		}
 	}
@@ -1563,8 +1592,8 @@ func (m *Model) moveCursorWordLeft() {
 	m.clampCursorCol()
 	// First move left at least one character so we don't stay in place.
 	if m.cursor.col == 0 {
-		if m.cursor.line > 0 {
-			m.cursor.line--
+		if prev, ok := m.prevVisibleLine(m.cursor.line); ok {
+			m.cursor.line = prev
 			m.cursor.col = m.lineContentLen(m.cursor.line)
 		}
 		m.preferredCol = m.cursor.col
@@ -1599,12 +1628,8 @@ func (m *Model) moveCursorWordRight() {
 	m.clampCursorCol()
 	lineLen := m.lineContentLen(m.cursor.line)
 	if m.cursor.col >= lineLen {
-		lastLine := m.buf.LineCount() - 1
-		if lastLine < 0 {
-			lastLine = 0
-		}
-		if m.cursor.line < lastLine {
-			m.cursor.line++
+		if next, ok := m.nextVisibleLine(m.cursor.line); ok {
+			m.cursor.line = next
 			m.cursor.col = 0
 		}
 		m.preferredCol = m.cursor.col
@@ -2135,56 +2160,54 @@ func (m Model) View() tea.View {
 	lineCount := m.buf.LineCount()
 	var sb strings.Builder
 
-	// Hoist wrap-mode viewport boundaries outside the per-row loop so we
-	// don't recompute O(n) values on every screen row.
-	var wrapTopVR, wrapTotalVR int
-	if m.wrapMode {
-		wrapTopVR = m.visualRowFromTop(m.viewportTop)
-		wrapTotalVR = m.visualRowFromTop(lineCount)
-	}
+	m.ensureFolds()
+	lineNumWidth := m.lineNumWidth()
+
+	// Hoist fold-aware viewport boundaries outside the per-row loop so we don't
+	// recompute O(n) values on every screen row. Hidden lines contribute zero
+	// rows to the table, so a collapsed region is skipped entirely.
+	topRow := m.visualRowFromTop(m.viewportTop)
+	totalRows := m.visualRowFromTop(lineCount)
 
 	for screenRow := 0; screenRow < m.viewHeight; screenRow++ {
-		// In wrap mode, map screenRow → (bufLine, chunkIndex).
-		// In non-wrap mode, chunkIndex is always 0 and bufLine = viewportTop + screenRow.
+		// Map screen row → (bufLine, wrapped chunk).
 		var bufLine, chunkIndex int
-		if m.wrapMode {
-			targetVR := wrapTopVR + screenRow
-			if targetVR >= wrapTotalVR {
-				bufLine = lineCount // past end of buffer — renders as blank row
-				chunkIndex = 0
-			} else {
-				bl, chunkStart := m.bufPosFromVisualRow(targetVR)
-				bufLine = bl
-				if bufLine < lineCount {
-					chunkIndex = chunkContaining(m.lineChunks(bufLine), chunkStart)
-				}
-			}
+		targetRow := topRow + screenRow
+		if targetRow >= totalRows {
+			bufLine = lineCount // past end of buffer — renders as blank row
+			chunkIndex = 0
 		} else {
-			bufLine = m.viewportTop + screenRow
+			bl, chunkStart := m.bufPosFromVisualRow(targetRow)
+			bufLine = bl
+			if bufLine < lineCount {
+				chunkIndex = chunkContaining(m.lineChunks(bufLine), chunkStart)
+			}
 		}
 
 		// ── Gutter ──────────────────────────────────────────────────────────
 		lineNumStr := ""
 		diffBar := ""
+		foldCell := m.renderFoldCell(-1)
 		if bufLine < lineCount {
 			if !m.wrapMode || chunkIndex == 0 {
-				lineNumStr = fmt.Sprintf("%*d", m.gutterWidth-3, bufLine+1)
+				lineNumStr = fmt.Sprintf("%*d", lineNumWidth, bufLine+1)
 				var kind messages.GitLineKind
 				if bufLine < len(m.lineKinds) {
 					kind = m.lineKinds[bufLine]
 				}
 				diffBar = gitDiffBar(kind, m.theme)
+				foldCell = m.renderFoldCell(bufLine)
 			} else {
 				// Continuation row: blank line number.
-				lineNumStr = strings.Repeat(" ", m.gutterWidth-3)
+				lineNumStr = strings.Repeat(" ", lineNumWidth)
 				diffBar = gitDiffBar(messages.GitLineUnchanged, m.theme)
 			}
 		} else {
-			lineNumStr = strings.Repeat(" ", m.gutterWidth-3)
+			lineNumStr = strings.Repeat(" ", lineNumWidth)
 			diffBar = gitDiffBar(messages.GitLineUnchanged, m.theme)
 		}
 
-		gutter := gutterStyle.Render(lineNumStr+" ") + diffBar + gutterStyle.Render(" ")
+		gutter := gutterStyle.Render(lineNumStr+" ") + diffBar + foldCell + gutterStyle.Render(" ")
 
 		// ── Content ─────────────────────────────────────────────────────────
 		isCurrentLine := bufLine == m.cursor.line
@@ -2280,7 +2303,7 @@ func (m Model) View() tea.View {
 				cursorOnScreen = offset >= 0 && offset < contentWidth
 				cursorScreenX = m.gutterWidth + offset
 			}
-			cursorScreenY = m.cursor.line - m.viewportTop
+			cursorScreenY = m.visualRowOfCursor() - m.visualRowFromTop(m.viewportTop)
 		}
 		if m.completion.visible {
 			menu := renderCompletion(m.completion, m.viewWidth, m.theme)
@@ -2729,7 +2752,8 @@ func (m *Model) clampCursorCol() {
 	}
 }
 
-// clampCursor ensures cursor stays within valid buffer bounds after an undo/redo.
+// clampCursor ensures cursor stays within valid buffer bounds after an undo/redo
+// and reveals it when it lands inside a collapsed fold.
 func (m *Model) clampCursor() {
 	lineCount := m.buf.LineCount()
 	if lineCount == 0 {
@@ -2743,6 +2767,7 @@ func (m *Model) clampCursor() {
 	if m.cursor.col > maxCol {
 		m.cursor.col = maxCol
 	}
+	m.revealLine(m.cursor.line)
 	m.preferredCol = m.cursor.col
 }
 
@@ -2854,10 +2879,17 @@ func (m *Model) deleteSelection() string {
 
 // screenToBuffer translates a screen (X, Y) position to a buffer (line, col).
 func (m *Model) screenToBuffer(x, y int) (line, col int) {
+	m.ensureFolds()
+	topRow := m.visualRowFromTop(m.viewportTop)
+	targetRow := topRow + y
+	if targetRow < 0 {
+		targetRow = 0
+	}
+	if total := m.totalRows(); total > 0 && targetRow >= total {
+		targetRow = total - 1
+	}
+	bufLine, chunkStart := m.bufPosFromVisualRow(targetRow)
 	if m.wrapMode {
-		topVR := m.visualRowFromTop(m.viewportTop)
-		targetVR := topVR + y
-		bufLine, chunkStart := m.bufPosFromVisualRow(targetVR)
 		visualCol := x - m.gutterWidth
 		if visualCol < 0 {
 			visualCol = 0
@@ -2866,14 +2898,7 @@ func (m *Model) screenToBuffer(x, y int) (line, col int) {
 		return bufLine, bufCol
 	}
 
-	line = m.viewportTop + y
-	lineCount := m.buf.LineCount()
-	if line >= lineCount {
-		line = lineCount - 1
-	}
-	if line < 0 {
-		line = 0
-	}
+	line = bufLine
 	visualCol := x - m.gutterWidth
 	col = byteColForVisualCol(m.lineContent(line), m.viewportLeft, visualCol, m.cfg.Editor.TabWidth)
 	return line, col
@@ -2930,8 +2955,14 @@ func (m Model) bottomPadding() int {
 
 // clampViewport scrolls the viewport so the cursor is visible and, when the
 // buffer is taller than the viewport, keeps a few blank rows (`bottomPadding`)
-// below the last line of content so it is not glued to the bottom edge.
+// below the last line of content so it is not glued to the bottom edge. The
+// vertical math is row-based, so folded (hidden) lines are simply absent from
+// the scrollable extent.
 func (m *Model) clampViewport() {
+	m.ensureFolds()
+	// The cursor must never sit on a hidden line.
+	m.revealLine(m.cursor.line)
+
 	pad := m.bottomPadding()
 	if m.mouseDragging {
 		// While a selection drag is in flight the pointer owns the viewport
@@ -2951,103 +2982,45 @@ func (m *Model) clampViewport() {
 
 	if m.wrapMode {
 		m.viewportLeft = 0
-		if m.viewHeight <= 0 {
-			return
-		}
+	}
 
-		cursorVR := m.visualRowOfCursor()
-		topVR := m.visualRowFromTop(m.viewportTop)
-
-		lineCount := m.buf.LineCount()
-		m.ensureWrapCache()
-
-		// Cursor above viewport: find the buffer line whose visual rows contain cursorVR.
-		if cursorVR < topVR {
-			// Largest l such that visualRowCache[l] <= cursorVR.
-			lo, hi := 0, lineCount-1
-			for lo < hi {
-				mid := (lo + hi + 1) / 2
-				if mid < len(m.visualRowCache) && m.visualRowCache[mid] <= cursorVR {
-					lo = mid
-				} else {
-					hi = mid - 1
-				}
-			}
-			m.viewportTop = lo
-			return
-		}
-
-		// Cursor too close to the bottom edge (or below the viewport): find the
-		// first buffer line whose first visual row >= targetTopVR, so the cursor
-		// ends up at least `pad` rows above the bottom edge.
-		if cursorVR >= topVR+m.viewHeight-pad {
-			targetTopVR := cursorVR - m.viewHeight + pad + 1
-			// Smallest l such that visualRowCache[l] >= targetTopVR.
-			lo, hi := 0, lineCount
-			for lo < hi {
-				mid := (lo + hi) / 2
-				if mid < len(m.visualRowCache) && m.visualRowCache[mid] >= targetTopVR {
-					hi = mid
-				} else {
-					lo = mid + 1
-				}
-			}
-			if lo >= lineCount {
-				lo = lineCount - 1
-			}
-			m.viewportTop = lo
-		}
-
-		// Never scroll so far that the end of the buffer can sit closer than
-		// `pad` rows to the bottom edge.
-		if m.viewHeight > 0 {
-			minTopVR := m.visualRowFromTop(lineCount) - m.viewHeight + pad
-			if minTopVR > 0 {
-				lo, hi := 0, lineCount
-				for lo < hi {
-					mid := (lo + hi) / 2
-					if mid < len(m.visualRowCache) && m.visualRowCache[mid] >= minTopVR {
-						hi = mid
-					} else {
-						lo = mid + 1
-					}
-				}
-				if lo >= lineCount {
-					lo = lineCount - 1
-				}
-				if m.viewportTop > lo {
-					m.viewportTop = lo
-				}
-			}
-		}
+	lineCount := m.buf.LineCount()
+	if lineCount == 0 || m.viewHeight <= 0 {
+		m.viewportTop = m.visibleLineAtOrAfter(m.viewportTop)
 		return
 	}
 
-	// ── Non-wrap mode ────────────────────────────────────────────────────────
-	// Vertical.
-	if m.cursor.line < m.viewportTop {
+	m.ensureWrapCache()
+	m.ensureViewportVisible()
+
+	cursorRow := m.visualRowOfCursor()
+	topRow := m.visualRowFromTop(m.viewportTop)
+	totalRows := m.totalRows()
+
+	// Cursor above the viewport: anchor the viewport on the cursor's line.
+	if cursorRow < topRow {
 		m.viewportTop = m.cursor.line
+		topRow = cursorRow
 	}
-	// Keep the cursor at least `pad` rows above the bottom edge: when it gets
-	// within `pad` rows of the bottom (or below the viewport), scroll down so
-	// the reserved padding stays visible.
-	if m.viewHeight > 0 && m.cursor.line >= m.viewportTop+m.viewHeight-pad {
-		m.viewportTop = m.cursor.line - m.viewHeight + pad + 1
+
+	// Cursor too close to the bottom edge (or below the viewport): scroll so it
+	// ends up at least `pad` rows above the bottom edge.
+	if cursorRow >= topRow+m.viewHeight-pad {
+		targetTopRow := cursorRow - m.viewHeight + pad + 1
+		m.viewportTop = m.lineAtRowOrAfter(targetTopRow)
 	}
-	// Never scroll past the end of the buffer: the last line may sit at most
-	// `pad` rows above the bottom edge. When the buffer fits the viewport this
-	// clamps to 0, keeping the content at the top.
-	if m.viewHeight > 0 {
-		maxTop := m.buf.LineCount() - m.viewHeight + pad
-		if maxTop < 0 {
-			maxTop = 0
-		}
-		if m.viewportTop > maxTop {
-			m.viewportTop = maxTop
-		}
+
+	// Never scroll so far that the end of the buffer can sit closer than `pad`
+	// rows to the bottom edge. When the buffer fits the viewport this clamps to
+	// the top, keeping the content anchored there.
+	if minTopRow := totalRows - m.viewHeight + pad; minTopRow > 0 &&
+		m.visualRowFromTop(m.viewportTop) > minTopRow {
+		m.viewportTop = m.lineAtRowOrAfter(minTopRow)
 	}
-	if m.viewportTop < 0 {
-		m.viewportTop = 0
+
+	m.ensureViewportVisible()
+	if m.wrapMode {
+		return
 	}
 
 	// Horizontal: ensure the cursor's display cell is visible. Buffer columns
@@ -3117,9 +3090,14 @@ func (m *Model) horizontalReferenceLine() string {
 	best := ""
 	bestWidth := -1
 	tabWidth := m.cfg.Editor.TabWidth
+	topRow := m.visualRowFromTop(m.viewportTop)
+	totalRows := m.totalRows()
 	for row := 0; row < m.viewHeight; row++ {
-		line := m.viewportTop + row
-		if line < 0 || line >= lineCount {
+		if topRow+row >= totalRows {
+			break
+		}
+		line := m.lineAtRow(topRow + row)
+		if line < 0 || line >= lineCount || m.isHidden(line) {
 			continue
 		}
 		content := m.lineContent(line)
@@ -3141,8 +3119,8 @@ func (m *Model) recomputeGutterWidth() {
 		lineCount = 1
 	}
 	digits := len(fmt.Sprintf("%d", lineCount))
-	// gutter = digits + 1 space + diff bar (1) + 1 space
-	m.gutterWidth = digits + 3
+	// gutter = digits + 1 space + diff bar (1) + fold cell + 1 space
+	m.gutterWidth = digits + gutterChrome
 }
 
 // formatJSON pretty-prints the current buffer content as JSON. If the content

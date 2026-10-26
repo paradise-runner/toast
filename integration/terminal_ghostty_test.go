@@ -157,10 +157,11 @@ func TestGhosttyTmuxCtrlHoverShowsDefinitionLink(t *testing.T) {
 	waitForPane(t, h.tmux, h.targetPane, 15*time.Second, "func caller()", "target()")
 
 	// App coordinates at 100x34 with the default 30-column sidebar:
-	// tab + breadcrumb + source line 5 => y=6; sidebar + 4-char gutter +
-	// a four-cell source tab + target's source column => x=55. SGR button
-	// code 51 is Ctrl+hover motion.
-	const ctrlMotion = "\x1b[<51;56;7M"
+	// tab + breadcrumb + source line 5 => y=6; sidebar + 8-char gutter
+	// (1 digit + space + diff bar + fold cell + space) + a four-cell source
+	// tab + target's source column => x=59. SGR button code 51 is Ctrl+hover
+	// motion.
+	const ctrlMotion = "\x1b[<51;60;7M"
 	deadline := time.Now().Add(15 * time.Second)
 	styledPane := ""
 	for time.Now().Before(deadline) {
@@ -179,9 +180,9 @@ func TestGhosttyTmuxCtrlHoverShowsDefinitionLink(t *testing.T) {
 	// Drag from the start to the end of "caller". These cells come after the
 	// expanded source tab; the resulting byte cursor is column 12 (displayed as
 	// one-based Col 13 in the status bar).
-	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<0;44;7M")
-	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<32;50;7M")
-	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<0;50;7m")
+	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<0;48;7M")
+	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<32;54;7M")
+	h.tmux.sendLiteral(t, h.targetPane, "\x1b[<0;54;7m")
 	waitForPane(t, h.tmux, h.targetPane, 5*time.Second, "Ln 5, Col 13")
 	selectionPane := h.tmux.output(t, "capture-pane", "-p", "-e", "-t", h.targetPane)
 	writeArtifact(t, filepath.Join(h.artifacts, "tab-selection-pane.txt"), []byte(selectionPane))

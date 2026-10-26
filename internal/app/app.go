@@ -1019,6 +1019,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case m.isGoToDefinition(msg):
 		return m.runAction(config.ActionGoToDefinition)
 
+	case m.isToggleFold(msg):
+		return m.runAction(config.ActionToggleFold)
+
+	case m.isFoldAll(msg):
+		return m.runAction(config.ActionFoldAll)
+
+	case m.isUnfoldAll(msg):
+		return m.runAction(config.ActionUnfoldAll)
+
 	case m.isTriggerCompletion(msg):
 		return m.runAction(config.ActionTriggerCompletion)
 
@@ -1139,6 +1148,30 @@ func (m *Model) runAction(action string) tea.Cmd {
 		if isMarkdownPath(m.editor.Path()) {
 			m.togglePreview()
 		}
+		return nil
+
+	case config.ActionToggleFold:
+		if m.editor.Path() == "" {
+			return nil
+		}
+		m.setFocus(FocusEditor)
+		m.editor.ToggleFold()
+		return nil
+
+	case config.ActionFoldAll:
+		if m.editor.Path() == "" {
+			return nil
+		}
+		m.setFocus(FocusEditor)
+		m.editor.FoldAll()
+		return nil
+
+	case config.ActionUnfoldAll:
+		if m.editor.Path() == "" {
+			return nil
+		}
+		m.setFocus(FocusEditor)
+		m.editor.UnfoldAll()
 		return nil
 
 	case config.ActionNextTab:

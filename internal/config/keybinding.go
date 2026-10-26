@@ -31,6 +31,9 @@ const (
 	ActionMarkdownPreview   = "markdown_preview"
 	ActionShowHover         = "show_hover"
 	ActionTriggerCompletion = "trigger_completion"
+	ActionToggleFold        = "toggle_fold"
+	ActionFoldAll           = "fold_all"
+	ActionUnfoldAll         = "unfold_all"
 	ActionOpenSettings      = "open_settings"
 	ActionEscape            = "escape"
 )
@@ -135,6 +138,9 @@ func DefaultKeybindings() KeybindingMap {
 		ActionMarkdownPreview:   {"ctrl+shift+m"},
 		ActionShowHover:         {"ctrl+shift+k"},
 		ActionTriggerCompletion: {"ctrl+space", "super+space"},
+		ActionToggleFold:        {"ctrl+shift+[", "alt+t"},
+		ActionFoldAll:           {"ctrl+shift+alt+[", "alt+shift+t"},
+		ActionUnfoldAll:         {"ctrl+shift+alt+]", "alt+shift+u"},
 		ActionOpenSettings:      {"ctrl+,"},
 		ActionEscape:            {"escape"},
 	}
