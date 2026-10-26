@@ -12,6 +12,9 @@ on:
   push:
     branches:
       - main
+  # Allows `gh workflow run release-please.yml`, which is the easiest way to
+  # re-run Release Please after fixing a stuck release (see docs/releasing.md).
+  workflow_dispatch:
 
 permissions:
   contents: write

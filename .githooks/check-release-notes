@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# pre-push hook: ensure RELEASE_NOTES.md has a "## <tag>" section for every
-# local tag that isn't on the remote yet, so releases never ship without
-# notes.
+# pre-push hook: ensure RELEASE_NOTES.md has a section for every local tag that
+# isn't on the remote yet, so releases never ship without notes. Both heading
+# styles are accepted, since Release Please writes "## [0.13.0](compare-link)"
+# while hand-written sections look like "## v0.10.0 — 2026-10-16".
 #
 # Note: prek (unlike pre-commit) doesn't forward the pre-push ref list on
 # stdin to `language: system` hooks, so instead of parsing stdin we compare
@@ -33,8 +34,13 @@ new_tags="$(comm -23 \
 
 fail=0
 for tag in $new_tags; do
-    if ! grep -Eq "^## $tag([[:space:]]|$)" "$notes"; then
-        echo "error: RELEASE_NOTES.md has no section for tag '$tag' (add a '## $tag' heading)" >&2
+    # Reuse the extractor the release workflow uses, so the heading formats this
+    # hook accepts are exactly the ones a release can publish: both
+    # "## v0.10.0 — 2026-10-16" and Release Please's
+    # "## [0.13.0](https://…/compare/…)".
+    if ! scripts/release-notes-section.sh "$tag" "$notes" >/dev/null; then
+        echo "error: RELEASE_NOTES.md has no section for tag '$tag'" >&2
+        echo "       add '## ${tag} — $(date +%Y-%m-%d)' or '## [${tag#v}](…compare…)'" >&2
         fail=1
     fi
 done
