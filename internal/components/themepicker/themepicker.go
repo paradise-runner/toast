@@ -115,9 +115,12 @@ func (m *Model) clampOffset() {
 }
 
 // Dimensions returns the visual outer width and height of the rendered picker.
-// Used by app.go to compute the picker's screen position for hit-testing clicks.
+// Used by app.go to compute the picker's screen position for hit-testing clicks,
+// so it must match the rendered box exactly: lipgloss counts the border in the
+// configured width, which makes dialogWidth the outer width, not the content
+// width. Reporting one column more shifts every click one column right.
 func (m Model) Dimensions() (w, h int) {
-	return dialogWidth + 2, m.visibleRows() + 4 // +2 borders (width); +4 borders+sep+btn (height)
+	return dialogWidth, m.visibleRows() + 4 // +4 = borders, separator and action row
 }
 
 // Update handles key and mouse events for the picker.

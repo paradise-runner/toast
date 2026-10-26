@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/yourusername/toast/internal/messages"
 	"github.com/yourusername/toast/internal/theme"
 )
@@ -509,4 +510,28 @@ func keyMsg(key string) tea.KeyPressMsg {
 	// single char keys like "o", "k", "j"
 	r := []rune(key)[0]
 	return tea.KeyPressMsg{Code: r}
+}
+
+// TestDimensionsMatchRender is the regression test for clicks landing one
+// column right of the dialog: app.go centres the picker using Dimensions while
+// overlayCenter centres the rendered box, so any mismatch offsets hit-testing.
+func TestDimensionsMatchRender(t *testing.T) {
+	m := newTestModel()
+	for _, selected := range []int{0, len(m.themes) - 1} {
+		m.selected = selected
+		m.clampOffset()
+		rendered := m.Render()
+		lines := strings.Split(rendered, "\n")
+
+		wantW, wantH := 0, len(lines)
+		for _, line := range lines {
+			if w := lipgloss.Width(line); w > wantW {
+				wantW = w
+			}
+		}
+		gotW, gotH := m.Dimensions()
+		if gotW != wantW || gotH != wantH {
+			t.Errorf("Dimensions() = %dx%d, rendered box is %dx%d", gotW, gotH, wantW, wantH)
+		}
+	}
 }
