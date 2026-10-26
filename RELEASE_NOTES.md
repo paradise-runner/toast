@@ -2,15 +2,36 @@
 
 ## [0.13.0](https://github.com/paradise-runner/toast/compare/v0.12.2...v0.13.0) (2026-10-26)
 
+The theme release: 32 new builtin themes converted from the most popular Zed
+theme extensions, the Zed theme importer they were generated with (#3, #17), and
+a theme picker that scrolls instead of growing past the terminal.
 
-### Features
+### Themes
+- 32 new builtins alongside `toast-dark`, `toast-light` and `system`: Catppuccin (`catppuccin-latte`, `-frappe`, `-macchiato`, `-mocha`), Tokyo Night (`tokyo-night`, `-storm`, `-moon`, `-light`), GitHub (`github-light`, `-light-high-contrast`, `-dark`, `-dark-high-contrast`, `-dark-dimmed`), Dracula (`dracula`, `-solid`, `-light-alucard`), Nord (`nord-dark`, `-darker`, `-light`), Kanagawa (`kanagawa`, `-wave`, `-dragon`, `-lotus`), Nightfox (`nightfox`, `dayfox`, `dawnfox`, `duskfox`, `nordfox`, `terafox`, `carbonfox`) and macOS Classic (`macos-classic-light`, `-dark`).
+- Chosen by Zed extension download counts (Catppuccin 1.2M, macOS Classic 507k, Tokyo Night 463k, GitHub 294k, Nightfox 279k, Dracula 267k, Nord 153k, Kanagawa 109k). Colorblind/tritanopia, "No Italics" and "blurred" variants are left out, and the Nightfox ` - opaque` suffix is dropped.
+- Every upstream theme is MIT licensed; repository, commit and the verbatim license text are recorded in `internal/theme/builtin/SOURCES.md` and `internal/theme/builtin/licenses/`, together with the regeneration steps.
 
-* zed theme migration and 32 new builtin themes ([#88](https://github.com/paradise-runner/toast/issues/88)) ([0e9aa03](https://github.com/paradise-runner/toast/commit/0e9aa03549c5e79d6bc9394e0389b7b051415d57))
+### Theme importer
+- `toast migrate-theme zed <file> [out-dir]` converts a Zed theme file. One Zed file usually holds a whole family, so every variant becomes its own Toast theme; an optional output directory keeps the source tree tidy when generating builtins.
+- Translucent Zed surfaces (`#rrggbbaa`) are composited over the editor background instead of dropping the alpha channel, so a theme's `element.selected` stays the subtle highlight its author intended.
+- Token names Zed spells differently resolve through fallback chains (`namespace` → Toast's `module`, `variable.special`/`preproc` → `builtin`), with `font_weight: 700` and `font_style: "italic"` carrying over as bold and italic.
+- Search-highlight foregrounds are picked by WCAG contrast, so highlights that are darker than the editor background (a translucent tint in Nightfox and Kanagawa) stay readable instead of turning into invisible text.
+- `toKebab` folds accents, so "Catppuccin Frappé" becomes `catppuccin-frappe` rather than `catppuccin-frapp`.
+- Missing-token errors now name the source format ("VSCode" or "Zed"), sharing one report between both importers.
 
+### Theme picker
+- The list scrolls in a 12-row window with clickable `▲`/`▼` arrows, `pgup`/`pgdn`/`home`/`end`, and click mapping through the scroll offset. Previously the dialog grew with the theme count and clipped the action row on a 24-row terminal.
+- The arrows scroll the viewport only: they never move the selection or preview a theme. The next selection key anchors the highlight onto the visible page (down to the top row, up to the bottom row) instead of bouncing the list back to the off-screen selection.
+- The dialog's hit box now matches its rendered size — clicks used to arrive one column to the right of the drawn box — so the one-column arrows are reachable and confirm/cancel/folder hit exactly where they are drawn.
+- Rows are measured with `lipgloss.Width` against the real inner width (the border is part of the configured width), and over-long custom theme names are ellipsised instead of wrapping the dialog.
+- `Discover` sorts a family's base theme ahead of its variants (`dracula` before `dracula-solid`) and pins `system` first.
 
 ### Fixes
-
 * keep cursor in place on watcher-triggered reloads ([#83](https://github.com/paradise-runner/toast/issues/83)) ([#84](https://github.com/paradise-runner/toast/issues/84)) ([b018385](https://github.com/paradise-runner/toast/commit/b018385cae9c583b1399f44497f090b8c78fe3d0))
+
+### Docs & misc
+- README lists the new themes, points at `SOURCES.md`, and documents both importers plus the default output directory.
+- `TestAllBuiltinThemesLoad` fails if a shipped theme is missing any UI, syntax or git token the UI needs; `TestDimensionsMatchRender` and an end-to-end arrow-click test keep the picker's drawn geometry and hit-testing in sync.
 
 ## [0.12.2](https://github.com/paradise-runner/toast/compare/v0.12.1...v0.12.2) (2026-10-19)
 
