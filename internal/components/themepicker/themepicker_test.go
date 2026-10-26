@@ -379,47 +379,94 @@ func TestRender_IndicatorsStayOnTheirRow(t *testing.T) {
 	}
 }
 
-// TestClick_ScrollArrowPages shows that the arrows page the list and preview the
-// new selection, the same way pgup/pgdown do.
-func TestClick_ScrollArrowPages(t *testing.T) {
+// TestClick_ScrollArrowsScrollWithoutSelecting: the arrows are a viewport
+// affordance. Scrolling must not move the selection or preview a theme.
+func TestClick_ScrollArrowsScrollWithoutSelecting(t *testing.T) {
 	m := newTestModel()
 	if len(m.themes) <= maxVisibleRows {
 		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
 	}
+	rows := m.visibleRows()
 	m.selected = 0
 	m.clampOffset()
 
-	// ▲ is not drawn at the top of the list, so a click there selects the row.
-	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 1})
-	if updated.offset != 0 {
-		t.Errorf("offset = %d, want 0 (no up arrow at the top)", updated.offset)
+	// ▼ on the last visible row scrolls one window down, selection untouched.
+	updated, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: rows})
+	m = updated
+	if cmd != nil {
+		t.Errorf("arrow click returned a command (%T); scrolling must not preview a theme", cmd())
+	}
+	if m.selected != 0 {
+		t.Errorf("selected = %d, want 0 (arrows must not select)", m.selected)
+	}
+	if m.offset != rows {
+		t.Errorf("offset = %d, want %d", m.offset, rows)
 	}
 
-	// ▼ on the last visible row pages down by one window.
+	// ▲ on the first visible row scrolls back up.
+	updated, cmd = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 1})
+	m = updated
+	if cmd != nil {
+		t.Errorf("arrow click returned a command (%T); scrolling must not preview a theme", cmd())
+	}
+	if m.selected != 0 || m.offset != 0 {
+		t.Errorf("selected/offset = %d/%d, want 0/0", m.selected, m.offset)
+	}
+}
+
+// TestClick_ScrollArrowsDoNotMoveASelectionInView keeps a mid-list selection
+// where the user left it while the window scrolls past it.
+func TestClick_ScrollArrowsDoNotMoveASelectionInView(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= 2*maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", 2*maxVisibleRows, len(m.themes))
+	}
 	rows := m.visibleRows()
-	updated, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: rows})
+	m.selected = 3
+	m.clampOffset()
+	wantOffset := m.offset + rows
+
+	// Scrolling down hides the selection but leaves it selected.
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: rows})
+	m = updated
+	if m.selected != 3 {
+		t.Errorf("selected = %d, want 3", m.selected)
+	}
+	if m.offset != wantOffset {
+		t.Errorf("offset = %d, want %d", m.offset, wantOffset)
+	}
+
+	// Enter still confirms that selection, wherever it is in the list.
+	_, cmd := m.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("expected a close command")
+	}
+	if closed, ok := cmd().(messages.ThemePickerClosedMsg); !ok || closed.ThemeName != m.themes[3] {
+		t.Errorf("expected confirmation of %q, got %#v", m.themes[3], closed)
+	}
+}
+
+// TestKeysStillPageTheSelection documents the intentional split: the keyboard
+// moves the selection (and previews), only the arrows scroll the viewport.
+func TestKeysStillPageTheSelection(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+
+	updated, cmd := m.Update(keyMsg("pgdown"))
 	m = updated
 	if m.selected != rows {
 		t.Errorf("selected = %d, want %d", m.selected, rows)
 	}
-	if m.offset != 1 {
-		t.Errorf("offset = %d, want 1", m.offset)
-	}
 	if cmd == nil {
-		t.Fatal("expected a preview cmd from the arrow click")
+		t.Fatal("expected a preview command from pgdown")
 	}
 	if tc, ok := cmd().(messages.ThemeChangedMsg); !ok || tc.ThemeName != m.themes[rows] {
 		t.Errorf("expected preview of %q, got %#v", m.themes[rows], tc)
-	}
-
-	// ▲ on the first visible row pages back up.
-	updated, cmd = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 1})
-	m = updated
-	if m.selected != 0 || m.offset != 0 {
-		t.Errorf("selected/offset = %d/%d, want 0/0", m.selected, m.offset)
-	}
-	if cmd == nil {
-		t.Fatal("expected a preview cmd from the up arrow click")
 	}
 }
 

@@ -49,60 +49,116 @@ func stripSGR(s string) string {
 	return b.String()
 }
 
-// TestThemePicker_ArrowClicksPageTheList clicks the scroll arrows at the cells
-// they are actually drawn in. It is the end-to-end guard for the picker's
-// geometry: app.go centres the dialog with Dimensions(), while the box is drawn
-// by overlayCenter, so a mismatch makes clicks land next to the arrow and select
-// the theme row underneath instead.
-func TestThemePicker_ArrowClicksPageTheList(t *testing.T) {
+// topVisibleTheme reads the theme name drawn in the first list row.
+func topVisibleTheme(t *testing.T, m Model) string {
+	t.Helper()
+	lines := strings.Split(stripSGR(m.themePicker.Render()), "\n")
+	if len(lines) < 2 {
+		t.Fatal("picker rendered no rows")
+	}
+	row := strings.TrimSuffix(lines[1], "│")
+	row = strings.TrimPrefix(row, "│")
+	// The first row carries the up arrow when the list is scrolled.
+	row = strings.TrimSuffix(strings.TrimSpace(row), "▲")
+	row = strings.TrimSpace(row)
+	row = strings.TrimPrefix(row, "●")
+	return strings.TrimSpace(row)
+}
+
+// TestThemePicker_ArrowClicksScrollWithoutSelecting clicks the scroll arrows at
+// the cells they are drawn in. Two things must hold at once: the list scrolls,
+// and the selection and active theme stay exactly where they were. The click
+// coordinates come from the rendered view, so the drawn box and the hit-test
+// geometry can never drift apart unnoticed.
+func TestThemePicker_ArrowClicksScrollWithoutSelecting(t *testing.T) {
 	m := newTestApp(t, t.TempDir())
 	_, _ = m.Update(messages.ThemePickerOpenMsg{})
 
 	names := theme.Discover("")
-	// Move the selection to the top of the list so it can page a full window down.
+	if len(names) <= 12 {
+		t.Fatalf("need more themes than fit in the picker, have %d", len(names))
+	}
+	// Normalise the window to the top of the list so a page down and a page up
+	// are both full pages (a page down near the end is clamped short).
 	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyHome}); cmd != nil {
 		_, _ = m.Update(cmd())
 	}
-	if got := m.theme.Name(); got != names[0] {
-		t.Fatalf("home selected %q, want %q", got, names[0])
-	}
-	start := 0
-	// One window of theme rows; the dialog also draws 4 non-theme lines.
-	pageRows := len(strings.Split(m.themePicker.Render(), "\n")) - 4
-	if start+pageRows >= len(names) {
-		t.Fatalf("need at least %d themes below %q to test paging (have %d)", pageRows, m.theme.Name(), len(names))
-	}
+	active := m.theme.Name()
+	before := topVisibleTheme(t, *m)
 
 	downX, downY := findArrow(t, *m, "▼")
 	cmd := m.handleMouseClick(tea.MouseClickMsg{Button: tea.MouseLeft, X: downX, Y: downY})
-	if cmd == nil {
-		t.Fatalf("clicking the down arrow at (%d,%d) did nothing", downX, downY)
+	if cmd != nil {
+		t.Fatalf("clicking the down arrow at (%d,%d) produced %T; scrolling must not preview a theme", downX, downY, cmd())
 	}
-	downMsg, ok := cmd().(messages.ThemeChangedMsg)
-	if !ok {
-		t.Fatalf("down arrow click produced %T, want ThemeChangedMsg", downMsg)
+	if got := m.theme.Name(); got != active {
+		t.Errorf("active theme changed from %q to %q on a scroll click", active, got)
 	}
-	wantDown := names[start+pageRows]
-	if downMsg.ThemeName != wantDown {
-		t.Errorf("down arrow paged to %q, want %q", downMsg.ThemeName, wantDown)
-	}
-
-	// Apply the preview so the active theme follows the selection.
-	_, _ = m.Update(downMsg)
-	if m.theme.Name() != wantDown {
-		t.Fatalf("active theme = %q, want %q", m.theme.Name(), wantDown)
+	after := topVisibleTheme(t, *m)
+	if after == before {
+		t.Errorf("down arrow did not scroll: first visible row is still %q", after)
 	}
 
+	// The arrow has moved off the first row, but ▲ is now drawn higher up and
+	// a page up returns the list to exactly where it started.
 	upX, upY := findArrow(t, *m, "▲")
 	cmd = m.handleMouseClick(tea.MouseClickMsg{Button: tea.MouseLeft, X: upX, Y: upY})
+	if cmd != nil {
+		t.Fatalf("clicking the up arrow at (%d,%d) produced %T; scrolling must not preview a theme", upX, upY, cmd())
+	}
+	if got := m.theme.Name(); got != active {
+		t.Errorf("active theme changed from %q to %q on a scroll click", active, got)
+	}
+	if got := topVisibleTheme(t, *m); got != before {
+		t.Errorf("up arrow did not restore the list: first visible row is %q, want %q", got, before)
+	}
+}
+
+// TestThemePicker_ClickingARowStillSelects makes sure the arrow column only
+// scrolls on the boundary rows: any other row click selects the theme under the
+// cursor, after arbitrary scrolling.
+func TestThemePicker_ClickingARowStillSelects(t *testing.T) {
+	m := newTestApp(t, t.TempDir())
+	_, _ = m.Update(messages.ThemePickerOpenMsg{})
+
+	// Scroll down one page without selecting anything.
+	downX, downY := findArrow(t, *m, "▼")
+	if cmd := m.handleMouseClick(tea.MouseClickMsg{Button: tea.MouseLeft, X: downX, Y: downY}); cmd != nil {
+		_, _ = m.Update(cmd())
+	}
+
+	// Click a row below the first; the theme under the cursor becomes active.
+	// Row i of the visible list sits at screen Y = startY + i + 1, and downY is
+	// the last list row, so pick index 5 (the sixth row).
+	const rowIndex = 5
+	rows := len(visibleRowNames(t, *m))
+	want := visibleRowNames(t, *m)[rowIndex]
+	clickY := downY - (rows - 1 - rowIndex)
+	// X must stay inside the box: the dialog is centred, so screen column 20 is
+	// the file tree, and a click there closes the picker as a click-outside.
+	cmd := m.handleMouseClick(tea.MouseClickMsg{Button: tea.MouseLeft, X: downX - 10, Y: clickY})
 	if cmd == nil {
-		t.Fatalf("clicking the up arrow at (%d,%d) did nothing", upX, upY)
+		t.Fatal("expected a preview command from the row click")
 	}
-	upMsg, ok := cmd().(messages.ThemeChangedMsg)
-	if !ok {
-		t.Fatalf("up arrow click produced %T, want ThemeChangedMsg", upMsg)
+	_, _ = m.Update(cmd())
+	if got := m.theme.Name(); got != want {
+		t.Errorf("active theme = %q, want %q", got, want)
 	}
-	if upMsg.ThemeName != names[start] {
-		t.Errorf("up arrow paged to %q, want %q", upMsg.ThemeName, names[start])
+}
+
+// visibleRowNames lists the theme names drawn in the picker's list rows.
+func visibleRowNames(t *testing.T, m Model) []string {
+	t.Helper()
+	lines := strings.Split(stripSGR(m.themePicker.Render()), "\n")
+	var names []string
+	for _, line := range lines[1 : len(lines)-3] {
+		row := strings.TrimSuffix(line, "│")
+		row = strings.TrimPrefix(row, "│")
+		row = strings.TrimSuffix(strings.TrimSpace(row), "▲")
+		row = strings.TrimSuffix(strings.TrimSpace(row), "▼")
+		row = strings.TrimSpace(row)
+		row = strings.TrimPrefix(row, "●")
+		names = append(names, strings.TrimSpace(row))
 	}
+	return names
 }

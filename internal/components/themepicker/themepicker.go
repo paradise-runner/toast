@@ -83,14 +83,26 @@ func (m Model) visibleRows() int {
 	return min(len(m.themes), maxVisibleRows)
 }
 
-// pageScroll moves the selection one window in dir (-1 up, +1 down) and keeps
-// the window following it. The keyboard and the scroll arrows share it.
-func (m Model) pageScroll(dir int) (Model, tea.Cmd) {
+// pageSelection moves the selection one window in dir (-1 up, +1 down) and
+// keeps the window following it. Used by pgup/pgdn.
+func (m Model) pageSelection(dir int) (Model, tea.Cmd) {
 	next := m.selected + dir*m.visibleRows()
 	m.selected = min(max(next, 0), len(m.themes)-1)
 	m.clampOffset()
 	name := m.themes[m.selected]
 	return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+}
+
+// scrollWindow moves the visible window by dir pages and leaves the selection
+// alone. The scroll arrows are a viewport affordance: scrolling through the
+// list must not change (or preview) the active theme, so this returns no
+// command and the selection may end up outside the window until the user picks
+// a theme or presses a key that moves it.
+func (m Model) scrollWindow(dir int) Model {
+	rows := m.visibleRows()
+	maxOffset := max(len(m.themes)-rows, 0)
+	m.offset = min(max(m.offset+dir*rows, 0), maxOffset)
+	return m
 }
 
 // clampOffset scrolls the window so the selected theme is visible.
@@ -140,13 +152,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch {
 		case msg.Y >= 1 && msg.Y <= rows:
 			// The last content column of the boundary rows holds the scroll
-			// arrows; clicking them pages the list instead of selecting a theme.
+			// arrows; clicking them scrolls the list without touching the
+			// selection.
 			if msg.X-1 == m.innerWidth()-1 {
 				if msg.Y == 1 && m.offset > 0 {
-					return m.pageScroll(-1)
+					return m.scrollWindow(-1), nil
 				}
 				if msg.Y == rows && m.offset+rows < len(m.themes) {
-					return m.pageScroll(1)
+					return m.scrollWindow(1), nil
 				}
 			}
 			// Theme row: move selection and preview, but don't confirm.
@@ -208,10 +221,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
 
 		case "pgup":
-			return m.pageScroll(-1)
+			return m.pageSelection(-1)
 
 		case "pgdown":
-			return m.pageScroll(1)
+			return m.pageSelection(1)
 
 		case "enter":
 			name := m.themes[m.selected]
