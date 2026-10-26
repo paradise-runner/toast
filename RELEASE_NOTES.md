@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.13.1](https://github.com/paradise-runner/toast/compare/v0.13.0...v0.13.1) (2026-10-26)
+
+
+### Fixes
+
+* keep sidebar context menu reachable when taller than the window ([#86](https://github.com/paradise-runner/toast/issues/86)) ([9797488](https://github.com/paradise-runner/toast/commit/9797488a085bf7968d57f7ef5d54b83b6fe374fd)), closes [#81](https://github.com/paradise-runner/toast/issues/81)
+
 ## [0.13.0](https://github.com/paradise-runner/toast/compare/v0.12.2...v0.13.0) (2026-10-26)
 
 The theme release: 32 new builtin themes converted from the most popular Zed
