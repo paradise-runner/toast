@@ -9,6 +9,7 @@ build: rg-payload
 
 test:
 	go test ./...
+	scripts/test-release-notes-section.sh
 
 test-integration:
 	TOAST_RUN_TERMINAL_INTEGRATION=1 go test -count=1 -v ./integration

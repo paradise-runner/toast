@@ -114,16 +114,25 @@ jobs:
         with:
           merge-multiple: true
 
+      # Only needed when this workflow creates the release itself (a hand-
+      # dispatched tag): the notes are taken from RELEASE_NOTES.md so the manual
+      # path publishes the same body as a Release Please run.
+      - name: Check out the tag for release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+          path: source
+
       - name: Compute SHA256 sums
         id: sha
         run: |
           echo "darwin_arm64=$(sha256sum toast-darwin-arm64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "darwin_amd64=$(sha256sum toast-darwin-amd64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      # Release Please already created the release, with notes taken from
-      # RELEASE_NOTES.md, so only upload assets and leave the notes alone.
-      # A hand-dispatched tag has no release yet, so create one with GitHub's
-      # generated notes.
+      # Release Please already created the release, so only upload assets and
+      # leave its notes alone. A hand-dispatched tag has no release yet, so
+      # create one using the tag's RELEASE_NOTES.md section; GitHub's generated
+      # notes are a fallback for a tag with no section.
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,8 +141,37 @@ jobs:
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" ./*.zip --clobber
+            exit 0
+          fi
+          if notes="$(source/scripts/release-notes-section.sh "$TAG" source/RELEASE_NOTES.md)"; then
+            printf '%s\n' "$notes" > release-notes.md
+            gh release create "$TAG" ./*.zip --title "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" ./*.zip --title "$TAG" --generate-notes
+          fi
+
+      # Release Please builds the release body from the release PR body, while
+      # RELEASE_NOTES.md is a separate copy of the same notes. Editing only one
+      # of them ships a release whose body and changelog disagree, so surface it
+      # as a warning instead of leaving it unnoticed.
+      - name: Check the release body matches RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag_name }}
+        run: |
+          expected="$(source/scripts/release-notes-section.sh "$TAG" source/RELEASE_NOTES.md || true)"
+          if [ -z "$expected" ]; then
+            echo "no RELEASE_NOTES.md section for $TAG; skipping the comparison"
+            exit 0
+          fi
+          normalize() {
+            awk 'NF { for (i = 0; i < blank; i++) print ""; print; blank = 0; next }
+                 { blank++ }' | sed -e 's/[[:space:]]*$//'
+          }
+          actual="$(gh release view "$TAG" --json body --jq .body)"
+          if [ "$(printf '%s\n' "$expected" | normalize)" != "$(printf '%s\n' "$actual" | normalize)" ]; then
+            echo "::warning title=Release notes differ::$TAG: the GitHub release body does not match the RELEASE_NOTES.md section (see docs/releasing.md, 'Where the notes live')."
           fi
 
   homebrew:

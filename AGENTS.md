@@ -23,7 +23,7 @@ fetches via `scripts/fetch-ripgrep.sh` (pinned by `RIPGREP_VERSION`). A plain
 ## Testing
 
 ```bash
-make test                                                    # go test ./...
+make test                                                    # go test ./... + release-notes script tests
 go test ./internal/components/editor/                        # single package
 go test ./internal/components/editor/ -run TestMouseDrag      # single test (substring match)
 go test -v ./...                                             # verbose
