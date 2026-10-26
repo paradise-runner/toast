@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.14.0](https://github.com/paradise-runner/toast/compare/v0.13.1...v0.14.0) (2026-10-26)
+
+
+### Features
+
+* foldable regions with gutter carets ([#94](https://github.com/paradise-runner/toast/issues/94)) ([7fed790](https://github.com/paradise-runner/toast/commit/7fed790c529c768502e4ee652b5effafe334f0c2))
+
 ## [0.13.1](https://github.com/paradise-runner/toast/compare/v0.13.0...v0.13.1) (2026-10-26)
 
 
