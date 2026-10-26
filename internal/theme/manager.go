@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -208,7 +209,29 @@ func Discover(themeDir string) []string {
 		}
 	}
 
+	sortThemeNames(names)
 	return names
+}
+
+// sortThemeNames orders themes alphabetically but keeps a family's base name
+// ahead of its variants ("kanagawa" before "kanagawa-wave") and pins the
+// system theme first.
+func sortThemeNames(names []string) {
+	sort.SliceStable(names, func(i, j int) bool {
+		if names[i] == systemThemeName {
+			return names[j] != systemThemeName
+		}
+		if names[j] == systemThemeName {
+			return false
+		}
+		return themeSortKey(names[i]) < themeSortKey(names[j])
+	})
+}
+
+// themeSortKey maps "-" to a character below every name character so a base
+// name sorts before the variants that extend it.
+func themeSortKey(name string) string {
+	return strings.ReplaceAll(name, "-", "\x00")
 }
 
 func (m *Manager) buildSyntaxStyles() {

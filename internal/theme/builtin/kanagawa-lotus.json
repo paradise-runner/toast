@@ -1,0 +1,106 @@
+{
+  "name": "Kanagawa Lotus",
+  "variant": "light",
+  "ui": {
+    "background": "#f2ecbc",
+    "border": "#716e61",
+    "breadcrumbs_active_fg": "#545464",
+    "breadcrumbs_fg": "#8a8980",
+    "completion_bg": "#dcd5ac",
+    "completion_fg": "#545464",
+    "completion_selected": "#a4a085",
+    "cursor": "#545464",
+    "diagnostic_error": "#e82424",
+    "diagnostic_hint": "#5e857a",
+    "diagnostic_info": "#5a7785",
+    "diagnostic_warning": "#cc6d00",
+    "find_replace_border": "#766b90",
+    "foreground": "#545464",
+    "gutter_active_fg": "#766b90",
+    "gutter_fg": "#766b90",
+    "hover_bg": "#dcd5ac",
+    "hover_border": "#5d57a3",
+    "hover_fg": "#545464",
+    "line_highlight": "#e9e4b7",
+    "muted": "#8a8980",
+    "search_current_bg": "#d3d5ad",
+    "search_current_fg": "#545464",
+    "search_match_bg": "#d3d5ad",
+    "search_match_fg": "#545464",
+    "selection": "#e1dcb2",
+    "settings_bg": "#dcd5ac",
+    "settings_border": "#5d57a3",
+    "settings_fg": "#545464",
+    "settings_selected": "#a4a085",
+    "settings_separator": "#766b90",
+    "sidebar_bg": "#e5ddb0",
+    "sidebar_fg": "#545464",
+    "sidebar_icon_fg": "#545464",
+    "sidebar_selected_bg": "#a4a085",
+    "sidebar_selected_fg": "#545464",
+    "statusbar_bg": "#dcd5ac",
+    "statusbar_fg": "#8a8980",
+    "tab_active_bg": "#f2ecbc",
+    "tab_active_fg": "#545464",
+    "tab_inactive_bg": "#e5ddb0",
+    "tab_inactive_fg": "#8a8980"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#de9800"
+    },
+    "builtin": {
+      "fg": "#b35b79",
+      "italic": true
+    },
+    "comment": {
+      "fg": "#8a8980",
+      "italic": true
+    },
+    "constant": {
+      "fg": "#cc6d00"
+    },
+    "function": {
+      "fg": "#4d699b",
+      "italic": true
+    },
+    "keyword": {
+      "fg": "#766b90"
+    },
+    "module": {
+      "fg": "#5e857a"
+    },
+    "number": {
+      "fg": "#b35b79"
+    },
+    "operator": {
+      "fg": "#836f4a"
+    },
+    "property": {
+      "fg": "#4d699b"
+    },
+    "punctuation": {
+      "fg": "#5e857a"
+    },
+    "string": {
+      "fg": "#6f894e"
+    },
+    "tag": {
+      "fg": "#4d699b"
+    },
+    "type": {
+      "fg": "#5e857a"
+    },
+    "variable": {
+      "fg": "#545464"
+    }
+  },
+  "git": {
+    "added": "#6e915f",
+    "conflict": "#766b90",
+    "deleted": "#c84053",
+    "ignored": "#8a8980",
+    "modified": "#de9800",
+    "untracked": "#8a8980"
+  }
+}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/yourusername/toast/internal/messages"
 	"github.com/yourusername/toast/internal/theme"
 )
@@ -45,6 +46,7 @@ func TestArrowDown_MovesSelection(t *testing.T) {
 	m := newTestModel()
 	// Force selected to 0
 	m.selected = 0
+	m.clampOffset()
 	msg := keyMsg("down")
 	m, cmd := m.Update(msg)
 	if m.selected != 1 {
@@ -64,6 +66,7 @@ func TestArrowDown_MovesSelection(t *testing.T) {
 func TestArrowUp_MovesSelection(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	msg := keyMsg("up")
 	m, _ = m.Update(msg)
 	if m.selected != 0 {
@@ -74,6 +77,7 @@ func TestArrowUp_MovesSelection(t *testing.T) {
 func TestArrowDown_WrapsAtEnd(t *testing.T) {
 	m := newTestModel()
 	m.selected = len(m.themes) - 1
+	m.clampOffset()
 	m, _ = m.Update(keyMsg("down"))
 	if m.selected != 0 {
 		t.Errorf("expected wrap to 0, got %d", m.selected)
@@ -83,6 +87,7 @@ func TestArrowDown_WrapsAtEnd(t *testing.T) {
 func TestArrowUp_WrapsAtStart(t *testing.T) {
 	m := newTestModel()
 	m.selected = 0
+	m.clampOffset()
 	m, _ = m.Update(keyMsg("up"))
 	if m.selected != len(m.themes)-1 {
 		t.Errorf("expected wrap to %d, got %d", len(m.themes)-1, m.selected)
@@ -92,6 +97,7 @@ func TestArrowUp_WrapsAtStart(t *testing.T) {
 func TestEnter_EmitsClosedWithSelected(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	_, cmd := m.Update(keyMsg("enter"))
 	if cmd == nil {
 		t.Fatal("expected cmd on enter")
@@ -109,6 +115,7 @@ func TestEnter_EmitsClosedWithSelected(t *testing.T) {
 func TestEsc_EmitsClosedWithOriginal(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	_, cmd := m.Update(keyMsg("escape"))
 	if cmd == nil {
 		t.Fatal("expected cmd on escape")
@@ -135,6 +142,7 @@ func TestRender_NotEmpty(t *testing.T) {
 func TestJ_MovesSelectionDown(t *testing.T) {
 	m := newTestModel()
 	m.selected = 0
+	m.clampOffset()
 	updated, cmd := m.Update(keyMsg("j"))
 	m = updated
 	if m.selected != 1 {
@@ -148,6 +156,7 @@ func TestJ_MovesSelectionDown(t *testing.T) {
 func TestK_MovesSelectionUp(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	updated, _ := m.Update(keyMsg("k"))
 	m = updated
 	if m.selected != 0 {
@@ -190,6 +199,9 @@ func TestDiscoverThemes_UserThemesDir(t *testing.T) {
 
 func TestClick_ThemeRowPreviewsOnly(t *testing.T) {
 	m := newTestModel()
+	m.selected = 0
+	m.clampOffset()
+	m.offset = 0
 	// Y=2 → row index 1 (second theme). Should emit ThemeChangedMsg but NOT close.
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: 2}
 	updated, cmd := m.Update(click)
@@ -213,8 +225,9 @@ func TestClick_ThemeRowPreviewsOnly(t *testing.T) {
 func TestClick_ConfirmButtonClosesWithSelected(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	// Click within the confirm button region: contentX = confirmBtnStart+1, Y = action row
-	actionY := len(m.themes) + 2
+	actionY := m.visibleRows() + 2
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: confirmBtnStart + 2, Y: actionY}
 	_, cmd := m.Update(click)
 	if cmd == nil {
@@ -233,7 +246,8 @@ func TestClick_ConfirmButtonClosesWithSelected(t *testing.T) {
 func TestClick_CancelButtonRevertsAndCloses(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1 // navigated away from toast-dark
-	actionY := len(m.themes) + 2
+	m.clampOffset()
+	actionY := m.visibleRows() + 2
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: cancelBtnStart + 2, Y: actionY}
 	_, cmd := m.Update(click)
 	if cmd == nil {
@@ -251,12 +265,289 @@ func TestClick_CancelButtonRevertsAndCloses(t *testing.T) {
 
 func TestClick_SeparatorRowNoOp(t *testing.T) {
 	m := newTestModel()
-	sepY := len(m.themes) + 1
+	sepY := m.visibleRows() + 1
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: sepY}
 	_, cmd := m.Update(click)
 	if cmd != nil {
 		t.Error("expected no cmd when clicking separator row")
 	}
+}
+
+func TestVisibleRows_Capped(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	if got := m.visibleRows(); got != maxVisibleRows {
+		t.Errorf("visibleRows = %d, want %d", got, maxVisibleRows)
+	}
+	if _, h := m.Dimensions(); h != maxVisibleRows+4 {
+		t.Errorf("Dimensions height = %d, want %d", h, maxVisibleRows+4)
+	}
+}
+
+func TestSelectionScrollsIntoView(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	// Jump to the last theme; the window must follow so it stays visible.
+	m.selected = len(m.themes) - 1
+	m.clampOffset()
+	if m.offset != len(m.themes)-maxVisibleRows {
+		t.Errorf("offset = %d, want %d", m.offset, len(m.themes)-maxVisibleRows)
+	}
+	// Walking back up with arrows keeps the selection inside the window.
+	for range 3 {
+		m, _ = m.Update(keyMsg("up"))
+		if m.selected < m.offset || m.selected >= m.offset+m.visibleRows() {
+			t.Fatalf("selection %d outside window [%d,%d)", m.selected, m.offset, m.offset+m.visibleRows())
+		}
+	}
+}
+
+func TestClick_MapsThroughScrollOffset(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.offset = 5
+	// First visible row is offset 5, so Y=2 is the theme at index 6.
+	updated, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: 2})
+	m = updated
+	if cmd == nil {
+		t.Fatal("expected cmd from click")
+	}
+	if m.selected != 6 {
+		t.Errorf("selected = %d, want 6", m.selected)
+	}
+	result := cmd()
+	tc, ok := result.(messages.ThemeChangedMsg)
+	if !ok {
+		t.Fatalf("expected ThemeChangedMsg, got %T", result)
+	}
+	if tc.ThemeName != m.themes[6] {
+		t.Errorf("expected %q, got %q", m.themes[6], tc.ThemeName)
+	}
+}
+
+func TestRender_ScrollIndicators(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.selected = 0
+	m.clampOffset()
+	out := m.Render()
+	if !strings.Contains(out, scrollDownGlyph) {
+		t.Error("expected a down indicator when themes are below the window")
+	}
+	if strings.Contains(out, scrollUpGlyph) {
+		t.Error("did not expect an up indicator at the top of the list")
+	}
+
+	m.selected = len(m.themes) - 1
+	m.clampOffset()
+	out = m.Render()
+	if !strings.Contains(out, scrollUpGlyph) {
+		t.Error("expected an up indicator after scrolling to the end")
+	}
+	if strings.Contains(out, scrollDownGlyph) {
+		t.Error("did not expect a down indicator at the end of the list")
+	}
+}
+
+// TestRender_IndicatorsStayOnTheirRow is the regression test for the indicator
+// wrapping onto a line of its own: every row must fit inside the box.
+func TestRender_IndicatorsStayOnTheirRow(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	for _, selected := range []int{0, maxVisibleRows / 2, len(m.themes) - 1} {
+		m.selected = selected
+		m.clampOffset()
+		out := m.Render()
+		lines := strings.Split(stripANSI(out), "\n")
+		// top border + visible rows + separator + action row + bottom border
+		want := m.visibleRows() + 4
+		if len(lines) != want {
+			t.Fatalf("selected=%d rendered %d lines, want %d:\n%s", selected, len(lines), want, strings.Join(lines, "\n"))
+		}
+		for i, line := range lines {
+			if n := len([]rune(line)); n != dialogWidth {
+				t.Errorf("selected=%d line %d is %d columns, want %d: %q", selected, i, n, dialogWidth, line)
+			}
+		}
+		// Each indicator must share a line with a theme name.
+		for _, glyph := range []string{scrollUpGlyph, scrollDownGlyph} {
+			for _, line := range lines {
+				if strings.Contains(line, glyph) && strings.Trim(strings.TrimSuffix(strings.TrimPrefix(line, "│"), "│"), " "+glyph) == "" {
+					t.Errorf("selected=%d indicator %q sits on a row without a theme: %q", selected, glyph, line)
+				}
+			}
+		}
+	}
+}
+
+// TestClick_ScrollArrowsScrollWithoutSelecting: the arrows are a viewport
+// affordance. Scrolling must not move the selection or preview a theme.
+func TestClick_ScrollArrowsScrollWithoutSelecting(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+
+	// ▼ on the last visible row scrolls one window down, selection untouched.
+	updated, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: rows})
+	m = updated
+	if cmd != nil {
+		t.Errorf("arrow click returned a command (%T); scrolling must not preview a theme", cmd())
+	}
+	if m.selected != 0 {
+		t.Errorf("selected = %d, want 0 (arrows must not select)", m.selected)
+	}
+	if m.offset != rows {
+		t.Errorf("offset = %d, want %d", m.offset, rows)
+	}
+
+	// ▲ on the first visible row scrolls back up.
+	updated, cmd = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 1})
+	m = updated
+	if cmd != nil {
+		t.Errorf("arrow click returned a command (%T); scrolling must not preview a theme", cmd())
+	}
+	if m.selected != 0 || m.offset != 0 {
+		t.Errorf("selected/offset = %d/%d, want 0/0", m.selected, m.offset)
+	}
+}
+
+// TestClick_ScrollArrowsDoNotMoveASelectionInView keeps a mid-list selection
+// where the user left it while the window scrolls past it.
+func TestClick_ScrollArrowsDoNotMoveASelectionInView(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= 2*maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", 2*maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 3
+	m.clampOffset()
+	wantOffset := m.offset + rows
+
+	// Scrolling down hides the selection but leaves it selected.
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: rows})
+	m = updated
+	if m.selected != 3 {
+		t.Errorf("selected = %d, want 3", m.selected)
+	}
+	if m.offset != wantOffset {
+		t.Errorf("offset = %d, want %d", m.offset, wantOffset)
+	}
+
+	// Enter still confirms that selection, wherever it is in the list.
+	_, cmd := m.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("expected a close command")
+	}
+	if closed, ok := cmd().(messages.ThemePickerClosedMsg); !ok || closed.ThemeName != m.themes[3] {
+		t.Errorf("expected confirmation of %q, got %#v", m.themes[3], closed)
+	}
+}
+
+// TestKeysStillPageTheSelection documents the intentional split: the keyboard
+// moves the selection (and previews), only the arrows scroll the viewport.
+func TestKeysStillPageTheSelection(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+
+	updated, cmd := m.Update(keyMsg("pgdown"))
+	m = updated
+	if m.selected != rows {
+		t.Errorf("selected = %d, want %d", m.selected, rows)
+	}
+	if cmd == nil {
+		t.Fatal("expected a preview command from pgdown")
+	}
+	if tc, ok := cmd().(messages.ThemeChangedMsg); !ok || tc.ThemeName != m.themes[rows] {
+		t.Errorf("expected preview of %q, got %#v", m.themes[rows], tc)
+	}
+}
+
+// TestClick_ArrowColumnOnMiddleRowSelects checks the arrow column only pages on
+// the boundary rows; elsewhere it behaves like a normal row click.
+func TestClick_ArrowColumnOnMiddleRowSelects(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.selected = 0
+	m.clampOffset()
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 5})
+	if updated.selected != 4 {
+		t.Errorf("selected = %d, want 4", updated.selected)
+	}
+	if updated.offset != 0 {
+		t.Errorf("offset = %d, want 0", updated.offset)
+	}
+}
+
+func TestTruncateToWidth(t *testing.T) {
+	tests := []struct {
+		in    string
+		width int
+		want  string
+	}{
+		{in: "short", width: 10, want: "short"},
+		{in: "exactly10c", width: 10, want: "exactly10c"},
+		{in: "abcd", width: 4, want: "abcd"},
+		{in: "abcdefgh", width: 5, want: "abcd…"},
+		{in: "ééééé", width: 3, want: "éé…"},
+	}
+	for _, tt := range tests {
+		if got := truncateToWidth(tt.in, tt.width); got != tt.want {
+			t.Errorf("truncateToWidth(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+		}
+	}
+}
+
+// TestRender_LongThemeNameDoesNotWrap guards custom themes with very long names.
+func TestRender_LongThemeNameDoesNotWrap(t *testing.T) {
+	m := newTestModel()
+	m.themes = []string{"a-very-long-custom-theme-name-that-would-not-fit-in-the-dialog-at-all"}
+	m.selected = 0
+	m.offset = 0
+	lines := strings.Split(stripANSI(m.Render()), "\n")
+	if want := m.visibleRows() + 4; len(lines) != want {
+		t.Fatalf("rendered %d lines, want %d:\n%s", len(lines), want, strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[1], "…") {
+		t.Errorf("expected the long name to be truncated: %q", lines[1])
+	}
+}
+
+// stripANSI removes SGR escape sequences so rendered rows can be measured.
+func stripANSI(s string) string {
+	var b strings.Builder
+	esc := false
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			esc = true
+		case esc && r == 'm':
+			esc = false
+		case !esc:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // keyMsg builds a tea.KeyPressMsg for testing using named rune constants.
@@ -266,6 +557,10 @@ func keyMsg(key string) tea.KeyPressMsg {
 		"down":   tea.KeyDown,
 		"enter":  tea.KeyEnter,
 		"escape": tea.KeyEscape,
+		"home":   tea.KeyHome,
+		"end":    tea.KeyEnd,
+		"pgup":   tea.KeyPgUp,
+		"pgdown": tea.KeyPgDown,
 	}
 	if code, ok := codes[key]; ok {
 		return tea.KeyPressMsg{Code: code}
@@ -273,4 +568,144 @@ func keyMsg(key string) tea.KeyPressMsg {
 	// single char keys like "o", "k", "j"
 	r := []rune(key)[0]
 	return tea.KeyPressMsg{Code: r}
+}
+
+// TestDimensionsMatchRender is the regression test for clicks landing one
+// column right of the dialog: app.go centres the picker using Dimensions while
+// overlayCenter centres the rendered box, so any mismatch offsets hit-testing.
+func TestDimensionsMatchRender(t *testing.T) {
+	m := newTestModel()
+	for _, selected := range []int{0, len(m.themes) - 1} {
+		m.selected = selected
+		m.clampOffset()
+		rendered := m.Render()
+		lines := strings.Split(rendered, "\n")
+
+		wantW, wantH := 0, len(lines)
+		for _, line := range lines {
+			if w := lipgloss.Width(line); w > wantW {
+				wantW = w
+			}
+		}
+		gotW, gotH := m.Dimensions()
+		if gotW != wantW || gotH != wantH {
+			t.Errorf("Dimensions() = %dx%d, rendered box is %dx%d", gotW, gotH, wantW, wantH)
+		}
+	}
+}
+
+// TestArrowKeyAfterScrollAnchorsToPage: after scrolling with the arrows the
+// selection can be off-window. The first arrow key must move it onto the visible
+// page instead of yanking the window back to it.
+func TestArrowKeyAfterScrollAnchorsToPage(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+
+	// Scroll to the bottom: the selection stays at the top of the list, well
+	// above the window.
+	m = m.scrollWindow(2)
+	offset := m.offset
+	if offset <= 0 {
+		t.Fatalf("expected the window to scroll, offset = %d", offset)
+	}
+	if m.selected != 0 {
+		t.Fatalf("scrolling moved the selection to %d", m.selected)
+	}
+
+	// First ↓ anchors to the top row of the page, without moving the window.
+	updated, cmd := m.Update(keyMsg("down"))
+	m = updated
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d (the window must not jump back)", m.offset, offset)
+	}
+	if m.selected != offset {
+		t.Errorf("selected = %d, want %d (top visible row)", m.selected, offset)
+	}
+	if cmd == nil {
+		t.Fatal("expected the anchored row to be previewed")
+	}
+	if tc, ok := cmd().(messages.ThemeChangedMsg); !ok || tc.ThemeName != m.themes[offset] {
+		t.Errorf("expected preview of %q, got %#v", m.themes[offset], tc)
+	}
+
+	// The next ↓ behaves normally.
+	updated, _ = m.Update(keyMsg("down"))
+	m = updated
+	if m.selected != offset+1 {
+		t.Errorf("selected = %d, want %d", m.selected, offset+1)
+	}
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d", m.offset, offset)
+	}
+	_ = rows
+}
+
+// TestArrowUpAnchorsToBottomEdge is the mirror case: scrolling up leaves the
+// selection below the window.
+func TestArrowUpAnchorsToBottomEdge(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = len(m.themes) - 1
+	m.clampOffset()
+	m = m.scrollWindow(-1)
+	offset := m.offset
+	if m.selected < offset+rows {
+		t.Fatalf("expected the selection below the window: selected=%d offset=%d rows=%d", m.selected, offset, rows)
+	}
+
+	updated, cmd := m.Update(keyMsg("up"))
+	m = updated
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d (the window must not jump back)", m.offset, offset)
+	}
+	if want := offset + rows - 1; m.selected != want {
+		t.Errorf("selected = %d, want %d (bottom visible row)", m.selected, want)
+	}
+	if cmd == nil {
+		t.Fatal("expected the anchored row to be previewed")
+	}
+}
+
+// TestPageKeysAnchorBeforePaging keeps paging coherent after a scroll: the first
+// page key anchors into the window, the second one pages from there.
+func TestPageKeysAnchorBeforePaging(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= 2*maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", 2*maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+	m = m.scrollWindow(1)
+	offset := m.offset
+
+	updated, cmd := m.Update(keyMsg("pgdown"))
+	m = updated
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d (anchoring must not page yet)", m.offset, offset)
+	}
+	if want := offset; m.selected != want {
+		t.Errorf("selected = %d, want %d (top visible row)", m.selected, want)
+	}
+	if cmd == nil {
+		t.Fatal("expected the anchored row to be previewed")
+	}
+
+	// Now a page key pages normally from the anchored position.
+	updated, _ = m.Update(keyMsg("pgdown"))
+	m = updated
+	if want := offset + rows; m.selected != want {
+		t.Errorf("selected = %d, want %d", m.selected, want)
+	}
+	if m.offset <= offset {
+		t.Errorf("offset = %d, want it past %d", m.offset, offset)
+	}
 }

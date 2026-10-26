@@ -1,0 +1,104 @@
+{
+  "name": "Nord Light",
+  "variant": "light",
+  "ui": {
+    "background": "#eceff4",
+    "border": "#e1e4e8",
+    "breadcrumbs_active_fg": "#444d56",
+    "breadcrumbs_fg": "#6a737d",
+    "completion_bg": "#fafbfc",
+    "completion_fg": "#444d56",
+    "completion_selected": "#e2e5e9",
+    "cursor": "#24292e",
+    "diagnostic_error": "#d73a49",
+    "diagnostic_hint": "#969696",
+    "diagnostic_info": "#24292e",
+    "diagnostic_warning": "#bfa76b",
+    "find_replace_border": "#2188ff",
+    "foreground": "#24292e",
+    "gutter_active_fg": "#24292e",
+    "gutter_fg": "#1b1f23",
+    "hover_bg": "#fafbfc",
+    "hover_border": "#2188ff",
+    "hover_fg": "#444d56",
+    "line_highlight": "#f6f8fa",
+    "muted": "#6a737d",
+    "search_current_bg": "#e2e5e9",
+    "search_current_fg": "#24292e",
+    "search_match_bg": "#e2e5e9",
+    "search_match_fg": "#24292e",
+    "selection": "#babdc2",
+    "settings_bg": "#fafbfc",
+    "settings_border": "#2188ff",
+    "settings_fg": "#444d56",
+    "settings_selected": "#e2e5e9",
+    "settings_separator": "#e1e4e8",
+    "sidebar_bg": "#f6f8fa",
+    "sidebar_fg": "#444d56",
+    "sidebar_icon_fg": "#6a737d",
+    "sidebar_selected_bg": "#e2e5e9",
+    "sidebar_selected_fg": "#444d56",
+    "statusbar_bg": "#e5e9f0",
+    "statusbar_fg": "#6a737d",
+    "tab_active_bg": "#eceff4",
+    "tab_active_fg": "#444d56",
+    "tab_inactive_bg": "#e5e9f0",
+    "tab_inactive_fg": "#6a737d"
+  },
+  "syntax": {
+    "attribute": {
+      "fg": "#24292e"
+    },
+    "builtin": {
+      "fg": "#0c60a5"
+    },
+    "comment": {
+      "fg": "#6a737d",
+      "italic": true
+    },
+    "constant": {
+      "fg": "#3b4252"
+    },
+    "function": {
+      "fg": "#0d7579"
+    },
+    "keyword": {
+      "fg": "#d73a49"
+    },
+    "module": {
+      "fg": "#d73a49"
+    },
+    "number": {
+      "fg": "#3b4252"
+    },
+    "operator": {
+      "fg": "#cb5c69"
+    },
+    "property": {
+      "fg": "#3b4252"
+    },
+    "punctuation": {
+      "fg": "#cb5c69"
+    },
+    "string": {
+      "fg": "#032f62"
+    },
+    "tag": {
+      "fg": "#0d7579"
+    },
+    "type": {
+      "fg": "#d73a49"
+    },
+    "variable": {
+      "fg": "#3b4252"
+    }
+  },
+  "git": {
+    "added": "#28a745",
+    "conflict": "#e36209",
+    "deleted": "#d73a49",
+    "ignored": "#959da5",
+    "modified": "#2188ff",
+    "untracked": "#959da5"
+  }
+}

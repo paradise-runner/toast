@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,6 +14,11 @@ import (
 
 const (
 	dialogWidth = 50
+
+	// maxVisibleRows caps the theme list. With dozens of builtin themes the
+	// dialog would otherwise grow taller than the terminal and clip the action
+	// row, so the list scrolls instead.
+	maxVisibleRows = 12
 
 	// Action row button texts and their content-relative X positions.
 	// Layout: "  [ confirm ]   [ cancel ]   [o] folder      "
@@ -27,12 +31,22 @@ const (
 	cancelBtnEnd    = cancelBtnStart + len(cancelBtnText)   // 26
 	folderBtnStart  = cancelBtnEnd + 3                      // 29 (after "   " gap)
 	folderBtnEnd    = folderBtnStart + len(folderBtnText)   // 39
+
+	// Scroll affordances, drawn in the last content column of the first/last
+	// visible row. Both are clickable.
+	scrollUpGlyph   = "▲"
+	scrollDownGlyph = "▼"
 )
+
+// innerWidth is the width available inside the dialog borders. lipgloss Width
+// includes the border, so the content area is two columns narrower.
+func (m Model) innerWidth() int { return dialogWidth - 2 }
 
 // Model holds the state of the theme picker dialog.
 type Model struct {
 	themes      []string
 	selected    int
+	offset      int    // index of the first visible theme row
 	activeTheme string // the theme active when the picker was opened (for esc revert)
 	themeDir    string
 	theme       *theme.Manager
@@ -57,16 +71,91 @@ func (m Model) Init() (Model, tea.Cmd) {
 			break
 		}
 	}
+	m.clampOffset()
 	return m, nil
 }
 
 // ActiveTheme returns the theme name that was active when the picker opened (used to revert on cancel).
 func (m Model) ActiveTheme() string { return m.activeTheme }
 
+// visibleRows returns how many theme rows the dialog shows at once.
+func (m Model) visibleRows() int {
+	return min(len(m.themes), maxVisibleRows)
+}
+
+// pageSelection moves the selection one window in dir (-1 up, +1 down) and
+// keeps the window following it. Used by pgup/pgdn.
+func (m Model) pageSelection(dir int) (Model, tea.Cmd) {
+	next := m.selected + dir*m.visibleRows()
+	m.selected = min(max(next, 0), len(m.themes)-1)
+	m.clampOffset()
+	name := m.themes[m.selected]
+	return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+}
+
+// scrollWindow moves the visible window by dir pages and leaves the selection
+// alone. The scroll arrows are a viewport affordance: scrolling through the
+// list must not change (or preview) the active theme, so this returns no
+// command and the selection may end up outside the window until the user picks
+// a theme or presses a key that moves it.
+func (m Model) scrollWindow(dir int) Model {
+	rows := m.visibleRows()
+	maxOffset := max(len(m.themes)-rows, 0)
+	m.offset = min(max(m.offset+dir*rows, 0), maxOffset)
+	return m
+}
+
+// anchorSelection reports whether the selection was outside the window, and if
+// so moves it onto the visible page so the following key walks the page the user
+// is looking at: down starts at the top visible row, up starts at the bottom one.
+// Without this, the first arrow key after scrolling would drag the window all the
+// way back to a row the user had just scrolled away from.
+func (m *Model) anchorSelection(dir int) bool {
+	rows := m.visibleRows()
+	if rows == 0 || (m.selected >= m.offset && m.selected < m.offset+rows) {
+		return false
+	}
+	if dir > 0 {
+		m.selected = m.offset
+		return true
+	}
+	m.selected = min(m.offset+rows-1, len(m.themes)-1)
+	return true
+}
+
+// themeChanged builds the preview command for a theme name.
+func themeChanged(name string) tea.Cmd {
+	return func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+}
+
+// clampOffset scrolls the window so the selected theme is visible.
+func (m *Model) clampOffset() {
+	rows := m.visibleRows()
+	if rows == 0 {
+		m.offset = 0
+		return
+	}
+	if m.selected < m.offset {
+		m.offset = m.selected
+	}
+	if m.selected >= m.offset+rows {
+		m.offset = m.selected - rows + 1
+	}
+	if maxOffset := len(m.themes) - rows; m.offset > maxOffset {
+		m.offset = maxOffset
+	}
+	if m.offset < 0 {
+		m.offset = 0
+	}
+}
+
 // Dimensions returns the visual outer width and height of the rendered picker.
-// Used by app.go to compute the picker's screen position for hit-testing clicks.
+// Used by app.go to compute the picker's screen position for hit-testing clicks,
+// so it must match the rendered box exactly: lipgloss counts the border in the
+// configured width, which makes dialogWidth the outer width, not the content
+// width. Reporting one column more shifts every click one column right.
 func (m Model) Dimensions() (w, h int) {
-	return dialogWidth + 2, len(m.themes) + 4 // +2 borders (width); +4 borders+sep+btn (height)
+	return dialogWidth, m.visibleRows() + 4 // +4 = borders, separator and action row
 }
 
 // Update handles key and mouse events for the picker.
@@ -80,12 +169,27 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		// Coordinates are picker-local (app.go subtracts the picker's top-left corner).
-		// Y=0 top border, Y=1..N theme rows, Y=N+1 separator, Y=N+2 action row.
-		actionRowY := len(m.themes) + 2
+		// Y=0 top border, Y=1..visibleRows theme rows, Y=rows+1 separator, Y=rows+2 action row.
+		rows := m.visibleRows()
+		actionRowY := rows + 2
 		switch {
-		case msg.Y >= 1 && msg.Y <= len(m.themes):
+		case msg.Y >= 1 && msg.Y <= rows:
+			// The last content column of the boundary rows holds the scroll
+			// arrows; clicking them scrolls the list without touching the
+			// selection.
+			if msg.X-1 == m.innerWidth()-1 {
+				if msg.Y == 1 && m.offset > 0 {
+					return m.scrollWindow(-1), nil
+				}
+				if msg.Y == rows && m.offset+rows < len(m.themes) {
+					return m.scrollWindow(1), nil
+				}
+			}
 			// Theme row: move selection and preview, but don't confirm.
-			row := msg.Y - 1
+			row := m.offset + msg.Y - 1
+			if row >= len(m.themes) {
+				return m, nil
+			}
 			m.selected = row
 			name := m.themes[row]
 			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
@@ -110,20 +214,48 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
+			if m.anchorSelection(-1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
 			m.selected--
 			if m.selected < 0 {
 				m.selected = len(m.themes) - 1
 			}
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			m.clampOffset()
+			return m, themeChanged(m.themes[m.selected])
 
 		case "down", "j":
+			if m.anchorSelection(1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
 			m.selected++
 			if m.selected >= len(m.themes) {
 				m.selected = 0
 			}
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			m.clampOffset()
+			return m, themeChanged(m.themes[m.selected])
+
+		case "home":
+			m.selected = 0
+			m.clampOffset()
+			return m, themeChanged(m.themes[m.selected])
+
+		case "end":
+			m.selected = len(m.themes) - 1
+			m.clampOffset()
+			return m, themeChanged(m.themes[m.selected])
+
+		case "pgup":
+			if m.anchorSelection(-1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
+			return m.pageSelection(-1)
+
+		case "pgdown":
+			if m.anchorSelection(1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
+			return m.pageSelection(1)
 
 		case "enter":
 			name := m.themes[m.selected]
@@ -157,22 +289,38 @@ func (m Model) Render() string {
 	// innerW fills the full content area (Width minus 2 border chars, no box padding).
 	// Padding is included manually in each row so the selected highlight spans edge-to-edge
 	// without lipgloss adding box-colored trailing spaces that break the selection background.
-	innerW := dialogWidth
+	innerW := m.innerWidth()
 
 	var rows []string
-	for i, name := range m.themes {
+	start := m.offset
+	end := min(start+m.visibleRows(), len(m.themes))
+	for i := start; i < end; i++ {
+		name := m.themes[i]
 		// ● marks the original (revert) theme; the highlight tracks the current selection.
 		// These can differ after the user navigates away from the starting position.
 		marker := "  "
 		if name == m.activeTheme {
 			marker = "● "
 		}
+		indicator := ""
+		switch {
+		case i == start && start > 0:
+			indicator = scrollUpGlyph
+		case i == end-1 && end < len(m.themes):
+			indicator = scrollDownGlyph
+		}
 		// Leading space replaces the removed Padding(0,1) so the visual indent is preserved.
 		label := " " + marker + name
-		// Pad to inner width (rune-aware: ● is 3 bytes but 1 display column)
-		if utf8.RuneCountInString(label) < innerW {
-			label += strings.Repeat(" ", innerW-utf8.RuneCountInString(label))
+		// Leave the last column to the scroll indicator, then pad to the content
+		// width. A row wider than the box is wrapped by lipgloss, which pushes
+		// the indicator onto a line of its own.
+		target := innerW - lipgloss.Width(indicator)
+		if w := lipgloss.Width(label); w > target {
+			label = truncateToWidth(label, target)
+		} else if w < target {
+			label += strings.Repeat(" ", target-w)
 		}
+		label += indicator
 		if i == m.selected {
 			rows = append(rows, selectedStyle.Render(label))
 		} else {
@@ -181,9 +329,9 @@ func (m Model) Render() string {
 	}
 
 	// Separator: 1-space indent then dashes, padded to full inner width.
-	sep := " " + strings.Repeat("─", dialogWidth-4)
-	if utf8.RuneCountInString(sep) < innerW {
-		sep += strings.Repeat(" ", innerW-utf8.RuneCountInString(sep))
+	sep := " " + strings.Repeat("─", innerW-2)
+	if w := lipgloss.Width(sep); w < innerW {
+		sep += strings.Repeat(" ", innerW-w)
 	}
 	rows = append(rows, baseStyle.Render(sep))
 
@@ -216,6 +364,28 @@ func (m Model) Render() string {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// truncateToWidth shortens label to width display columns, ending in an
+// ellipsis when it had to cut. Unusually long (user-defined) theme names would
+// otherwise wrap the row and break the dialog layout.
+func truncateToWidth(label string, width int) string {
+	if lipgloss.Width(label) <= width {
+		return label
+	}
+	const ellipsis = "…"
+	limit := width - lipgloss.Width(ellipsis)
+	var b strings.Builder
+	used := 0
+	for _, r := range label {
+		w := lipgloss.Width(string(r))
+		if used+w > limit {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String() + ellipsis
+}
 
 // openDir opens the given directory in the system file manager.
 func openDir(dir string) {

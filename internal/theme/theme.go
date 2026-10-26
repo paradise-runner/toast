@@ -11,10 +11,10 @@ type Theme struct {
 }
 
 type SyntaxStyle struct {
-	FG     string `json:"fg"`
-	BG     string `json:"bg"`
-	Bold   bool   `json:"bold"`
-	Italic bool   `json:"italic"`
+	FG     string `json:"fg,omitempty"`
+	BG     string `json:"bg,omitempty"`
+	Bold   bool   `json:"bold,omitempty"`
+	Italic bool   `json:"italic,omitempty"`
 }
 
 func parse(data []byte) (*Theme, error) {
