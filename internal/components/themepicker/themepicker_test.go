@@ -46,6 +46,7 @@ func TestArrowDown_MovesSelection(t *testing.T) {
 	m := newTestModel()
 	// Force selected to 0
 	m.selected = 0
+	m.clampOffset()
 	msg := keyMsg("down")
 	m, cmd := m.Update(msg)
 	if m.selected != 1 {
@@ -65,6 +66,7 @@ func TestArrowDown_MovesSelection(t *testing.T) {
 func TestArrowUp_MovesSelection(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	msg := keyMsg("up")
 	m, _ = m.Update(msg)
 	if m.selected != 0 {
@@ -75,6 +77,7 @@ func TestArrowUp_MovesSelection(t *testing.T) {
 func TestArrowDown_WrapsAtEnd(t *testing.T) {
 	m := newTestModel()
 	m.selected = len(m.themes) - 1
+	m.clampOffset()
 	m, _ = m.Update(keyMsg("down"))
 	if m.selected != 0 {
 		t.Errorf("expected wrap to 0, got %d", m.selected)
@@ -84,6 +87,7 @@ func TestArrowDown_WrapsAtEnd(t *testing.T) {
 func TestArrowUp_WrapsAtStart(t *testing.T) {
 	m := newTestModel()
 	m.selected = 0
+	m.clampOffset()
 	m, _ = m.Update(keyMsg("up"))
 	if m.selected != len(m.themes)-1 {
 		t.Errorf("expected wrap to %d, got %d", len(m.themes)-1, m.selected)
@@ -93,6 +97,7 @@ func TestArrowUp_WrapsAtStart(t *testing.T) {
 func TestEnter_EmitsClosedWithSelected(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	_, cmd := m.Update(keyMsg("enter"))
 	if cmd == nil {
 		t.Fatal("expected cmd on enter")
@@ -110,6 +115,7 @@ func TestEnter_EmitsClosedWithSelected(t *testing.T) {
 func TestEsc_EmitsClosedWithOriginal(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	_, cmd := m.Update(keyMsg("escape"))
 	if cmd == nil {
 		t.Fatal("expected cmd on escape")
@@ -136,6 +142,7 @@ func TestRender_NotEmpty(t *testing.T) {
 func TestJ_MovesSelectionDown(t *testing.T) {
 	m := newTestModel()
 	m.selected = 0
+	m.clampOffset()
 	updated, cmd := m.Update(keyMsg("j"))
 	m = updated
 	if m.selected != 1 {
@@ -149,6 +156,7 @@ func TestJ_MovesSelectionDown(t *testing.T) {
 func TestK_MovesSelectionUp(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	updated, _ := m.Update(keyMsg("k"))
 	m = updated
 	if m.selected != 0 {
@@ -192,6 +200,7 @@ func TestDiscoverThemes_UserThemesDir(t *testing.T) {
 func TestClick_ThemeRowPreviewsOnly(t *testing.T) {
 	m := newTestModel()
 	m.selected = 0
+	m.clampOffset()
 	m.offset = 0
 	// Y=2 → row index 1 (second theme). Should emit ThemeChangedMsg but NOT close.
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: 2}
@@ -216,6 +225,7 @@ func TestClick_ThemeRowPreviewsOnly(t *testing.T) {
 func TestClick_ConfirmButtonClosesWithSelected(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1
+	m.clampOffset()
 	// Click within the confirm button region: contentX = confirmBtnStart+1, Y = action row
 	actionY := m.visibleRows() + 2
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: confirmBtnStart + 2, Y: actionY}
@@ -236,6 +246,7 @@ func TestClick_ConfirmButtonClosesWithSelected(t *testing.T) {
 func TestClick_CancelButtonRevertsAndCloses(t *testing.T) {
 	m := newTestModel()
 	m.selected = 1 // navigated away from toast-dark
+	m.clampOffset()
 	actionY := m.visibleRows() + 2
 	click := tea.MouseClickMsg{Button: tea.MouseLeft, X: cancelBtnStart + 2, Y: actionY}
 	_, cmd := m.Update(click)
@@ -580,5 +591,121 @@ func TestDimensionsMatchRender(t *testing.T) {
 		if gotW != wantW || gotH != wantH {
 			t.Errorf("Dimensions() = %dx%d, rendered box is %dx%d", gotW, gotH, wantW, wantH)
 		}
+	}
+}
+
+// TestArrowKeyAfterScrollAnchorsToPage: after scrolling with the arrows the
+// selection can be off-window. The first arrow key must move it onto the visible
+// page instead of yanking the window back to it.
+func TestArrowKeyAfterScrollAnchorsToPage(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+
+	// Scroll to the bottom: the selection stays at the top of the list, well
+	// above the window.
+	m = m.scrollWindow(2)
+	offset := m.offset
+	if offset <= 0 {
+		t.Fatalf("expected the window to scroll, offset = %d", offset)
+	}
+	if m.selected != 0 {
+		t.Fatalf("scrolling moved the selection to %d", m.selected)
+	}
+
+	// First ↓ anchors to the top row of the page, without moving the window.
+	updated, cmd := m.Update(keyMsg("down"))
+	m = updated
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d (the window must not jump back)", m.offset, offset)
+	}
+	if m.selected != offset {
+		t.Errorf("selected = %d, want %d (top visible row)", m.selected, offset)
+	}
+	if cmd == nil {
+		t.Fatal("expected the anchored row to be previewed")
+	}
+	if tc, ok := cmd().(messages.ThemeChangedMsg); !ok || tc.ThemeName != m.themes[offset] {
+		t.Errorf("expected preview of %q, got %#v", m.themes[offset], tc)
+	}
+
+	// The next ↓ behaves normally.
+	updated, _ = m.Update(keyMsg("down"))
+	m = updated
+	if m.selected != offset+1 {
+		t.Errorf("selected = %d, want %d", m.selected, offset+1)
+	}
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d", m.offset, offset)
+	}
+	_ = rows
+}
+
+// TestArrowUpAnchorsToBottomEdge is the mirror case: scrolling up leaves the
+// selection below the window.
+func TestArrowUpAnchorsToBottomEdge(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = len(m.themes) - 1
+	m.clampOffset()
+	m = m.scrollWindow(-1)
+	offset := m.offset
+	if m.selected < offset+rows {
+		t.Fatalf("expected the selection below the window: selected=%d offset=%d rows=%d", m.selected, offset, rows)
+	}
+
+	updated, cmd := m.Update(keyMsg("up"))
+	m = updated
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d (the window must not jump back)", m.offset, offset)
+	}
+	if want := offset + rows - 1; m.selected != want {
+		t.Errorf("selected = %d, want %d (bottom visible row)", m.selected, want)
+	}
+	if cmd == nil {
+		t.Fatal("expected the anchored row to be previewed")
+	}
+}
+
+// TestPageKeysAnchorBeforePaging keeps paging coherent after a scroll: the first
+// page key anchors into the window, the second one pages from there.
+func TestPageKeysAnchorBeforePaging(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= 2*maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", 2*maxVisibleRows, len(m.themes))
+	}
+	rows := m.visibleRows()
+	m.selected = 0
+	m.clampOffset()
+	m = m.scrollWindow(1)
+	offset := m.offset
+
+	updated, cmd := m.Update(keyMsg("pgdown"))
+	m = updated
+	if m.offset != offset {
+		t.Errorf("offset = %d, want %d (anchoring must not page yet)", m.offset, offset)
+	}
+	if want := offset; m.selected != want {
+		t.Errorf("selected = %d, want %d (top visible row)", m.selected, want)
+	}
+	if cmd == nil {
+		t.Fatal("expected the anchored row to be previewed")
+	}
+
+	// Now a page key pages normally from the anchored position.
+	updated, _ = m.Update(keyMsg("pgdown"))
+	m = updated
+	if want := offset + rows; m.selected != want {
+		t.Errorf("selected = %d, want %d", m.selected, want)
+	}
+	if m.offset <= offset {
+		t.Errorf("offset = %d, want it past %d", m.offset, offset)
 	}
 }

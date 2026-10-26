@@ -162,3 +162,40 @@ func visibleRowNames(t *testing.T, m Model) []string {
 	}
 	return names
 }
+
+// TestThemePicker_KeyAfterScrollStaysOnPage: after scrolling with the arrows, an
+// arrow key must anchor the selection onto the visible page instead of jumping
+// the list back to the row the user scrolled away from.
+func TestThemePicker_KeyAfterScrollStaysOnPage(t *testing.T) {
+	m := newTestApp(t, t.TempDir())
+	_, _ = m.Update(messages.ThemePickerOpenMsg{})
+
+	// Start at the top, then scroll to the end of the list twice, leaving the
+	// selection far above the window.
+	if cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyHome}); cmd != nil {
+		_, _ = m.Update(cmd())
+	}
+	for range 2 {
+		downX, downY := findArrow(t, *m, "▼")
+		if cmd := m.handleMouseClick(tea.MouseClickMsg{Button: tea.MouseLeft, X: downX, Y: downY}); cmd != nil {
+			t.Fatalf("scrolling previewed a theme: %#v", cmd())
+		}
+	}
+	topBefore := topVisibleTheme(t, *m)
+	if topBefore != "nightfox" {
+		t.Fatalf("expected the list scrolled to the end, top row is %q", topBefore)
+	}
+
+	cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if cmd == nil {
+		t.Fatal("expected the down key to preview the anchored row")
+	}
+	_, _ = m.Update(cmd())
+
+	if got := m.theme.Name(); got != topBefore {
+		t.Errorf("down key after scrolling selected %q, want the first visible row %q", got, topBefore)
+	}
+	if got := topVisibleTheme(t, *m); got != topBefore {
+		t.Errorf("the list jumped: top row %q, want %q", got, topBefore)
+	}
+}

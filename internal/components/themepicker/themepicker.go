@@ -105,6 +105,29 @@ func (m Model) scrollWindow(dir int) Model {
 	return m
 }
 
+// anchorSelection reports whether the selection was outside the window, and if
+// so moves it onto the visible page so the following key walks the page the user
+// is looking at: down starts at the top visible row, up starts at the bottom one.
+// Without this, the first arrow key after scrolling would drag the window all the
+// way back to a row the user had just scrolled away from.
+func (m *Model) anchorSelection(dir int) bool {
+	rows := m.visibleRows()
+	if rows == 0 || (m.selected >= m.offset && m.selected < m.offset+rows) {
+		return false
+	}
+	if dir > 0 {
+		m.selected = m.offset
+		return true
+	}
+	m.selected = min(m.offset+rows-1, len(m.themes)-1)
+	return true
+}
+
+// themeChanged builds the preview command for a theme name.
+func themeChanged(name string) tea.Cmd {
+	return func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+}
+
 // clampOffset scrolls the window so the selected theme is visible.
 func (m *Model) clampOffset() {
 	rows := m.visibleRows()
@@ -191,39 +214,47 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
+			if m.anchorSelection(-1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
 			m.selected--
 			if m.selected < 0 {
 				m.selected = len(m.themes) - 1
 			}
 			m.clampOffset()
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			return m, themeChanged(m.themes[m.selected])
 
 		case "down", "j":
+			if m.anchorSelection(1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
 			m.selected++
 			if m.selected >= len(m.themes) {
 				m.selected = 0
 			}
 			m.clampOffset()
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			return m, themeChanged(m.themes[m.selected])
 
 		case "home":
 			m.selected = 0
 			m.clampOffset()
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			return m, themeChanged(m.themes[m.selected])
 
 		case "end":
 			m.selected = len(m.themes) - 1
 			m.clampOffset()
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			return m, themeChanged(m.themes[m.selected])
 
 		case "pgup":
+			if m.anchorSelection(-1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
 			return m.pageSelection(-1)
 
 		case "pgdown":
+			if m.anchorSelection(1) {
+				return m, themeChanged(m.themes[m.selected])
+			}
 			return m.pageSelection(1)
 
 		case "enter":
