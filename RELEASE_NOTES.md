@@ -1,5 +1,54 @@
 # Release Notes
 
+## [0.14.0](https://github.com/paradise-runner/toast/compare/v0.13.0...v0.14.0) (2026-10-26)
+
+
+### Features
+
+* add markdown preview pane ([13687b3](https://github.com/paradise-runner/toast/commit/13687b3f107161588988b04041f80c41be5fa5d3))
+* add terminal file icons to tree ([67922f4](https://github.com/paradise-runner/toast/commit/67922f44714d71575c4ae28ebc1028eca2469e9d))
+* auto-save after inactivity (issue [#45](https://github.com/paradise-runner/toast/issues/45)) ([f25dd92](https://github.com/paradise-runner/toast/commit/f25dd92508995b2c7d8b9372f14397d760c1f241))
+* bundle ripgrep so search works off PATH ([f407d67](https://github.com/paradise-runner/toast/commit/f407d674bffc194a5298ac9d5eec92f47fb9a896)), closes [#62](https://github.com/paradise-runner/toast/issues/62)
+* drag/drop files and folders to move them in the sidebar ([#72](https://github.com/paradise-runner/toast/issues/72)) ([53b691a](https://github.com/paradise-runner/toast/commit/53b691a0e5595e21945ee5be8e6e69d12fee36df))
+* **editor:** add visual row helpers for wrap mode ([957dd8b](https://github.com/paradise-runner/toast/commit/957dd8b02385cb029ef380237e5a885bd160dd90))
+* **editor:** add wordWrapChunks and chunkContaining helpers ([3998d30](https://github.com/paradise-runner/toast/commit/3998d309027a45e9bb59ce9eaaf4cc56e666c50c))
+* **editor:** add wrapMode field, set on markdown file load ([186ca28](https://github.com/paradise-runner/toast/commit/186ca2838fa8cec36384b58e3dc525c85c9f1e8e))
+* **editor:** update clampViewport for wrap mode ([e02a40a](https://github.com/paradise-runner/toast/commit/e02a40a7d0fcaf09ddb1dfb87abb00652da76688))
+* **editor:** update cursor up/down navigation for wrap mode ([e0894ce](https://github.com/paradise-runner/toast/commit/e0894ce3e04060c9610ae7a5a6977dd623a888a2))
+* **editor:** update editor.go call sites for word-boundary wrap ([ea0eca7](https://github.com/paradise-runner/toast/commit/ea0eca79830fca1656257f5bea10839238e0b244))
+* **editor:** update screenToBuffer for wrap mode mouse clicks ([acea7da](https://github.com/paradise-runner/toast/commit/acea7da46b4efd02ca693d623b4b80852b8b12d3))
+* **editor:** update View to render wrapped lines for markdown ([d087c3d](https://github.com/paradise-runner/toast/commit/d087c3df34494fa2596b645b764fc9b1f4114bc5))
+* **editor:** update wrap helpers to use word-boundary chunks ([c3ffc4f](https://github.com/paradise-runner/toast/commit/c3ffc4fa42d091ea1e101c0236f4fb059dbc0734))
+* expand tree file icon coverage ([1b74437](https://github.com/paradise-runner/toast/commit/1b74437eed849a70531f93ba56cd8e77f75c4c80))
+* open non-existent file as new buffer, create on save ([3414c50](https://github.com/paradise-runner/toast/commit/3414c508a292fa37425930d7ac6f9556008c1aa7))
+* preserve unsaved changes across tab switches and defer save prompts to quit ([220e52f](https://github.com/paradise-runner/toast/commit/220e52f801f2c8efbc583b9041a2746e317d4f5b))
+* sidebar drag/drop polish (copy fallback, auto-expand, auto-scroll, ghost) ([#73](https://github.com/paradise-runner/toast/issues/73)) ([d5f6eb8](https://github.com/paradise-runner/toast/commit/d5f6eb86bb11f3a48c9eca027875e86751877364))
+* standalone macOS app bundle (libghostty) + release packaging + README/landing updates ([8ba8dce](https://github.com/paradise-runner/toast/commit/8ba8dcebe3256e439bdb91a14b098cdcfb0d55cb))
+* zed theme migration and 32 new builtin themes ([#88](https://github.com/paradise-runner/toast/issues/88)) ([0e9aa03](https://github.com/paradise-runner/toast/commit/0e9aa03549c5e79d6bc9394e0389b7b051415d57))
+
+
+### Fixes
+
+* auto-save writes verbatim (no whitespace stripping) + grapheme-cluster display widths ([eee0129](https://github.com/paradise-runner/toast/commit/eee012913705833f37f57fd82671527c540d71be))
+* bundle script falls back to an older macOS SDK when zig 0.15.2 cannot parse the default SDK ([2e0dcf8](https://github.com/paradise-runner/toast/commit/2e0dcf81e44852d4948c51a852a0f61da4a69b75))
+* **ci:** pick an older Xcode SDK for zig, build the app bundle on arm64 only ([26fc9e6](https://github.com/paradise-runner/toast/commit/26fc9e6b1d34cb76abc459730764fb39c7b1dcd1))
+* clamp cursor after save-time buffer replacement to prevent panic when editing multi-line text ([d103a6e](https://github.com/paradise-runner/toast/commit/d103a6e2bb3a0599b398d29e7eb9dc45615df436))
+* compute bundle version outside the subshell so Info.plist sees it ([4cfd9d6](https://github.com/paradise-runner/toast/commit/4cfd9d67a90ce538a39a2b1fcfd1068504f84b05))
+* **editor:** recover horizontal viewport and add wheel scrolling ([#69](https://github.com/paradise-runner/toast/issues/69)) ([7a24435](https://github.com/paradise-runner/toast/commit/7a24435a8b1e26c934ca029e140019f7dfd8fe39))
+* keep cursor in place on watcher-triggered reloads ([#83](https://github.com/paradise-runner/toast/issues/83)) ([#84](https://github.com/paradise-runner/toast/issues/84)) ([b018385](https://github.com/paradise-runner/toast/commit/b018385cae9c583b1399f44497f090b8c78fe3d0))
+* keep mouse selection drag tracking past viewport edges ([#77](https://github.com/paradise-runner/toast/issues/77)) ([cc05cc3](https://github.com/paradise-runner/toast/commit/cc05cc317be0223c8ef0e3ae737904c0142b0804))
+* keep sidebar context menu clickable at the window edge ([#80](https://github.com/paradise-runner/toast/issues/80)) ([6426548](https://github.com/paradise-runner/toast/commit/64265486d6e9922fa2f977b73e854e81d63ebab8)), closes [#60](https://github.com/paradise-runner/toast/issues/60)
+* prevent last buffer line from repeating in blank screen rows (wrap mode) ([abb4f9a](https://github.com/paradise-runner/toast/commit/abb4f9ac961b24c52269fac91c8935ca94f7d042))
+* set pendingBufferID in binary file tests so messages aren't dropped ([f2cc80c](https://github.com/paradise-runner/toast/commit/f2cc80c131f949fc57a681fe1e750f2d044e53f7))
+
+
+### Docs
+
+* add markdown line wrap design spec ([c1b6941](https://github.com/paradise-runner/toast/commit/c1b6941a46eebebd09b2ec0ce19efd7748a90709))
+* add markdown line wrap implementation plan ([85594ba](https://github.com/paradise-runner/toast/commit/85594bab487a1072369dd2ef48c5a6aeeef0559f))
+* add word-boundary wrap design spec ([d9e9715](https://github.com/paradise-runner/toast/commit/d9e9715d54dffbba984de99a2ad127474247e111))
+* add word-boundary wrap implementation plan ([69b7831](https://github.com/paradise-runner/toast/commit/69b78311990702d50e04fe7af70bcc16082ff6ff))
+
 ## [0.13.0](https://github.com/paradise-runner/toast/compare/v0.12.2...v0.13.0) (2026-10-26)
 
 The theme release: 32 new builtin themes converted from the most popular Zed
