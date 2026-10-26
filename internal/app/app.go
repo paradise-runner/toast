@@ -1770,6 +1770,23 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) tea.Cmd {
 
 	contentY := y - tabBarHeight
 
+	// Context menu takes precedence over region routing: the box can overhang the
+	// sidebar edge, and a wheel there should scroll the menu viewport rather than
+	// the editor. Menu bounds are content-relative, so compare against contentY.
+	if menuX, menuY, menuW, menuH, ok := m.fileTree.ContextMenuBounds(); ok {
+		if x >= menuX && x < menuX+menuW && contentY >= menuY && contentY < menuY+menuH {
+			adjustedMsg := tea.MouseWheelMsg{
+				Button: msg.Button,
+				Mod:    msg.Mod,
+				X:      x,
+				Y:      contentY,
+			}
+			var cmd tea.Cmd
+			m.fileTree, cmd = m.fileTree.Update(adjustedMsg)
+			return cmd
+		}
+	}
+
 	if m.sidebarVisible && x < sidebarW {
 		adjustedMsg := tea.MouseWheelMsg{
 			Button: msg.Button,

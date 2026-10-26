@@ -5,12 +5,25 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/yourusername/toast/internal/theme"
 )
 
 const (
-	contextMenuInnerW = 16 // content width: "Delete" (6) + padding to 16
+	// contextMenuInnerW is the content width of the box: the longest item label
+	// ("View in Explorer", 16 cells) plus the two-cell scroll marker column.
+	contextMenuInnerW = 18
+)
+
+// Scroll markers drawn in the two-cell marker column at the left of an item row
+// when the viewport hides items above or below. Unused markers render as
+// spaces, so labels stay aligned and rows map one-to-one to items.
+const (
+	markerUpDown = "\u2195 " // ↕  items hidden on both sides (single-row viewport)
+	markerUp     = "\u25b2 " // ▲  items hidden above
+	markerDown   = "\u25bc " // ▼  items hidden below
+	markerNone   = "  "
 )
 
 // ContextMenu is a small floating menu shown on right-click in the sidebar.
@@ -20,7 +33,9 @@ type ContextMenu struct {
 	targetPath  string // exact path to delete (empty when targetNode==nil)
 	targetIsDir bool   // true if targetNode is a directory
 	items       []string
-	focused     int
+	focused     int // absolute item index; never viewport-relative
+	scroll      int // index of the first visible item
+	rows        int // visible item rows; 0 means "show every item"
 	theme       *theme.Manager
 }
 
@@ -71,17 +86,89 @@ func revealItemLabel() string {
 func (c ContextMenu) boxWidth() int { return contextMenuInnerW + 4 }
 
 // boxHeight returns the rendered height of the menu box in rows:
-// top border + items + bottom border.
-func (c ContextMenu) boxHeight() int { return len(c.items) + 2 }
+// top border + visible items + bottom border. It follows the viewport, so a
+// menu taller than the window shrinks instead of drawing off-screen.
+func (c ContextMenu) boxHeight() int { return c.visibleCount() + 2 }
+
+// visibleCount returns how many item rows the viewport currently draws.
+func (c ContextMenu) visibleCount() int {
+	if c.rows > 0 && c.rows < len(c.items) {
+		return c.rows
+	}
+	return len(c.items)
+}
+
+// maxScroll returns the largest scroll offset that still fills the viewport.
+func (c *ContextMenu) maxScroll() int {
+	if c.rows <= 0 {
+		return 0
+	}
+	if maxOffset := len(c.items) - c.rows; maxOffset > 0 {
+		return maxOffset
+	}
+	return 0
+}
+
+// setRows fits the viewport to a menu that may occupy at most maxHeight rows,
+// borders included. A non-positive maxHeight disables the viewport. At least one
+// item row is always kept so a degenerate window still shows a clickable item.
+func (c *ContextMenu) setRows(maxHeight int) {
+	if maxHeight <= 0 || maxHeight-2 >= len(c.items) {
+		c.rows, c.scroll = 0, 0
+		return
+	}
+	avail := maxHeight - 2
+	if avail < 1 {
+		avail = 1
+	}
+	c.rows = avail
+	c.ensureVisible()
+}
+
+// ensureVisible scrolls the viewport just enough to contain the focused item.
+func (c *ContextMenu) ensureVisible() {
+	if c.rows <= 0 {
+		c.scroll = 0
+		return
+	}
+	if c.focused < c.scroll {
+		c.scroll = c.focused
+	}
+	if c.focused >= c.scroll+c.rows {
+		c.scroll = c.focused - c.rows + 1
+	}
+	c.clampScroll()
+}
+
+// scrollBy moves the viewport by delta rows, bounded to the item list.
+func (c *ContextMenu) scrollBy(delta int) {
+	c.scroll += delta
+	c.clampScroll()
+}
+
+// clampScroll keeps scroll within [0, maxScroll].
+func (c *ContextMenu) clampScroll() {
+	if c.scroll > c.maxScroll() {
+		c.scroll = c.maxScroll()
+	}
+	if c.scroll < 0 {
+		c.scroll = 0
+	}
+}
 
 // clamp repositions the menu so its whole box stays inside a maxWidth ×
-// maxHeight area. A non-positive bound disables clamping on that axis.
+// maxHeight area and fits its items into that same height. A non-positive
+// bound disables clamping on that axis.
 //
 // This must happen before rendering: the overlay compositor also clamps, and a
 // silent shift there would draw the menu somewhere other than the box that
 // HandleClick tests against, leaving items unclickable or selecting the wrong
-// one. Clamping the stored position keeps drawing and hit-testing in sync.
+// one. Clamping the stored position — and the viewport, which changes
+// boxHeight — keeps drawing and hit-testing in sync.
 func (c *ContextMenu) clamp(maxWidth, maxHeight int) {
+	// The viewport changes the box height, so it must be fitted first.
+	c.setRows(maxHeight)
+
 	if maxWidth > 0 {
 		if maxX := maxWidth - c.boxWidth(); c.X > maxX {
 			c.X = maxX
@@ -116,10 +203,12 @@ func (c *ContextMenu) HandleClick(x, y int) int {
 	}
 	// Top border row and bottom border row are not items.
 	itemRow := y - c.Y - 1
-	if itemRow < 0 || itemRow >= len(c.items) {
+	if itemRow < 0 || itemRow >= c.visibleCount() {
 		return -1
 	}
-	return itemRow
+	// Rows map to items through the scroll offset, so a scrolled menu still
+	// reports the absolute item index the caller switches on.
+	return c.scroll + itemRow
 }
 
 // Render returns the menu as a lipgloss-styled string for overlay composition.
@@ -149,13 +238,34 @@ func (c ContextMenu) Render() string {
 			BorderBackground(lipgloss.Color(bg))
 	}
 
+	first := c.scroll
+	count := c.visibleCount()
+	// Reserve the marker column only while the viewport can scroll, so a menu
+	// that shows every item keeps its original label alignment.
+	scrollable := c.rows > 0
+
 	var rows []string
-	for i, item := range c.items {
+	for i := first; i < first+count; i++ {
 		itemStyle := base
 		if i == c.focused {
 			itemStyle = sel
 		}
-		rows = append(rows, itemStyle.Width(contextMenuInnerW).Render(item))
+		label := c.items[i]
+		if scrollable {
+			marker := markerNone
+			above, below := first > 0, first+count < len(c.items)
+			switch {
+			case i == first && above && i == first+count-1 && below:
+				marker = markerUpDown
+			case i == first && above:
+				marker = markerUp
+			case i == first+count-1 && below:
+				marker = markerDown
+			}
+			label = marker + label
+		}
+		label = ansi.Truncate(label, contextMenuInnerW, "\u2026")
+		rows = append(rows, itemStyle.Width(contextMenuInnerW).Render(label))
 	}
 
 	body := strings.Join(rows, "\n")
@@ -169,16 +279,19 @@ func (c *ContextMenu) HoverItem(x, y int) int {
 	return c.HandleClick(x, y)
 }
 
-// moveUp moves focus up, clamped to 0.
+// moveUp moves focus up, clamped to 0, scrolling the viewport to follow.
 func (c *ContextMenu) moveUp() {
 	if c.focused > 0 {
 		c.focused--
 	}
+	c.ensureVisible()
 }
 
-// moveDown moves focus down, clamped to len(items)-1.
+// moveDown moves focus down, clamped to len(items)-1, scrolling the viewport to
+// follow.
 func (c *ContextMenu) moveDown() {
 	if c.focused < len(c.items)-1 {
 		c.focused++
 	}
+	c.ensureVisible()
 }
