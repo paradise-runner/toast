@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -32,7 +31,16 @@ const (
 	cancelBtnEnd    = cancelBtnStart + len(cancelBtnText)   // 26
 	folderBtnStart  = cancelBtnEnd + 3                      // 29 (after "   " gap)
 	folderBtnEnd    = folderBtnStart + len(folderBtnText)   // 39
+
+	// Scroll affordances, drawn in the last content column of the first/last
+	// visible row. Both are clickable.
+	scrollUpGlyph   = "▲"
+	scrollDownGlyph = "▼"
 )
+
+// innerWidth is the width available inside the dialog borders. lipgloss Width
+// includes the border, so the content area is two columns narrower.
+func (m Model) innerWidth() int { return dialogWidth - 2 }
 
 // Model holds the state of the theme picker dialog.
 type Model struct {
@@ -73,6 +81,16 @@ func (m Model) ActiveTheme() string { return m.activeTheme }
 // visibleRows returns how many theme rows the dialog shows at once.
 func (m Model) visibleRows() int {
 	return min(len(m.themes), maxVisibleRows)
+}
+
+// pageScroll moves the selection one window in dir (-1 up, +1 down) and keeps
+// the window following it. The keyboard and the scroll arrows share it.
+func (m Model) pageScroll(dir int) (Model, tea.Cmd) {
+	next := m.selected + dir*m.visibleRows()
+	m.selected = min(max(next, 0), len(m.themes)-1)
+	m.clampOffset()
+	name := m.themes[m.selected]
+	return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
 }
 
 // clampOffset scrolls the window so the selected theme is visible.
@@ -118,6 +136,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		actionRowY := rows + 2
 		switch {
 		case msg.Y >= 1 && msg.Y <= rows:
+			// The last content column of the boundary rows holds the scroll
+			// arrows; clicking them pages the list instead of selecting a theme.
+			if msg.X-1 == m.innerWidth()-1 {
+				if msg.Y == 1 && m.offset > 0 {
+					return m.pageScroll(-1)
+				}
+				if msg.Y == rows && m.offset+rows < len(m.themes) {
+					return m.pageScroll(1)
+				}
+			}
 			// Theme row: move selection and preview, but don't confirm.
 			row := m.offset + msg.Y - 1
 			if row >= len(m.themes) {
@@ -177,16 +205,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
 
 		case "pgup":
-			m.selected = max(m.selected-m.visibleRows(), 0)
-			m.clampOffset()
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			return m.pageScroll(-1)
 
 		case "pgdown":
-			m.selected = min(m.selected+m.visibleRows(), len(m.themes)-1)
-			m.clampOffset()
-			name := m.themes[m.selected]
-			return m, func() tea.Msg { return messages.ThemeChangedMsg{ThemeName: name} }
+			return m.pageScroll(1)
 
 		case "enter":
 			name := m.themes[m.selected]
@@ -220,7 +242,7 @@ func (m Model) Render() string {
 	// innerW fills the full content area (Width minus 2 border chars, no box padding).
 	// Padding is included manually in each row so the selected highlight spans edge-to-edge
 	// without lipgloss adding box-colored trailing spaces that break the selection background.
-	innerW := dialogWidth
+	innerW := m.innerWidth()
 
 	var rows []string
 	start := m.offset
@@ -233,22 +255,25 @@ func (m Model) Render() string {
 		if name == m.activeTheme {
 			marker = "● "
 		}
+		indicator := ""
+		switch {
+		case i == start && start > 0:
+			indicator = scrollUpGlyph
+		case i == end-1 && end < len(m.themes):
+			indicator = scrollDownGlyph
+		}
 		// Leading space replaces the removed Padding(0,1) so the visual indent is preserved.
 		label := " " + marker + name
-		// Pad to inner width (rune-aware: ● is 3 bytes but 1 display column)
-		if utf8.RuneCountInString(label) < innerW {
-			label += strings.Repeat(" ", innerW-utf8.RuneCountInString(label))
+		// Leave the last column to the scroll indicator, then pad to the content
+		// width. A row wider than the box is wrapped by lipgloss, which pushes
+		// the indicator onto a line of its own.
+		target := innerW - lipgloss.Width(indicator)
+		if w := lipgloss.Width(label); w > target {
+			label = truncateToWidth(label, target)
+		} else if w < target {
+			label += strings.Repeat(" ", target-w)
 		}
-		// Scroll indicators sit in the last column of the first/last visible row.
-		indicator := ""
-		if i == start && start > 0 {
-			indicator = "▴"
-		} else if i == end-1 && end < len(m.themes) {
-			indicator = "▾"
-		}
-		if indicator != "" {
-			label = strings.TrimSuffix(label, " ") + indicator
-		}
+		label += indicator
 		if i == m.selected {
 			rows = append(rows, selectedStyle.Render(label))
 		} else {
@@ -257,9 +282,9 @@ func (m Model) Render() string {
 	}
 
 	// Separator: 1-space indent then dashes, padded to full inner width.
-	sep := " " + strings.Repeat("─", dialogWidth-4)
-	if utf8.RuneCountInString(sep) < innerW {
-		sep += strings.Repeat(" ", innerW-utf8.RuneCountInString(sep))
+	sep := " " + strings.Repeat("─", innerW-2)
+	if w := lipgloss.Width(sep); w < innerW {
+		sep += strings.Repeat(" ", innerW-w)
 	}
 	rows = append(rows, baseStyle.Render(sep))
 
@@ -292,6 +317,28 @@ func (m Model) Render() string {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// truncateToWidth shortens label to width display columns, ending in an
+// ellipsis when it had to cut. Unusually long (user-defined) theme names would
+// otherwise wrap the row and break the dialog layout.
+func truncateToWidth(label string, width int) string {
+	if lipgloss.Width(label) <= width {
+		return label
+	}
+	const ellipsis = "…"
+	limit := width - lipgloss.Width(ellipsis)
+	var b strings.Builder
+	used := 0
+	for _, r := range label {
+		w := lipgloss.Width(string(r))
+		if used+w > limit {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String() + ellipsis
+}
 
 // openDir opens the given directory in the system file manager.
 func openDir(dir string) {

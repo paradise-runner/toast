@@ -327,19 +327,168 @@ func TestRender_ScrollIndicators(t *testing.T) {
 	m.selected = 0
 	m.clampOffset()
 	out := m.Render()
-	if !strings.Contains(out, "▾") {
+	if !strings.Contains(out, scrollDownGlyph) {
 		t.Error("expected a down indicator when themes are below the window")
 	}
-	if strings.Contains(out, "▴") {
+	if strings.Contains(out, scrollUpGlyph) {
 		t.Error("did not expect an up indicator at the top of the list")
 	}
 
 	m.selected = len(m.themes) - 1
 	m.clampOffset()
 	out = m.Render()
-	if !strings.Contains(out, "▴") {
+	if !strings.Contains(out, scrollUpGlyph) {
 		t.Error("expected an up indicator after scrolling to the end")
 	}
+	if strings.Contains(out, scrollDownGlyph) {
+		t.Error("did not expect a down indicator at the end of the list")
+	}
+}
+
+// TestRender_IndicatorsStayOnTheirRow is the regression test for the indicator
+// wrapping onto a line of its own: every row must fit inside the box.
+func TestRender_IndicatorsStayOnTheirRow(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	for _, selected := range []int{0, maxVisibleRows / 2, len(m.themes) - 1} {
+		m.selected = selected
+		m.clampOffset()
+		out := m.Render()
+		lines := strings.Split(stripANSI(out), "\n")
+		// top border + visible rows + separator + action row + bottom border
+		want := m.visibleRows() + 4
+		if len(lines) != want {
+			t.Fatalf("selected=%d rendered %d lines, want %d:\n%s", selected, len(lines), want, strings.Join(lines, "\n"))
+		}
+		for i, line := range lines {
+			if n := len([]rune(line)); n != dialogWidth {
+				t.Errorf("selected=%d line %d is %d columns, want %d: %q", selected, i, n, dialogWidth, line)
+			}
+		}
+		// Each indicator must share a line with a theme name.
+		for _, glyph := range []string{scrollUpGlyph, scrollDownGlyph} {
+			for _, line := range lines {
+				if strings.Contains(line, glyph) && strings.Trim(strings.TrimSuffix(strings.TrimPrefix(line, "│"), "│"), " "+glyph) == "" {
+					t.Errorf("selected=%d indicator %q sits on a row without a theme: %q", selected, glyph, line)
+				}
+			}
+		}
+	}
+}
+
+// TestClick_ScrollArrowPages shows that the arrows page the list and preview the
+// new selection, the same way pgup/pgdown do.
+func TestClick_ScrollArrowPages(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.selected = 0
+	m.clampOffset()
+
+	// ▲ is not drawn at the top of the list, so a click there selects the row.
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 1})
+	if updated.offset != 0 {
+		t.Errorf("offset = %d, want 0 (no up arrow at the top)", updated.offset)
+	}
+
+	// ▼ on the last visible row pages down by one window.
+	rows := m.visibleRows()
+	updated, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: rows})
+	m = updated
+	if m.selected != rows {
+		t.Errorf("selected = %d, want %d", m.selected, rows)
+	}
+	if m.offset != 1 {
+		t.Errorf("offset = %d, want 1", m.offset)
+	}
+	if cmd == nil {
+		t.Fatal("expected a preview cmd from the arrow click")
+	}
+	if tc, ok := cmd().(messages.ThemeChangedMsg); !ok || tc.ThemeName != m.themes[rows] {
+		t.Errorf("expected preview of %q, got %#v", m.themes[rows], tc)
+	}
+
+	// ▲ on the first visible row pages back up.
+	updated, cmd = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 1})
+	m = updated
+	if m.selected != 0 || m.offset != 0 {
+		t.Errorf("selected/offset = %d/%d, want 0/0", m.selected, m.offset)
+	}
+	if cmd == nil {
+		t.Fatal("expected a preview cmd from the up arrow click")
+	}
+}
+
+// TestClick_ArrowColumnOnMiddleRowSelects checks the arrow column only pages on
+// the boundary rows; elsewhere it behaves like a normal row click.
+func TestClick_ArrowColumnOnMiddleRowSelects(t *testing.T) {
+	m := newTestModel()
+	if len(m.themes) <= maxVisibleRows {
+		t.Skipf("need more than %d themes, have %d", maxVisibleRows, len(m.themes))
+	}
+	m.selected = 0
+	m.clampOffset()
+	updated, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: m.innerWidth(), Y: 5})
+	if updated.selected != 4 {
+		t.Errorf("selected = %d, want 4", updated.selected)
+	}
+	if updated.offset != 0 {
+		t.Errorf("offset = %d, want 0", updated.offset)
+	}
+}
+
+func TestTruncateToWidth(t *testing.T) {
+	tests := []struct {
+		in    string
+		width int
+		want  string
+	}{
+		{in: "short", width: 10, want: "short"},
+		{in: "exactly10c", width: 10, want: "exactly10c"},
+		{in: "abcd", width: 4, want: "abcd"},
+		{in: "abcdefgh", width: 5, want: "abcd…"},
+		{in: "ééééé", width: 3, want: "éé…"},
+	}
+	for _, tt := range tests {
+		if got := truncateToWidth(tt.in, tt.width); got != tt.want {
+			t.Errorf("truncateToWidth(%q, %d) = %q, want %q", tt.in, tt.width, got, tt.want)
+		}
+	}
+}
+
+// TestRender_LongThemeNameDoesNotWrap guards custom themes with very long names.
+func TestRender_LongThemeNameDoesNotWrap(t *testing.T) {
+	m := newTestModel()
+	m.themes = []string{"a-very-long-custom-theme-name-that-would-not-fit-in-the-dialog-at-all"}
+	m.selected = 0
+	m.offset = 0
+	lines := strings.Split(stripANSI(m.Render()), "\n")
+	if want := m.visibleRows() + 4; len(lines) != want {
+		t.Fatalf("rendered %d lines, want %d:\n%s", len(lines), want, strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[1], "…") {
+		t.Errorf("expected the long name to be truncated: %q", lines[1])
+	}
+}
+
+// stripANSI removes SGR escape sequences so rendered rows can be measured.
+func stripANSI(s string) string {
+	var b strings.Builder
+	esc := false
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			esc = true
+		case esc && r == 'm':
+			esc = false
+		case !esc:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // keyMsg builds a tea.KeyPressMsg for testing using named rune constants.
