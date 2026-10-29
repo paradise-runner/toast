@@ -2,8 +2,9 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -166,17 +167,16 @@ func TestDidChangeTracksEveryFullDocumentVersion(t *testing.T) {
 }
 
 func TestInstallCapsVerboseFailureOutput(t *testing.T) {
-	// An installer that floods stdout with a megabyte of noise before failing.
-	installer := filepath.Join(t.TempDir(), "noisy-installer")
-	if err := os.WriteFile(installer, []byte("#!/bin/sh\nhead -c 1048576 /dev/zero | tr '\\0' 'x'\necho FAILED >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg := config.Defaults()
 	cfg.LSP = map[string]config.LSPCmd{
 		"test": {
 			Command: "missing-server",
-			Install: &config.LSPInstall{Name: "Test LS", Command: installer},
+			Install: &config.LSPInstall{
+				Name:    "Test LS",
+				Command: os.Args[0],
+				Args:    []string{"-test.run=TestInstallFailureHelperProcess"},
+				Env:     map[string]string{"TOAST_TEST_INSTALL_FAILURE": "1"},
+			},
 		},
 	}
 	var sent []tea.Msg
@@ -200,13 +200,47 @@ func TestInstallCapsVerboseFailureOutput(t *testing.T) {
 	}
 }
 
-func TestExpandTargetTriple(t *testing.T) {
+func TestInstallFailureHelperProcess(t *testing.T) {
+	if os.Getenv("TOAST_TEST_INSTALL_FAILURE") != "1" {
+		return
+	}
+	fmt.Print(strings.Repeat("x", 1<<20))
+	fmt.Fprintln(os.Stderr, "FAILED")
+	os.Exit(1)
+}
+
+func TestExpandPlatformPlaceholders(t *testing.T) {
 	m := NewManager(config.Defaults(), t.TempDir(), func(tea.Msg) {})
 	triple := rustTargetTriple()
+	if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" && triple != "x86_64-pc-windows-msvc" {
+		t.Fatalf("rustTargetTriple() = %q, want x86_64-pc-windows-msvc", triple)
+	}
 	if triple == "" {
 		t.Skip("platform has no prebuilt harper binary")
 	}
-	if got := m.expand("markdown", "https://example.com/harper-ls-{target}.tar.gz"); got != "https://example.com/harper-ls-"+triple+".tar.gz" {
-		t.Fatalf("expand({target}) = %q, want triple %q", got, triple)
+	expanded := m.expand("markdown", "https://example.com/harper-ls-{target}.{archive_ext}:{cmd_ext}:{exe_ext}")
+	if !strings.Contains(expanded, triple) || strings.Contains(expanded, "{target}") {
+		t.Fatalf("target placeholder not expanded: %q (triple %q)", expanded, triple)
+	}
+	if strings.Contains(expanded, "{archive_ext}") || strings.Contains(expanded, "{cmd_ext}") || strings.Contains(expanded, "{exe_ext}") {
+		t.Fatalf("platform placeholders not expanded: %q", expanded)
+	}
+}
+
+func TestPlatformSpecificPlaceholders(t *testing.T) {
+	if got := platformArchiveExt("windows"); got != "zip" {
+		t.Fatalf("platformArchiveExt(windows) = %q, want zip", got)
+	}
+	if got := platformArchiveExt("linux"); got != "tar.gz" {
+		t.Fatalf("platformArchiveExt(linux) = %q, want tar.gz", got)
+	}
+	if got := platformCommandExt("windows"); got != ".cmd" {
+		t.Fatalf("platformCommandExt(windows) = %q, want .cmd", got)
+	}
+	if got := platformExecutableExt("windows"); got != ".exe" {
+		t.Fatalf("platformExecutableExt(windows) = %q, want .exe", got)
+	}
+	if got := platformRustTargetTriple("windows", "amd64"); got != "x86_64-pc-windows-msvc" {
+		t.Fatalf("platformRustTargetTriple(windows, amd64) = %q", got)
 	}
 }
