@@ -11,8 +11,6 @@ import (
 	"github.com/paradise-runner/toast/internal/migrate"
 )
 
-var version = "v0.1.11"
-
 // findGitRoot walks up the directory tree from path looking for a .git entry
 // (directory or file, to support worktrees). It returns the directory containing
 // .git and true if found, or ("", false) if no git repo is found.
@@ -84,10 +82,11 @@ func runMigrateTheme(args []string) int {
 }
 
 func main() {
+	ver := currentVersion()
 	if len(os.Args) >= 2 {
 		switch os.Args[1] {
 		case "-v", "--version":
-			fmt.Println(version)
+			fmt.Println(ver)
 			return
 		case "--help", "-h":
 			fmt.Printf(`toast %s - a terminal editor
@@ -100,7 +99,7 @@ Usage:
 Options:
   -v, --version  Print version and exit
   -h, --help     Print this help and exit
-`, version)
+`, ver)
 			return
 		case "migrate-theme":
 			os.Exit(runMigrateTheme(os.Args[2:]))
