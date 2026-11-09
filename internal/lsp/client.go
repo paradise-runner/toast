@@ -13,7 +13,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 // Client manages a single language server subprocess over JSON-RPC 2.0.

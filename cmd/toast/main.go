@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/yourusername/toast/internal/app"
-	"github.com/yourusername/toast/internal/config"
-	"github.com/yourusername/toast/internal/migrate"
+	"github.com/paradise-runner/toast/internal/app"
+	"github.com/paradise-runner/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/migrate"
 )
 
 var version = "v0.1.11"

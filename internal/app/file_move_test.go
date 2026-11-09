@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/components/editor"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/components/editor"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 func writeFile(t *testing.T, path string) {

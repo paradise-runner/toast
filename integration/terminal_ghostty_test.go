@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourusername/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/config"
 )
 
 const (

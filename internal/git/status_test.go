@@ -3,7 +3,7 @@ package git_test
 import (
 	"testing"
 
-	"github.com/yourusername/toast/internal/git"
+	"github.com/paradise-runner/toast/internal/git"
 )
 
 func TestParsePorcelainV2(t *testing.T) {

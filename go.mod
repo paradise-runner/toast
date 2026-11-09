@@ -1,4 +1,4 @@
-module github.com/yourusername/toast
+module github.com/paradise-runner/toast
 
 go 1.25.2
 

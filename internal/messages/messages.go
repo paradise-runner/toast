@@ -1,7 +1,7 @@
 package messages
 
 import (
-	"github.com/yourusername/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/config"
 )
 
 // FileSelectedMsg - emitted when user selects a file in tree or search result

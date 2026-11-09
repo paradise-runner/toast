@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yourusername/toast/internal/config"
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 type fileIconKind int

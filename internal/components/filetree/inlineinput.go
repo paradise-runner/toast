@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 // InlineInput holds the state for the inline name-entry row shown when creating

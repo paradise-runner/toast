@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 // minimalZedTheme returns a complete Zed theme document with a single dark

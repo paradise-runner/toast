@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/fsnotify/fsnotify"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 type Watcher struct {

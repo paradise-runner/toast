@@ -101,6 +101,18 @@ open -a Toast ~/src/foo.go
 open -a Toast ~/src/myproject
 ```
 
+**Go install**
+
+Requires Go 1.25.2+.
+
+```bash
+go install github.com/paradise-runner/toast/cmd/toast@latest
+```
+
+This build skips the `embed_rg` tag that `make build` uses, so toast will look
+for `rg` on your `$PATH` instead of shipping its own copy — install ripgrep
+(`brew install ripgrep`) if project-wide search reports `search command "rg" not found`.
+
 **Build from source**
 
 Requires Go 1.25.2+.

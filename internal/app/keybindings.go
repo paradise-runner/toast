@@ -3,7 +3,7 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/config"
 )
 
 // Keybinding-check helpers.

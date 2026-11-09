@@ -21,8 +21,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/config"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 type openDocument struct {

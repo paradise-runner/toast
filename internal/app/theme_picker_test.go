@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/messages"
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 // findArrow returns the screen cell where the picker draws one of its scroll

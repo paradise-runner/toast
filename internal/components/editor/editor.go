@@ -18,12 +18,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/yourusername/toast/internal/buffer"
-	"github.com/yourusername/toast/internal/clipboard"
-	"github.com/yourusername/toast/internal/config"
-	"github.com/yourusername/toast/internal/messages"
-	"github.com/yourusername/toast/internal/syntax"
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/buffer"
+	"github.com/paradise-runner/toast/internal/clipboard"
+	"github.com/paradise-runner/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/syntax"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 const (
