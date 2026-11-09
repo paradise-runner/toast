@@ -12,3 +12,6 @@ cmd/toast/payload/rg
 .DS_Store
 docs/superpowers/
 *.zip
+
+# stray binary from `go build ./cmd/toast` at the repo root
+/toast
