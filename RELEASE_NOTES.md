@@ -1,5 +1,14 @@
 # Release Notes
 
+## [0.14.2](https://github.com/paradise-runner/toast/compare/v0.14.1...v0.14.2) (2026-11-09)
+
+
+### Fixes
+
+* **ci:** keep the Intel formula warning on one line ([#102](https://github.com/paradise-runner/toast/issues/102)) ([f2fdea9](https://github.com/paradise-runner/toast/commit/f2fdea9766294400bf3463bcf5e53b78c05a3af4))
+* **ci:** stop building the Intel macOS release binary ([#100](https://github.com/paradise-runner/toast/issues/100)) ([3d0b23f](https://github.com/paradise-runner/toast/commit/3d0b23f0aeffefd13e5048327990e91dfab4487b))
+* report the real version for builds that set no ldflags ([#103](https://github.com/paradise-runner/toast/issues/103)) ([13b606d](https://github.com/paradise-runner/toast/commit/13b606d3c7fcb8779dc26eec404bf4e7faad7fa0))
+
 ## [0.14.1](https://github.com/paradise-runner/toast/compare/v0.14.0...v0.14.1) (2026-11-09)
 
 
