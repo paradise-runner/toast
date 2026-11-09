@@ -69,6 +69,9 @@ unzip toast.zip
 install -m755 toast-darwin-arm64 /usr/local/bin/toast
 ```
 
+macOS builds are Apple Silicon only; Intel Macs are no longer supported — the
+last Intel release is [v0.14.0](https://github.com/paradise-runner/toast/releases/tag/v0.14.0).
+
 **Standalone macOS app**
 
 > ⚠️ **Experimental:** this bundles toast inside a libghostty terminal window

@@ -131,7 +131,7 @@ looked odd:
 ## Verifying a release
 
 ```bash
-gh release view v0.13.0 --json tagName,assets          # four zips
+gh release view v0.13.0 --json tagName,assets          # three zips: darwin-arm64, linux-amd64, app
 git ls-remote --tags origin | grep v0.13.0             # tag exists
 gh api repos/:owner/toast/git/ref/tags/v0.13.0         # tag → the release PR merge commit
 gh api 'repos/paradise-runner/homebrew-tap/commits?per_page=1'   # "toast v0.13.0"
