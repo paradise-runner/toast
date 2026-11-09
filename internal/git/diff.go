@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 func RunDiff(rootDir, path string, lineCount int) ([]messages.GitLineKind, error) {

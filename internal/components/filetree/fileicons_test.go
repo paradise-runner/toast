@@ -3,7 +3,7 @@ package filetree
 import (
 	"testing"
 
-	"github.com/yourusername/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/config"
 )
 
 func TestFileIconForName(t *testing.T) {

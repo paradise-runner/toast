@@ -8,11 +8,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/components/breadcrumbs"
-	"github.com/yourusername/toast/internal/components/filetree"
-	"github.com/yourusername/toast/internal/components/quickopen"
-	"github.com/yourusername/toast/internal/components/search"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/components/breadcrumbs"
+	"github.com/paradise-runner/toast/internal/components/filetree"
+	"github.com/paradise-runner/toast/internal/components/quickopen"
+	"github.com/paradise-runner/toast/internal/components/search"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 // toastOSCNumber is the OSC number used for toast-specific commands pushed by

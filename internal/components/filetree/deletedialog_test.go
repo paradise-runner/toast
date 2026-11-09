@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 const testDialogW = 80

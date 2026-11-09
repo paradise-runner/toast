@@ -10,9 +10,9 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/yourusername/toast/internal/config"
-	"github.com/yourusername/toast/internal/messages"
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 func TestLoadChildren(t *testing.T) {

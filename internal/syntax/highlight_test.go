@@ -3,8 +3,8 @@ package syntax_test
 import (
 	"testing"
 
-	"github.com/yourusername/toast/internal/syntax"
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/syntax"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 func TestHighlightGoCode(t *testing.T) {

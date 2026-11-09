@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 func handleNotification(method string, params json.RawMessage, language string, send func(tea.Msg)) {

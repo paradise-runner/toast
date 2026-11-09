@@ -9,9 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/yourusername/toast/internal/config"
-	"github.com/yourusername/toast/internal/messages"
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 func newTestTheme(t *testing.T) *theme.Manager {

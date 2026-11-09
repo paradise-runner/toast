@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yourusername/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/config"
 )
 
 func TestDefaultsWhenNoFile(t *testing.T) {

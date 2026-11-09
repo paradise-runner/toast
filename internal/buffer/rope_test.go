@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yourusername/toast/internal/buffer"
+	"github.com/paradise-runner/toast/internal/buffer"
 )
 
 func TestNewRopeFromString(t *testing.T) {

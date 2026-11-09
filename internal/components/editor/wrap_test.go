@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/buffer"
-	"github.com/yourusername/toast/internal/config"
+	"github.com/paradise-runner/toast/internal/buffer"
+	"github.com/paradise-runner/toast/internal/config"
 )
 
 // newWrapModel creates a model configured for wrap-mode testing.
