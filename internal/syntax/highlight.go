@@ -1,3 +1,5 @@
+//go:build cgo
+
 package syntax
 
 import (
@@ -33,6 +35,10 @@ type Highlighter struct {
 	content []byte
 	theme   *theme.Manager
 }
+
+// TreeSitterAvailable reports whether this build includes the cgo-backed
+// tree-sitter highlighter.
+func TreeSitterAvailable() bool { return true }
 
 // NewHighlighter creates a Highlighter for the given file path. If the
 // extension is not recognised, a no-op highlighter (lang == nil) is returned
