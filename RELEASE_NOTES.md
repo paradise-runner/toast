@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.14.1](https://github.com/paradise-runner/toast/compare/v0.14.0...v0.14.1) (2026-11-09)
+
+
+### Fixes
+
+* rename module to github.com/paradise-runner/toast ([#98](https://github.com/paradise-runner/toast/issues/98)) ([cf6f00d](https://github.com/paradise-runner/toast/commit/cf6f00d3199d74dbbf15c299ed90ad1c2c4630b3)), closes [#97](https://github.com/paradise-runner/toast/issues/97)
+
 ## [0.14.0](https://github.com/paradise-runner/toast/compare/v0.13.1...v0.14.0) (2026-10-26)
 
 
