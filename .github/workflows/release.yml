@@ -221,8 +221,7 @@ jobs:
                 sha256 "c35843ba3c7fbdf512df2e774693318fc288de240c3bf0e058260dd19e7411a6"
 
                 def install
-                  opoo "toast stopped publishing Intel (amd64) macOS builds after v0.14.0; " \
-                       "this installs v0.14.0, the last release that supported Intel Macs"
+                  opoo "toast stopped shipping Intel macOS builds after v0.14.0; installing v0.14.0"
                   bin.install "toast-darwin-amd64" => "toast"
                 end
               end
