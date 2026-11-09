@@ -3,8 +3,8 @@ package git_test
 import (
 	"testing"
 
-	"github.com/yourusername/toast/internal/git"
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/git"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 func TestParseDiff(t *testing.T) {

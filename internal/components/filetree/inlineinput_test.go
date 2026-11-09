@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 func TestInlineInput_Insert(t *testing.T) {

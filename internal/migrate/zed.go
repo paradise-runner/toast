@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 // Zed theme files bundle a whole family in one document: a single "One.json"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/paradise-runner/toast/internal/theme"
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/yourusername/toast/internal/theme"
 )
 
 // Span represents a highlighted byte range within a line. Start and End are

@@ -3,7 +3,7 @@ package lsp_test
 import (
 	"testing"
 
-	"github.com/yourusername/toast/internal/lsp"
+	"github.com/paradise-runner/toast/internal/lsp"
 )
 
 func TestPathToURIRoundtrip(t *testing.T) {

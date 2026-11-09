@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/yourusername/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/theme"
 )
 
 const deleteDialogW = 42 // total rendered width (border included)

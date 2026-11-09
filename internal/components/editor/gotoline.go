@@ -3,7 +3,7 @@ package editor
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/yourusername/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/messages"
 )
 
 // handleGoToLine moves the cursor to the requested line (zero-based), clamps to
