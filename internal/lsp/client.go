@@ -583,17 +583,31 @@ func (c *Client) failWrites(err error) {
 }
 
 // respondToServerRequest answers a server-initiated JSON-RPC request with the
-// least information that keeps the server moving: an empty configuration array
-// for workspace/configuration and an explicit null result for everything else.
-// Responses are best-effort and never block the read loop.
-func (c *Client) respondToServerRequest(id int, method string) {
+// least information that keeps the server moving: a configuration array with
+// one null entry per requested section for workspace/configuration (jdtls
+// errors on a length mismatch), and an explicit null result for everything
+// else. Responses are best-effort and never block the read loop.
+func (c *Client) respondToServerRequest(id int, method string, params json.RawMessage) {
 	var result interface{}
 	if method == "workspace/configuration" {
-		result = []interface{}{}
+		result = configurationResponse(params)
 	} else {
 		result = json.RawMessage("null")
 	}
 	_ = c.writeMessage(ResponseMessage{JSONRPC: "2.0", ID: &id, Result: result})
+}
+
+// configurationResponse returns one nil entry per requested configuration
+// section. Servers read the values positionally and fall back to their own
+// defaults for nil, so a matching-length array is safer than an empty one.
+func configurationResponse(params json.RawMessage) []interface{} {
+	var request struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil || len(request.Items) == 0 {
+		return []interface{}{}
+	}
+	return make([]interface{}, len(request.Items))
 }
 
 // readLoop continuously reads messages from the server until the connection closes.
@@ -690,7 +704,7 @@ func (c *Client) dispatch(raw json.RawMessage) {
 		// Answer it so servers that await a response during initialization do
 		// not hang (harper-ls blocks on workspace/configuration and
 		// client/registerCapability in its initialized handler).
-		c.respondToServerRequest(*envelope.ID, envelope.Method)
+		c.respondToServerRequest(*envelope.ID, envelope.Method, envelope.Params)
 		return
 	}
 

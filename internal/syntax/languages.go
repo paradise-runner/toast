@@ -11,6 +11,7 @@ import (
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/html"
+	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
 	tree_sitter_markdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
 	"github.com/smacker/go-tree-sitter/python"
@@ -43,6 +44,7 @@ func init() {
 		{Name: "yaml", Language: yaml.GetLanguage()},
 		{Name: "bash", Language: bash.GetLanguage()},
 		{Name: "hcl", Language: hcl.GetLanguage()},
+		{Name: "java", Language: java.GetLanguage()},
 		{Name: "markdown", Language: tree_sitter_markdown.GetLanguage()},
 		// JSON uses a custom scanner instead of tree-sitter (nil Language).
 		{Name: "json"},
@@ -59,8 +61,9 @@ func init() {
 		".html": defs[6], ".htm": defs[6], ".yaml": defs[7], ".yml": defs[7],
 		".sh": defs[8], ".bash": defs[8],
 		".hcl": defs[9], ".tf": defs[9], ".tfvars": defs[9],
-		".md": defs[10], ".markdown": defs[10],
-		".json": defs[11], ".jsonc": defs[11],
+		".java": defs[10],
+		".md":   defs[11], ".markdown": defs[11],
+		".json": defs[12], ".jsonc": defs[12],
 	}
 	langByName = make(map[string]*LangDef, len(defs))
 	for _, d := range defs {

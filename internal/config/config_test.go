@@ -37,12 +37,50 @@ func TestDefaultsWhenNoFile(t *testing.T) {
 	if cfg.Sidebar.FileIcons.ColorMode != "accent" {
 		t.Errorf("expected default file icon color mode accent, got %q", cfg.Sidebar.FileIcons.ColorMode)
 	}
-	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform", "markdown"} {
+	for _, language := range []string{"go", "rust", "python", "typescript", "javascript", "terraform", "markdown", "java"} {
 		server, ok := cfg.LSP[language]
 		if !ok || len(server.Extensions) == 0 || server.Install == nil {
 			t.Fatalf("expected managed default LSP metadata for %s, got %#v", language, server)
 		}
 	}
+}
+
+func TestDefaultsJavaLanguageServer(t *testing.T) {
+	cfg := config.Defaults()
+	server, ok := cfg.LSP["java"]
+	if !ok {
+		t.Fatal("expected a default java language server")
+	}
+	if server.Command != "jdtls" {
+		t.Fatalf("expected jdtls command, got %q", server.Command)
+	}
+	// jdtls anchors at the Gradle/Maven build root rather than the workspace.
+	for _, marker := range []string{"pom.xml", "build.gradle", "settings.gradle", "gradlew"} {
+		if !contains(server.RootMarkers, marker) {
+			t.Errorf("java root markers missing %q: %v", marker, server.RootMarkers)
+		}
+	}
+	// The launcher runs under python3 and needs a JDK 21+ runtime.
+	for _, req := range []string{"java", "python3"} {
+		if !contains(server.Requires, req) {
+			t.Errorf("java requires missing %q: %v", req, server.Requires)
+		}
+	}
+	if server.Install == nil || server.Install.Download == nil || !server.Install.Download.Extract {
+		t.Fatalf("expected an extract-all download install, got %#v", server.Install)
+	}
+	if server.ManagedCommand != "{install_dir}/server/bin/jdtls" {
+		t.Fatalf("unexpected managed command %q", server.ManagedCommand)
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadFromFile(t *testing.T) {

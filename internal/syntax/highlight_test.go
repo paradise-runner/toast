@@ -221,6 +221,44 @@ func TestHighlightJSONArray(t *testing.T) {
 	}
 }
 
+func TestHighlightJava(t *testing.T) {
+	tm, _ := theme.NewManager("toast-dark", "")
+	h, err := syntax.NewHighlighter("Main.java", tm)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if !h.HasQuery() {
+		t.Fatal("expected a highlight query for .java files")
+	}
+
+	src := "package demo;\n\n// Greeting\npublic class Main {\n    private static final String NAME = \"toast\";\n\n    public static void main(String[] args) {\n        System.out.println(NAME);\n    }\n}\n"
+	h.Parse([]byte(src))
+
+	assertStyle := func(line int, text, style string) {
+		t.Helper()
+		spans := h.HighlightLine(line, text)
+		for _, s := range spans {
+			if s.Style == style {
+				return
+			}
+		}
+		t.Errorf("line %d %q: no %q span in %+v", line, text, style, spans)
+	}
+
+	assertStyle(0, "package demo;", "keyword")
+	assertStyle(2, "// Greeting", "comment")
+	assertStyle(3, "public class Main {", "keyword")
+	assertStyle(3, "public class Main {", "type")
+	assertStyle(4, "    private static final String NAME = \"toast\";", "string")
+	assertStyle(7, "        System.out.println(NAME);", "function")
+}
+
+func TestHighlightJavaExtensionRegistered(t *testing.T) {
+	if lang := syntax.ForPath("Foo.java"); lang == nil || lang.Name != "java" {
+		t.Fatalf("ForPath(Foo.java) = %#v, want java", lang)
+	}
+}
+
 func TestHighlightTerraformExtensions(t *testing.T) {
 	tests := []struct {
 		path string
