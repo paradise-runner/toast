@@ -130,6 +130,10 @@ func extensionFileIcon(ext string) (fileIcon, bool) {
 		return fileIcon{marker: "f#", kind: fileIconDotNet}, true
 	case ".ex", ".exs":
 		return fileIcon{marker: "ex", kind: fileIconFunctional}, true
+	case ".eex", ".leex":
+		return fileIcon{marker: "ex", kind: fileIconMarkup}, true
+	case ".heex":
+		return fileIcon{marker: "hx", kind: fileIconMarkup}, true
 	case ".erl", ".hrl":
 		return fileIcon{marker: "er", kind: fileIconFunctional}, true
 	case ".hs", ".lhs":

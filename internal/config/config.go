@@ -72,13 +72,18 @@ type LSPInstall struct {
 	Download *LSPDownload      `json:"download,omitempty"`
 }
 
-// LSPDownload downloads and extracts a prebuilt language-server binary. The
-// archive must contain a single executable file at its root (a wrapping
-// top-level directory is tolerated); it is installed to {install_dir}/bin.
-// {target} expands to the platform's Rust target triple (see the LSP
-// manager), for releases that publish per-platform assets.
+// LSPDownload downloads and extracts a prebuilt language-server binary.
+// Format is "tar.gz" (the default), "zip", or "raw" for a plain executable
+// download. For archives the executable is installed to {install_dir}/bin;
+// Binary optionally renames the installed file ("nextls"), which is needed
+// when the release asset is named per platform (next_ls_darwin_arm64).
+// {target} expands to the platform's Rust target triple, {os} and {arch} to
+// the Go build names (darwin, arm64), for releases that publish per-platform
+// assets.
 type LSPDownload struct {
-	URL string `json:"url"`
+	URL    string `json:"url"`
+	Format string `json:"format,omitempty"`
+	Binary string `json:"binary,omitempty"`
 }
 
 type SearchConfig struct {
@@ -142,6 +147,23 @@ func Defaults() Config {
 				Install: &LSPInstall{
 					Name:     "harper-ls",
 					Download: &LSPDownload{URL: "https://github.com/automattic/harper/releases/latest/download/harper-ls-{target}.tar.gz"},
+				},
+			},
+			"elixir": {
+				// Next LS ships self-contained escripts, one per platform, so it is
+				// the only Elixir server that can be installed without an Elixir
+				// toolchain at install time (it still needs mix at runtime).
+				Command: "nextls", Args: []string{"--stdio"},
+				Extensions:     []string{".ex", ".exs"},
+				LanguageID:     "elixir",
+				ManagedCommand: "{install_dir}/bin/nextls{exe}",
+				Install: &LSPInstall{
+					Name: "Next LS",
+					Download: &LSPDownload{
+						URL:    "https://github.com/elixir-tools/next-ls/releases/latest/download/next_ls_{os}_{arch}{exe}",
+						Format: "raw",
+						Binary: "nextls{exe}",
+					},
 				},
 			},
 		},

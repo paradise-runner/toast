@@ -8,6 +8,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/css"
+	"github.com/smacker/go-tree-sitter/elixir"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/hcl"
 	"github.com/smacker/go-tree-sitter/html"
@@ -26,6 +27,12 @@ type LangDef struct {
 	Name     string
 	Language *sitter.Language
 	Query    []byte
+	// Keywords gates "@keyword" captures. Grammars that expose keywords as
+	// anonymous nodes (or as parse rules) leave this nil. When set, a span
+	// captured as @keyword is kept only if its source text is in the set;
+	// this lets a query capture a broad node type such as (identifier) and
+	// still highlight only the real keywords.
+	Keywords map[string]bool
 }
 
 var langByExt map[string]*LangDef
@@ -44,6 +51,11 @@ func init() {
 		{Name: "bash", Language: bash.GetLanguage()},
 		{Name: "hcl", Language: hcl.GetLanguage()},
 		{Name: "markdown", Language: tree_sitter_markdown.GetLanguage()},
+		{
+			Name:     "elixir",
+			Language: elixir.GetLanguage(),
+			Keywords: keywordSet(elixirKeywords...),
+		},
 		// JSON uses a custom scanner instead of tree-sitter (nil Language).
 		{Name: "json"},
 	}
@@ -53,19 +65,51 @@ func init() {
 			d.Query = q
 		}
 	}
-	langByExt = map[string]*LangDef{
-		".go": defs[0], ".py": defs[1], ".js": defs[2], ".mjs": defs[2],
-		".ts": defs[3], ".tsx": defs[3], ".rs": defs[4], ".css": defs[5],
-		".html": defs[6], ".htm": defs[6], ".yaml": defs[7], ".yml": defs[7],
-		".sh": defs[8], ".bash": defs[8],
-		".hcl": defs[9], ".tf": defs[9], ".tfvars": defs[9],
-		".md": defs[10], ".markdown": defs[10],
-		".json": defs[11], ".jsonc": defs[11],
-	}
 	langByName = make(map[string]*LangDef, len(defs))
 	for _, d := range defs {
 		langByName[d.Name] = d
 	}
+	// Key the extension table by language name so adding a language never
+	// shifts the extensions of the ones registered before it.
+	byName := func(name string) *LangDef { return langByName[name] }
+	langByExt = map[string]*LangDef{
+		".go": byName("go"),
+		".py": byName("python"),
+		".js": byName("javascript"), ".mjs": byName("javascript"),
+		".ts": byName("typescript"), ".tsx": byName("typescript"),
+		".rs":   byName("rust"),
+		".css":  byName("css"),
+		".html": byName("html"), ".htm": byName("html"),
+		".yaml": byName("yaml"), ".yml": byName("yaml"),
+		".sh": byName("bash"), ".bash": byName("bash"),
+		".hcl": byName("hcl"), ".tf": byName("hcl"), ".tfvars": byName("hcl"),
+		".md": byName("markdown"), ".markdown": byName("markdown"),
+		".ex": byName("elixir"), ".exs": byName("elixir"),
+		".json": byName("json"), ".jsonc": byName("json"),
+	}
+}
+
+// elixirKeywords gates "@keyword" captures. It holds both the keywords the
+// vendored grammar parses as plain identifiers (call targets) and the ones it
+// exposes as anonymous tokens, so every @keyword span is one of these words.
+// See queries/elixir.scm.
+var elixirKeywords = []string{
+	"alias", "case", "cond", "def", "defdelegate", "defexception",
+	"defguard", "defguardp", "defimpl", "defmacro", "defmacrop",
+	"defmodule", "defp", "defprotocol", "defstruct", "for", "if",
+	"import", "quote", "raise", "receive", "require", "reraise",
+	"super", "throw", "try", "unless", "unquote", "use", "with",
+	// Anonymous keyword tokens: captured by the query's token list.
+	"do", "end", "fn", "when", "and", "or", "not", "in", "after",
+	"else", "rescue", "catch",
+}
+
+func keywordSet(words ...string) map[string]bool {
+	set := make(map[string]bool, len(words))
+	for _, word := range words {
+		set[word] = true
+	}
+	return set
 }
 
 func ForPath(path string) *LangDef { return langByExt[strings.ToLower(filepath.Ext(path))] }
