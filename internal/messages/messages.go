@@ -61,6 +61,24 @@ type AutoSaveTickMsg struct {
 	Generation int
 }
 
+// SessionTickMsg - the debounced session-save timer fired. Generation
+// identifies which change the timer was started for; stale ticks (a newer
+// change arrived since) are ignored by the app.
+type SessionTickMsg struct {
+	Generation int
+}
+
+// SessionDirtyMsg - a component changed something the session persists (tab
+// list, tree expansion, sidebar geometry) and the debounced save should be
+// re-armed. The app reads the current state when the timer fires.
+type SessionDirtyMsg struct{}
+
+// SessionSaveFailedMsg - writing the session file failed. Reported once per
+// process: an unwritable state directory must not spam stderr on every tick.
+type SessionSaveFailedMsg struct {
+	Err error
+}
+
 // DiagnosticsUpdatedMsg - emitted when LSP publishes diagnostics
 type DiagnosticsUpdatedMsg struct {
 	Path        string

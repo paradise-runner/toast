@@ -9,6 +9,7 @@ import (
 	"github.com/paradise-runner/toast/internal/app"
 	"github.com/paradise-runner/toast/internal/config"
 	"github.com/paradise-runner/toast/internal/migrate"
+	"github.com/paradise-runner/toast/internal/session"
 )
 
 // findGitRoot walks up the directory tree from path looking for a .git entry
@@ -81,10 +82,24 @@ func runMigrateTheme(args []string) int {
 	return 0
 }
 
+// splitLaunchArgs separates launch flags from positional arguments so that
+// "toast --no-restore path" and "toast path --no-restore" behave the same.
+func splitLaunchArgs(args []string) (positional []string, noRestore bool) {
+	for _, arg := range args {
+		if arg == "--no-restore" {
+			noRestore = true
+			continue
+		}
+		positional = append(positional, arg)
+	}
+	return positional, noRestore
+}
+
 func main() {
 	ver := currentVersion()
-	if len(os.Args) >= 2 {
-		switch os.Args[1] {
+	args, noRestore := splitLaunchArgs(os.Args[1:])
+	if len(args) >= 1 {
+		switch args[0] {
 		case "-v", "--version":
 			fmt.Println(ver)
 			return
@@ -99,18 +114,19 @@ Usage:
 Options:
   -v, --version  Print version and exit
   -h, --help     Print this help and exit
+  --no-restore   Start fresh instead of restoring the saved session
 `, ver)
 			return
 		case "migrate-theme":
-			os.Exit(runMigrateTheme(os.Args[2:]))
+			os.Exit(runMigrateTheme(args[1:]))
 		}
 	}
 
 	dir := "."
 	var initialFile string
 
-	if len(os.Args) >= 2 {
-		arg := os.Args[1]
+	if len(args) >= 1 {
+		arg := args[0]
 		absArg, err := filepath.Abs(arg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -171,7 +187,8 @@ Options:
 	// directory chosen by LaunchServices (often "/"), which is never what the
 	// user wants. With no path argument, open a blank editor instead: point
 	// the workspace at the home directory and hide the file tree.
-	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" && len(os.Args) < 2 {
+	bundledFreshOpen := os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" && len(args) == 0
+	if bundledFreshOpen {
 		if home, err := os.UserHomeDir(); err == nil {
 			dir = home
 		}
@@ -193,9 +210,17 @@ Options:
 		os.Exit(1)
 	}
 
+	// Per-folder session state. The bundle's fresh-open state has no
+	// user-chosen root yet (it starts on the home directory); the app neither
+	// restores nor writes for it, and both directions start working once a
+	// folder is picked.
+	if stateDir, err := session.DefaultDir(); err == nil {
+		model.ConfigureSession(stateDir, cfg.Session, !noRestore)
+	}
+
 	// In the bundle's fresh-open state show a Select Workspace button that
 	// opens the native folder picker.
-	if os.Getenv("TOAST_GHOSTTY_BUNDLE") == "1" && len(os.Args) < 2 {
+	if bundledFreshOpen {
 		model.ShowWorkspacePrompt()
 	}
 

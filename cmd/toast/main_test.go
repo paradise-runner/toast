@@ -65,3 +65,35 @@ func TestFindGitRoot_GitFileInRoot(t *testing.T) {
 		t.Fatalf("expected root %q, got %q", dir, got)
 	}
 }
+
+func TestSplitLaunchArgs(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		wantPos       []string
+		wantNoRestore bool
+	}{
+		{name: "no args"},
+		{name: "path only", args: []string{"path/to/dir"}, wantPos: []string{"path/to/dir"}},
+		{name: "flag before path", args: []string{"--no-restore", "repo"}, wantPos: []string{"repo"}, wantNoRestore: true},
+		{name: "flag after path", args: []string{"repo", "--no-restore"}, wantPos: []string{"repo"}, wantNoRestore: true},
+		{name: "flag alone", args: []string{"--no-restore"}, wantNoRestore: true},
+		{name: "version with flag", args: []string{"--no-restore", "-v"}, wantPos: []string{"-v"}, wantNoRestore: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos, noRestore := splitLaunchArgs(tc.args)
+			if noRestore != tc.wantNoRestore {
+				t.Fatalf("noRestore = %v, want %v", noRestore, tc.wantNoRestore)
+			}
+			if len(pos) != len(tc.wantPos) {
+				t.Fatalf("positional = %v, want %v", pos, tc.wantPos)
+			}
+			for i, arg := range pos {
+				if arg != tc.wantPos[i] {
+					t.Fatalf("positional[%d] = %q, want %q", i, arg, tc.wantPos[i])
+				}
+			}
+		})
+	}
+}

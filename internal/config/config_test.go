@@ -236,3 +236,50 @@ func TestInvalidJSONFallsBackToDefaults(t *testing.T) {
 		t.Errorf("expected fallback to default theme, got %q", cfg.Theme)
 	}
 }
+
+func TestSessionDefaultsToOn(t *testing.T) {
+	cfg := config.Defaults()
+	if !cfg.Session.Restore || !cfg.Session.Persist {
+		t.Fatalf("default session config = %+v, want both true", cfg.Session)
+	}
+}
+
+func TestSessionConfigParsing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	// An omitted section keeps the defaults.
+	if err := os.WriteFile(path, []byte(`{"theme":"toast-dark"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if !cfg.Session.Restore || !cfg.Session.Persist {
+		t.Fatalf("session = %+v, want defaults when the key is absent", cfg.Session)
+	}
+
+	// A single false key turns off only that direction.
+	if err := os.WriteFile(path, []byte(`{"session":{"persist":false}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if !cfg.Session.Restore || cfg.Session.Persist {
+		t.Fatalf("session = %+v, want restore on and persist off", cfg.Session)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"session":{"restore":false}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if cfg.Session.Restore || !cfg.Session.Persist {
+		t.Fatalf("session = %+v, want restore off and persist on", cfg.Session)
+	}
+}

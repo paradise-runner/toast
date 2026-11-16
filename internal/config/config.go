@@ -11,6 +11,7 @@ type Config struct {
 	Theme           string            `json:"theme"`
 	Editor          EditorConfig      `json:"editor"`
 	Sidebar         SidebarConfig     `json:"sidebar"`
+	Session         SessionConfig     `json:"session"`
 	LSP             map[string]LSPCmd `json:"lsp"`
 	Search          SearchConfig      `json:"search"`
 	IgnoredPatterns []string          `json:"ignored_patterns"`
@@ -42,6 +43,15 @@ type SidebarConfig struct {
 	Width         int            `json:"width"`
 	ConfirmDelete bool           `json:"confirm_delete"`
 	FileIcons     FileIconConfig `json:"file_icons"`
+}
+
+// SessionConfig controls the per-folder session that survives a restart: open
+// tabs with their cursors and folds, the expanded file tree, and the sidebar
+// geometry. Restore and Persist are independent, so a user can keep writing
+// state without ever loading it back.
+type SessionConfig struct {
+	Restore bool `json:"restore"`
+	Persist bool `json:"persist"`
 }
 
 type FileIconConfig struct {
@@ -102,6 +112,7 @@ func Defaults() Config {
 			ConfirmDelete: true,
 			FileIcons:     FileIconConfig{Enabled: true, ColorMode: "accent"},
 		},
+		Session: SessionConfig{Restore: true, Persist: true},
 		LSP: map[string]LSPCmd{
 			"go": {
 				Command: "gopls", Args: []string{"serve"}, Extensions: []string{".go"},

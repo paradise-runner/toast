@@ -306,6 +306,16 @@ func (m Model) ActiveTab() *Tab {
 	return &t
 }
 
+// Tabs returns the open tabs in display order.
+func (m Model) Tabs() []Tab {
+	return append([]Tab(nil), m.tabs...)
+}
+
+// ActiveIndex returns the index of the active tab, or -1 when none is active.
+func (m Model) ActiveIndex() int {
+	return m.active
+}
+
 // indexByID finds the slice index of a tab with the given BufferID, or -1.
 func (m Model) indexByID(bufferID int) int {
 	for i, t := range m.tabs {

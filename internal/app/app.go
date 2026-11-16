@@ -33,6 +33,7 @@ import (
 	"github.com/paradise-runner/toast/internal/git"
 	"github.com/paradise-runner/toast/internal/lsp"
 	"github.com/paradise-runner/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/session"
 	"github.com/paradise-runner/toast/internal/theme"
 	"github.com/paradise-runner/toast/internal/watcher"
 )
@@ -145,6 +146,27 @@ type Model struct {
 	// unsaved changes. Keyed by file path. Preserved until quit so the user
 	// can be prompted to save them. Re-opening the file restores from here.
 	closedSnapshots map[string]editor.BufferSnapshot
+
+	// sessionStore persists per-root session state (tabs, tree expansion,
+	// sidebar geometry) across launches. Nil until ConfigureSession is called.
+	sessionStore *session.Store
+	// sessionRoot is the resolved directory the session is keyed on.
+	sessionRoot string
+	// sessionPersist and sessionRestore select the two directions of session
+	// state: writing it on change/quit, and reading it on launch.
+	sessionPersist bool
+	sessionRestore bool
+	// sessionGen is bumped for every session-relevant change; a firing
+	// SessionTickMsg is only acted on when its generation is current, which
+	// debounces writes.
+	sessionGen int
+	// sessionSaveWarned limits the unwritable-state-directory warning to one
+	// per process instead of one per debounce tick.
+	sessionSaveWarned bool
+	// pendingTabState holds the saved editing state for tabs restored from a
+	// session that have not been loaded into the editor yet. Keyed by absolute
+	// path, applied when the file finishes loading.
+	pendingTabState map[string]editor.SessionState
 
 	// pendingQuitSaves counts how many async saves are still in-flight during
 	// a save-then-quit sequence. The app quits when this reaches zero.
@@ -280,6 +302,14 @@ func (m *Model) Init() tea.Cmd {
 		cmds = append(cmds, func() tea.Msg {
 			return messages.FileSelectedMsg{Path: path}
 		})
+	} else if cmd := m.restoreSession(); cmd != nil {
+		// No explicit file on the command line: resume the saved session for
+		// this root. An explicit path always wins, so "toast foo.go" opens what
+		// was asked for.
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.pruneSessionsCmd(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
 }
@@ -327,9 +357,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseReleaseMsg:
+		endedSidebarDrag := m.sidebarDragging && msg.Button == tea.MouseLeft
 		cmd := m.handleMouseRelease(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		if endedSidebarDrag {
+			// Persist the width once the drag settles, not on every motion event.
+			if saveCmd := m.scheduleSessionSave(); saveCmd != nil {
+				cmds = append(cmds, saveCmd)
+			}
 		}
 
 	case tea.MouseMotionMsg:
@@ -398,6 +435,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				delete(m.openBuffers, path)
 				delete(m.previewByBuffer, id)
+				// A cold restored tab keeps its saved state until first load; drop it
+				// with the tab.
+				delete(m.pendingTabState, path)
 				// Preserve unsaved changes so the user can be prompted at quit.
 				if snap, ok := m.bufferSnapshots[id]; ok {
 					if snap.Modified() {
@@ -478,7 +518,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingQuitSaves--
 			if m.pendingQuitSaves <= 0 {
 				m.pendingQuit = false
-				return m, tea.Batch(append(cmds, tea.Quit)...)
+				return m, tea.Batch(append(cmds, m.quitCmd())...)
 			}
 		}
 
@@ -696,6 +736,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.autoSaveDirtyBuffers()...)
 
+	case messages.SessionTickMsg:
+		// Ignore stale debounce ticks — a newer change superseded this one.
+		if msg.Generation != m.sessionGen {
+			break
+		}
+		if cmd := m.writeSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case messages.SessionSaveFailedMsg:
+		// A session is advisory state: warn once and keep editing.
+		if !m.sessionSaveWarned {
+			m.sessionSaveWarned = true
+			fmt.Fprintf(os.Stderr, "toast: session save failed: %v\n", msg.Err)
+		}
+
+	case messages.SessionDirtyMsg:
+		// Handled by the session debounce at the end of Update; the tree emits
+		// this when a directory is expanded or collapsed.
+
 	case messages.FileChangedOnDiskMsg:
 		// Skip git status and reload when this is our own save write, or when the
 		// event is the Remove/Create pair produced by our own drag/drop rename
@@ -737,6 +797,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previewOpen = false
 		}
 		m.breadcrumb.SetPreviewOpen(m.previewOpen)
+		// A tab restored from a session is loaded cold on first activation; its
+		// saved cursor, viewport and folds are applied now that the file is in
+		// the buffer.
+		if st, ok := m.pendingTabState[msg.Path]; ok {
+			delete(m.pendingTabState, msg.Path)
+			m.editor.ApplySessionState(st)
+		}
 
 	case messages.OpenExternalFileMsg:
 		if cmd := openExternalFile(msg.Path); cmd != nil {
@@ -792,13 +859,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if len(saveCmds) == 0 {
-				return m, tea.Quit
+				return m, m.quitCmd()
 			}
 			m.pendingQuit = true
 			m.pendingQuitSaves = len(saveCmds)
 			cmds = append(cmds, saveCmds...)
 		} else {
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 
 	case messages.ThemePickerOpenMsg:
@@ -876,6 +943,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update cursor position in status bar after any message
 	m.statusBar.SetCursor(m.editor.CursorLine(), m.editor.CursorCol())
 
+	if sessionRelevant(msg) {
+		if cmd := m.scheduleSessionSave(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -891,7 +964,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		// Ctrl+Q while dialog is open force-quits without saving.
 		if m.isQuit(msg) {
 			m.quitDialogOpen = false
-			return tea.Quit
+			return m.quitCmd()
 		}
 		updated, cmd := m.quitDialog.Update(msg)
 		m.quitDialog = updated
@@ -1255,7 +1328,7 @@ func (m *Model) unsavedFiles() (count int, path string) {
 func (m *Model) requestQuit() tea.Cmd {
 	count, path := m.unsavedFiles()
 	if count == 0 {
-		return tea.Quit
+		return m.quitCmd()
 	}
 	m.quitDialog = quitdialog.New(m.theme, path, count)
 	m.quitDialogOpen = true
@@ -1344,6 +1417,13 @@ func (m *Model) rebindMovedPath(msg messages.FileMovedMsg) {
 	for _, mv := range moves {
 		delete(m.openBuffers, mv.oldPath)
 		m.openBuffers[mv.newPath] = mv.bufID
+
+		// A cold restored tab keeps its saved state keyed by path, so it has to
+		// follow the rename too.
+		if st, ok := m.pendingTabState[mv.oldPath]; ok {
+			delete(m.pendingTabState, mv.oldPath)
+			m.pendingTabState[mv.newPath] = st
+		}
 
 		pathMsg := messages.BufferPathChangedMsg{
 			BufferID: mv.bufID,
@@ -2349,6 +2429,18 @@ func (m *Model) resizeComponents() []tea.Cmd {
 	tabBarHeight := 1
 	statusBarHeight := 1
 	breadcrumbHeight := 1
+
+	// Keep the sidebar inside the same bounds the drag-resize handler enforces.
+	// A width restored from a session (or from config) was chosen on a wider
+	// terminal, and letting it through would squeeze the editor to nothing.
+	if m.width > 0 {
+		if m.sidebarWidth < minRestoredSidebarWidth {
+			m.sidebarWidth = minRestoredSidebarWidth
+		}
+		if m.sidebarWidth > m.width/2 {
+			m.sidebarWidth = m.width / 2
+		}
+	}
 
 	sidebarW := 0
 	if m.sidebarVisible {
