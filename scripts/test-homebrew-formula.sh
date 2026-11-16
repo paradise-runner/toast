@@ -39,6 +39,36 @@ render_as() {
             -e "s/\${LINUX_AMD64_SHA}/${3}/g"
 }
 
+# render_in_shell <version> <arm64-sha> <linux-sha>
+#
+# The workflow runs the heredoc with bash, so the rendered file is what bash
+# makes of it, not what the template says: the delimiter is unquoted, so
+# backticks and $( ) in the formula body are evaluated. Running the extracted
+# block for real is the only way to see that (a pair of backticks around
+# "brew install" silently ate a word in the first version of the #105 fix).
+#
+# The render is deliberately starved of commands -- only cat is on PATH -- so a
+# body that does try to execute something fails to find it instead of running
+# it here.
+render_in_shell() {
+    mkdir -p "$tmp/shell/homebrew-tap" "$tmp/bin"
+    ln -sf "$(command -v cat)" "$tmp/bin/cat"
+    printf '%s\n' "$(render_block)" |
+        (cd "$tmp/shell" && PATH="$tmp/bin" VERSION="$1" ARM64_SHA="$2" LINUX_AMD64_SHA="$3" \
+            "$BASH" 2>/dev/null) || return 1
+    cat "$tmp/shell/homebrew-tap/toast.rb"
+}
+
+# render_block prints the workflow's shell step verbatim: the `cat > ... <<EOF`
+# line and the body, indentation stripped as YAML would strip it.
+render_block() {
+    awk '
+        /cat > homebrew-tap\/toast\.rb <<EOF/ { inside = 1 }
+        inside { sub(/^ {10}/, ""); print }
+        inside && /^EOF$/ { exit }
+    ' "$workflow"
+}
+
 sha_a="$(printf 'a%.0s' $(seq 64))"
 sha_b="$(printf 'b%.0s' $(seq 64))"
 formula="$(render_as v9.9.9 "$sha_a" "$sha_b")"
@@ -74,6 +104,20 @@ if grep -q '\${' <<<"$formula"; then
     fail "every placeholder is substituted" "left in place: $(grep -o '\${[A-Za-z_]*}' <<<"$formula" | sort -u | tr '\n' ' ')"
 else
     pass "every placeholder is substituted"
+fi
+
+# bash must render the same bytes the template asks for. A difference means
+# something in the body was expanded (backticks, $( ), unescaped $VAR).
+if ! shell_formula="$(render_in_shell v9.9.9 "$sha_a" "$sha_b")"; then
+    fail "bash renders the template unchanged" "the heredoc step failed"
+else
+    printf '%s\n' "$shell_formula" >"$tmp/from-shell.rb"
+    printf '%s\n' "$formula" >"$tmp/from-template.rb"
+    if diff -u "$tmp/from-template.rb" "$tmp/from-shell.rb" >"$tmp/diff.txt"; then
+        pass "bash renders the template unchanged"
+    else
+        fail "bash renders the template unchanged" "$(sed -n '3,12p' "$tmp/diff.txt")"
+    fi
 fi
 
 if command -v ruby >/dev/null 2>&1; then

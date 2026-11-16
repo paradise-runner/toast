@@ -231,7 +231,7 @@ jobs:
             end
 
             # Homebrew on Linux (Linuxbrew) loads the same formula, so a
-            # missing on_linux branch makes `brew install` die with "formula
+            # missing on_linux branch makes "brew install" die with "formula
             # requires at least a URL" before anything is downloaded (issue
             # #105). The Linux asset exists, it just was not wired up here.
             on_linux do
