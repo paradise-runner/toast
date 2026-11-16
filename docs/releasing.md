@@ -138,6 +138,16 @@ gh api 'repos/paradise-runner/homebrew-tap/commits?per_page=1'   # "toast v0.13.
 scripts/release-notes-section.sh v0.13.0               # what the body should say
 ```
 
+The generated formula has to cover every platform Homebrew loads it on, or
+`brew install` dies with `formula requires at least a URL` before downloading
+anything (issue #105). Check it renders both branches, and that the Intel macOS
+and Linux blocks were not dropped:
+
+```bash
+gh api repos/paradise-runner/homebrew-tap/contents/toast.rb --jq .content \
+  | base64 -d | grep -cE '^  (on_macos|on_linux) do'        # → 2
+```
+
 The binaries bake in the tag, so the quickest end-to-end check is:
 
 ```bash
@@ -221,6 +231,7 @@ add the notes section either way.
 | `.github/workflows/release-please.yml` | Runs Release Please on `main` (or via `gh workflow run`), then calls `release.yml` when a release is created |
 | `.github/workflows/release.yml`   | Builds the platform zips + `Toast.app`, attaches them to the release, updates the Homebrew tap; also publishes `RELEASE_NOTES.md` notes for a hand-dispatched tag |
 | `scripts/release-notes-section.sh` | Prints a tag's notes section; used by `release.yml` and by the pre-push hook |
+| `scripts/test-homebrew-formula.sh` | Renders the tap formula from `release.yml` and checks every platform block is loadable |
 | `.githooks/check-release-notes`   | pre-push hook: no local tag without a notes section                     |
 
 Release PRs are titled `chore: release X.Y.Z` (`pull-request-title-pattern`).

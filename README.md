@@ -52,11 +52,15 @@ brew install paradise-runner/tap/toast
 
 ## Installation
 
-**Homebrew (macOS)**
+**Homebrew (macOS and Linux)**
 
 ```bash
 brew install paradise-runner/tap/toast
 ```
+
+Linux builds are x86_64 only and link against glibc, so they need glibc 2.34 or
+newer (Ubuntu 22.04+, Fedora 35+, Debian 12+). There is no Linux arm64 build
+yet; the formula stops with a message rather than installing the amd64 binary.
 
 **Download a release**
 
