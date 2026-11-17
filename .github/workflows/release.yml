@@ -42,11 +42,27 @@ jobs:
           # so the job was cancelled while still queued and took the release
           # down with it.
           - runner: macos-latest
+            goos: darwin
             goarch: arm64
             asset: toast-darwin-arm64
+            machine: arm64
           - runner: ubuntu-latest
+            goos: linux
             goarch: amd64
             asset: toast-linux-amd64
+            machine: x86-64
+          # Linux arm64 is cross-compiled on the amd64 runner. CGO cannot be
+          # turned off (tree-sitter is a cgo package with C and C++ sources), so
+          # GOARCH alone is not enough: cgo needs an aarch64 C and C++ compiler,
+          # which the extra toolchain step below installs and points CC/CXX at
+          # (issue #111).
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            asset: toast-linux-arm64
+            machine: aarch64
 
     steps:
       - uses: actions/checkout@v4
@@ -57,11 +73,31 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Only the cross-compiled matrix entry sets cc/cxx, so this step is
+      # skipped for the native builds (an undefined matrix key is false).
+      - name: Install the arm64 cross compilers
+        if: matrix.cc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          # cgo defaults CXX to the host c++, which produces amd64 objects next
+          # to the cross-compiled ones and fails at link time, so set both.
+          echo "CC=${{ matrix.cc }}" >> "$GITHUB_ENV"
+          echo "CXX=${{ matrix.cxx }}" >> "$GITHUB_ENV"
+
       - name: Build
         env:
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
         run: go build -trimpath -ldflags="-s -w -X main.version=${{ inputs.tag_name }}" -o ${{ matrix.asset }} ./cmd/toast
+
+      # A GOARCH that did not take (or a cross build that fell back to the
+      # host compiler) would publish a binary the tap then installs on the
+      # wrong machine, which is the failure mode in issue #111. Cheap to check
+      # here, expensive to discover after the release and the tap bump.
+      - name: Check the binary targets ${{ matrix.goos }}/${{ matrix.goarch }}
+        run: file "${{ matrix.asset }}" | grep -q -- "${{ matrix.machine }}"
 
       - name: Archive (zip)
         run: zip ${{ matrix.asset }}.zip ${{ matrix.asset }}
@@ -110,6 +146,7 @@ jobs:
     outputs:
       darwin_arm64_sha: ${{ steps.sha.outputs.darwin_arm64 }}
       linux_amd64_sha: ${{ steps.sha.outputs.linux_amd64 }}
+      linux_arm64_sha: ${{ steps.sha.outputs.linux_arm64 }}
 
     steps:
       - uses: actions/download-artifact@v4
@@ -130,6 +167,7 @@ jobs:
         run: |
           echo "darwin_arm64=$(sha256sum toast-darwin-arm64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "linux_amd64=$(sha256sum toast-linux-amd64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64=$(sha256sum toast-linux-arm64.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       # Release Please already created the release, so only upload assets and
       # leave its notes alone. A hand-dispatched tag has no release yet, so
@@ -193,6 +231,7 @@ jobs:
           VERSION: ${{ inputs.tag_name }}
           ARM64_SHA: ${{ needs.release.outputs.darwin_arm64_sha }}
           LINUX_AMD64_SHA: ${{ needs.release.outputs.linux_amd64_sha }}
+          LINUX_ARM64_SHA: ${{ needs.release.outputs.linux_arm64_sha }}
         run: |
           cat > homebrew-tap/toast.rb <<EOF
           # typed: false
@@ -233,21 +272,23 @@ jobs:
             # Homebrew on Linux (Linuxbrew) loads the same formula, so a
             # missing on_linux branch makes "brew install" die with "formula
             # requires at least a URL" before anything is downloaded (issue
-            # #105). The Linux asset exists, it just was not wired up here.
+            # #105). Each CPU gets the asset built for it (issue #111): the
+            # url is chosen from the architecture at load time, and install picks
+            # the matching binary name, so arm64 never receives the amd64 build.
             on_linux do
-              url "https://github.com/paradise-runner/toast/releases/download/${VERSION}/toast-linux-amd64.zip"
-              sha256 "${LINUX_AMD64_SHA}"
+              if Hardware::CPU.arm?
+                url "https://github.com/paradise-runner/toast/releases/download/${VERSION}/toast-linux-arm64.zip"
+                sha256 "${LINUX_ARM64_SHA}"
+              else
+                url "https://github.com/paradise-runner/toast/releases/download/${VERSION}/toast-linux-amd64.zip"
+                sha256 "${LINUX_AMD64_SHA}"
+              end
 
               def install
-                # There is no Linux arm64 build yet. Homebrew needs a url on
-                # every platform it loads the formula on, so this branch points
-                # at the amd64 asset and refuses here with something actionable
-                # instead of the bare "requires at least a URL" error.
-                if Hardware::CPU.arm?
-                  odie "toast ships no Linux arm64 build yet; use: go install github.com/paradise-runner/toast/cmd/toast@latest"
-                end
+                artifact = "toast-linux-amd64"
+                artifact = "toast-linux-arm64" if Hardware::CPU.arm?
 
-                bin.install "toast-linux-amd64" => "toast"
+                bin.install artifact => "toast"
               end
             end
           end
