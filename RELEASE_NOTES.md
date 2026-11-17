@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.15.1](https://github.com/paradise-runner/toast/compare/v0.15.0...v0.15.1) (2026-11-17)
+
+
+### Fixes
+
+* **ci:** ship a Linux arm64 build and wire it into the tap ([#111](https://github.com/paradise-runner/toast/issues/111)) ([#113](https://github.com/paradise-runner/toast/issues/113)) ([cf2ca85](https://github.com/paradise-runner/toast/commit/cf2ca8512623df7c62df5cfa36be0e72f5616b9d))
+
 ## [0.15.0](https://github.com/paradise-runner/toast/compare/v0.14.2...v0.15.0) (2026-11-17)
 
 
