@@ -36,6 +36,7 @@ import (
 	"github.com/paradise-runner/toast/internal/session"
 	"github.com/paradise-runner/toast/internal/theme"
 	"github.com/paradise-runner/toast/internal/watcher"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 // FocusTarget identifies which component currently has keyboard focus.
@@ -67,6 +68,10 @@ type Model struct {
 	dragStartX      int
 	dragStartWidth  int
 
+	// ws is the workspace the window is browsing: one directory, or the roots
+	// of a VS Code .code-workspace file. rootDir is its primary root, kept for
+	// the handful of callers that need a single path.
+	ws         *workspace.Workspace
 	rootDir    string
 	searchOpen bool
 
@@ -190,9 +195,18 @@ type Model struct {
 	send func(tea.Msg)
 }
 
-// New creates a new application model with all component sub-models.
+// New creates a new application model browsing a single directory.
 // initialFile is an optional absolute path to open immediately on startup.
 func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, error) {
+	return NewWorkspace(cfg, themeDir, workspace.Single(rootDir), initialFile)
+}
+
+// NewWorkspace creates a new application model browsing every root of ws, which
+// is either a single directory launch or the folders of a .code-workspace file.
+func NewWorkspace(cfg config.Config, themeDir string, ws *workspace.Workspace, initialFile string) (*Model, error) {
+	if ws == nil || len(ws.Roots) == 0 {
+		return nil, fmt.Errorf("workspace has no roots")
+	}
 	tm, err := theme.NewManager(cfg.Theme, themeDir)
 	if err != nil {
 		return nil, err
@@ -203,13 +217,12 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		configPath = ""
 	}
 
-	return &Model{
+	m := &Model{
 		cfg:             cfg,
 		theme:           tm,
 		focus:           FocusEditor,
 		sidebarWidth:    cfg.Sidebar.Width,
 		sidebarVisible:  cfg.Sidebar.Visible,
-		rootDir:         rootDir,
 		initialFile:     initialFile,
 		nextBufferID:    1,
 		openBuffers:     make(map[string]int),
@@ -221,18 +234,32 @@ func New(cfg config.Config, themeDir, rootDir, initialFile string) (*Model, erro
 		themePicker:     themepicker.New(tm, themeDir, cfg.Theme),
 		goToLine:        gotoline.NewWithTheme(tm),
 		findReplace:     findreplace.New(tm),
-		quickOpen:       quickopen.New(tm, rootDir, cfg.IgnoredPatterns),
 		commandPalette:  commandpalette.New(tm, cfg.Keybindings),
 		lspInstall:      lspinstall.New(tm),
 
-		fileTree:   filetree.New(tm, cfg, rootDir),
-		tabBar:     tabbar.New(tm),
-		editor:     editor.New(tm, cfg),
-		statusBar:  statusbar.New(tm),
-		breadcrumb: breadcrumbs.New(tm, rootDir),
-		search:     search.New(tm, rootDir, cfg.Search),
-		preview:    preview.New(tm),
-	}, nil
+		tabBar:    tabbar.New(tm),
+		editor:    editor.New(tm, cfg),
+		statusBar: statusbar.New(tm),
+		preview:   preview.New(tm),
+	}
+	m.applyWorkspace(ws)
+	return m, nil
+}
+
+// applyWorkspace points the workspace-scoped components at ws. It is shared by
+// construction and switchWorkspace; it does not touch open buffers, focus or
+// session state, which the caller owns.
+func (m *Model) applyWorkspace(ws *workspace.Workspace) {
+	m.ws = ws
+	m.rootDir = ""
+	if ws == nil || len(ws.Roots) == 0 {
+		return
+	}
+	m.rootDir = ws.Roots[0].Path
+	m.fileTree = filetree.NewRoots(m.theme, m.cfg, ws.Roots)
+	m.breadcrumb = breadcrumbs.NewRoots(m.theme, ws.Roots)
+	m.quickOpen = quickopen.NewRoots(m.theme, ws.Roots, m.cfg.IgnoredPatterns)
+	m.search = search.NewRoots(m.theme, ws.Roots, m.cfg.Search)
 }
 
 // ShowWorkspacePrompt shows the Select Workspace button in the editor area.
@@ -258,7 +285,7 @@ func (m *Model) restartServices() {
 	if m.lspMgr != nil {
 		m.lspMgr.ShutdownAll()
 	}
-	m.lspMgr = lsp.NewManager(m.cfg, m.rootDir, m.send)
+	m.lspMgr = lsp.NewManagerRoots(m.cfg, m.workspaceRoots(), m.send)
 	if m.watcher != nil {
 		m.watcher.Close()
 	}
@@ -2561,51 +2588,90 @@ func linuxRevealCmd(path string) *exec.Cmd {
 	return exec.Command("xdg-open", target)
 }
 
-// runGitStatus runs git status asynchronously and returns a GitStatusUpdatedMsg.
-func (m *Model) runGitStatus() tea.Cmd {
-	rootDir := m.rootDir
-	return func() tea.Msg {
-		result, err := git.Run(rootDir)
-		if err != nil {
-			return nil
+// workspaceRoots returns the directories the workspace spans, degrading to the
+// primary root if the workspace was never set (defensive for test models).
+func (m *Model) workspaceRoots() []string {
+	if m.ws != nil {
+		if paths := m.ws.Paths(); len(paths) > 0 {
+			return paths
 		}
-		// Convert git.FileStatus to messages.GitStatus
+	}
+	if m.rootDir == "" {
+		return nil
+	}
+	return []string{m.rootDir}
+}
+
+// runGitStatus runs git status once per workspace root and merges the results,
+// so a multi-root workspace decorates every root's files. Roots that are not git
+// repositories are skipped; the branch label shows the single shared branch, or
+// every distinct branch separated by a middle dot.
+func (m *Model) runGitStatus() tea.Cmd {
+	roots := m.workspaceRoots()
+	return func() tea.Msg {
 		fileStatuses := make(map[string]messages.GitStatus)
-		for path, status := range result.Files {
-			// Make paths absolute for matching
-			absPath := path
-			if !filepath.IsAbs(path) {
-				absPath = filepath.Join(rootDir, path)
+		var branches []string
+		seenBranch := make(map[string]bool)
+		reporting := false
+		var ahead, behind int
+
+		for _, rootDir := range roots {
+			result, err := git.Run(rootDir)
+			if err != nil {
+				continue
 			}
-			switch status {
-			case git.StatusModified:
-				fileStatuses[absPath] = messages.GitStatusModified
-			case git.StatusAdded:
-				fileStatuses[absPath] = messages.GitStatusAdded
-			case git.StatusDeleted:
-				fileStatuses[absPath] = messages.GitStatusDeleted
-			case git.StatusUntracked:
-				fileStatuses[absPath] = messages.GitStatusUntracked
-			case git.StatusConflict:
-				fileStatuses[absPath] = messages.GitStatusConflict
-			case git.StatusIgnored:
-				fileStatuses[absPath] = messages.GitStatusIgnored
-			default:
-				fileStatuses[absPath] = messages.GitStatusClean
+			reporting = true
+			for path, status := range result.Files {
+				// Make paths absolute for matching
+				absPath := path
+				if !filepath.IsAbs(path) {
+					absPath = filepath.Join(rootDir, path)
+				}
+				switch status {
+				case git.StatusModified:
+					fileStatuses[absPath] = messages.GitStatusModified
+				case git.StatusAdded:
+					fileStatuses[absPath] = messages.GitStatusAdded
+				case git.StatusDeleted:
+					fileStatuses[absPath] = messages.GitStatusDeleted
+				case git.StatusUntracked:
+					fileStatuses[absPath] = messages.GitStatusUntracked
+				case git.StatusConflict:
+					fileStatuses[absPath] = messages.GitStatusConflict
+				case git.StatusIgnored:
+					fileStatuses[absPath] = messages.GitStatusIgnored
+				default:
+					fileStatuses[absPath] = messages.GitStatusClean
+				}
 			}
+			if result.Branch != "" && !seenBranch[result.Branch] {
+				seenBranch[result.Branch] = true
+				branches = append(branches, result.Branch)
+			}
+			if result.Ahead != 0 || result.Behind != 0 {
+				ahead += result.Ahead
+				behind += result.Behind
+			}
+		}
+		if !reporting {
+			return nil
 		}
 		return messages.GitStatusUpdatedMsg{
 			FileStatuses: fileStatuses,
-			Branch:       result.Branch,
-			Ahead:        result.Ahead,
-			Behind:       result.Behind,
+			Branch:       strings.Join(branches, " · "),
+			Ahead:        ahead,
+			Behind:       behind,
 		}
 	}
 }
 
-// runGitDiff runs git diff for a specific file and returns a GitDiffUpdatedMsg.
+// runGitDiff runs git diff for a specific file in the workspace root that owns
+// it and returns a GitDiffUpdatedMsg.
 func (m *Model) runGitDiff(bufferID int, path string) tea.Cmd {
 	rootDir := m.rootDir
+	if root, ok := m.ws.RootFor(path); ok {
+		rootDir = root.Path
+	}
 	return func() tea.Msg {
 		kinds, err := git.RunDiff(rootDir, path, 10000) // generous line count
 		if err != nil {

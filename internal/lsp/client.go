@@ -83,24 +83,48 @@ func NewClient(language, command string, args []string, send func(tea.Msg)) (*Cl
 	return c, nil
 }
 
-// Initialize sends the LSP initialize request followed by the initialized notification.
+// WorkspaceFolder is one folder advertised to a language server during
+// initialize, so a multi-root workspace gets one server spanning every root.
+type WorkspaceFolder struct {
+	URI  string `json:"uri"`
+	Name string `json:"name"`
+}
+
+// Initialize sends the LSP initialize request followed by the initialized
+// notification for a single root.
 func (c *Client) Initialize(rootURI string) error {
-	params := map[string]interface{}{
-		"rootUri": rootURI,
-		"capabilities": map[string]interface{}{
-			"textDocument": map[string]interface{}{
-				"definition": map[string]interface{}{},
-				"completion": map[string]interface{}{
-					"completionItem": map[string]interface{}{
-						"documentationFormat": []string{"plaintext", "markdown"},
-					},
+	return c.InitializeWithFolders(rootURI, nil)
+}
+
+// InitializeWithFolders sends the initialize request with an optional
+// workspace-folder list. When folders is empty the request is the single-root
+// form language servers have always accepted; when it is populated, the
+// capabilities announce workspace-folder support so a server that understands
+// it can index every root.
+func (c *Client) InitializeWithFolders(rootURI string, folders []WorkspaceFolder) error {
+	capabilities := map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"definition": map[string]interface{}{},
+			"completion": map[string]interface{}{
+				"completionItem": map[string]interface{}{
+					"documentationFormat": []string{"plaintext", "markdown"},
 				},
-				"hover": map[string]interface{}{
-					"contentFormat": []string{"plaintext", "markdown"},
-				},
-				"publishDiagnostics": map[string]interface{}{},
 			},
+			"hover": map[string]interface{}{
+				"contentFormat": []string{"plaintext", "markdown"},
+			},
+			"publishDiagnostics": map[string]interface{}{},
 		},
+	}
+	params := map[string]interface{}{
+		"rootUri":      rootURI,
+		"capabilities": capabilities,
+	}
+	if len(folders) > 0 {
+		capabilities["workspace"] = map[string]interface{}{
+			"workspaceFolders": true,
+		}
+		params["workspaceFolders"] = folders
 	}
 
 	ctx := context.Background()

@@ -41,6 +41,7 @@ brew install paradise-runner/tap/toast
 - **Spell checking** — misspelled words in Markdown and plain-text files are underlined in the theme's diagnostic color via harper
 - **Go to definition** — hold `Ctrl` and hover to underline symbols with a target, then `Ctrl`-click to jump to the exact definition
 - **File tree sidebar** with git status, ignored-file dimming, create/delete actions, file watching, and draggable resizing
+- **Multi-root workspaces** — open a VS Code `.code-workspace` file to browse, search and git-decorate several folders in one window
 - **Project-wide search** powered by `rg` (ripgrep), bundled into `make build`
 - **In-file find/replace** with next/previous navigation, match-case, and whole-word options
 - **Line folding** — click the `▾` caret in the gutter (or press `Ctrl+Shift+[`) to collapse an indentation block or Markdown heading; the gutter shows the hidden line count, and `Fold All` collapses every top-level block
@@ -138,6 +139,7 @@ make build
 toast               # open current directory
 toast path/to/dir   # open a specific directory
 toast path/to/file  # open a file (auto-detects git root)
+toast project.code-workspace  # open every folder the workspace declares
 toast new/file.go   # open a new file buffer if the parent directory exists
 toast --no-restore  # ignore the saved session for this launch
 toast --help
@@ -237,6 +239,28 @@ directories in the file tree and the sidebar width and visibility.
 `session.restore` turns off loading ("keep writing, never load"), and
 `session.persist` turns off writing. `--no-restore` skips loading for a single
 launch.
+
+### Workspaces
+
+`toast path/to/project.code-workspace` opens every folder the file declares in
+one window. Relative `folders[].path` entries resolve against the workspace
+file's directory and `folders[].name` becomes the file tree's top-level label.
+Comments and trailing commas are accepted the way VS Code accepts them.
+
+- The file tree shows one collapsible row per root, and each root's subtree,
+  git decorations, and create/delete/move actions stay inside that root.
+- Quick-open and project search cover every root. With more than one root,
+  result paths are prefixed with the root name (`Frontend/src/app.ts`).
+- Git status runs once per root and merges the results; a root that is not a git
+  repository is skipped, and distinct branches are shown separated by `·`.
+- Language servers start once per language and initialize with every root as a
+  workspace folder.
+- Session state is keyed on the workspace file, so editing its folder list keeps
+  the saved tabs. Tabs outside the first root are stored as absolute paths.
+- `settings`, `launch` and `tasks` are ignored, and Toast does not create or edit
+  `.code-workspace` files.
+
+A single-folder launch (`toast path/to/dir`) looks and behaves as before.
 
 ### Keybindings
 

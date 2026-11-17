@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/paradise-runner/toast/internal/messages"
 	"github.com/paradise-runner/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 const (
@@ -19,13 +20,24 @@ type Model struct {
 	theme       *theme.Manager
 	width       int
 	path        string
-	rootDir     string
+	roots       []workspace.Root
 	previewOpen bool
 	buttonX     int // screen X of the preview button, -1 when not shown
 }
 
+// New creates breadcrumbs for a single root directory.
 func New(tm *theme.Manager, rootDir string) Model {
-	return Model{theme: tm, rootDir: rootDir, buttonX: -1}
+	return NewRoots(tm, []workspace.Root{{
+		Name: filepath.Base(rootDir),
+		Path: rootDir,
+	}})
+}
+
+// NewRoots creates breadcrumbs across a workspace. In a multi-root workspace
+// the owning root's name leads the trail, so the same relative path in two
+// roots is distinguishable.
+func NewRoots(tm *theme.Manager, roots []workspace.Root) Model {
+	return Model{theme: tm, roots: roots, buttonX: -1}
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -84,11 +96,16 @@ func (m Model) View() tea.View {
 		return tea.NewView(base.Width(m.width).Render(""))
 	}
 
-	rel, err := filepath.Rel(m.rootDir, m.path)
-	if err != nil {
-		rel = m.path
+	rel := m.displayPath(m.path)
+	rawParts := strings.Split(filepath.ToSlash(rel), "/")
+	parts := make([]string, 0, len(rawParts))
+	for _, part := range rawParts {
+		// An outside-root path is absolute, so its slash split starts with an
+		// empty component. Drop empties rather than rendering a blank crumb.
+		if part != "" {
+			parts = append(parts, part)
+		}
 	}
-	parts := strings.Split(filepath.ToSlash(rel), "/")
 	var rendered []string
 	for i, part := range parts {
 		if i == len(parts)-1 {
@@ -126,6 +143,22 @@ func (m Model) View() tea.View {
 	return tea.NewView(base.Width(m.width).Render(
 		crumbs + base.Render(strings.Repeat(" ", pad)) + btn,
 	))
+}
+
+// displayPath renders the edited file relative to its workspace root, prefixed
+// with the root name when the workspace has more than one.
+func (m Model) displayPath(path string) string {
+	if len(m.roots) == 0 {
+		return path
+	}
+	if len(m.roots) == 1 {
+		rel, err := filepath.Rel(m.roots[0].Path, path)
+		if err != nil {
+			return path
+		}
+		return rel
+	}
+	return (&workspace.Workspace{Roots: m.roots}).Relative(path)
 }
 
 // isMarkdownPath returns true for .md / .markdown / .mdx files.

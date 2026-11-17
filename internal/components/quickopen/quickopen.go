@@ -15,6 +15,7 @@ import (
 	"github.com/paradise-runner/toast/internal/fuzzy"
 	"github.com/paradise-runner/toast/internal/messages"
 	"github.com/paradise-runner/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 const (
@@ -110,7 +111,10 @@ type LoadFilesMsg struct {
 
 // Model is the quick open overlay component.
 type Model struct {
-	theme   *theme.Manager
+	theme *theme.Manager
+	// roots holds the workspace folders. RelativePath is prefixed with the root
+	// name in a multi-root workspace so two roots cannot show identical rows.
+	roots   []workspace.Root
 	rootDir string
 	ignored []string
 
@@ -125,13 +129,25 @@ type Model struct {
 	height int
 }
 
-// New creates a quick open model.
+// New creates a single-root quick open model.
 func New(tm *theme.Manager, rootDir string, ignoredPatterns []string) Model {
-	return Model{
+	return NewRoots(tm, []workspace.Root{{
+		Name: filepath.Base(rootDir),
+		Path: rootDir,
+	}}, ignoredPatterns)
+}
+
+// NewRoots creates a quick open model spanning every workspace root.
+func NewRoots(tm *theme.Manager, roots []workspace.Root, ignoredPatterns []string) Model {
+	m := Model{
 		theme:   tm,
-		rootDir: rootDir,
+		roots:   roots,
 		ignored: ignoredPatterns,
 	}
+	if len(roots) > 0 {
+		m.rootDir = roots[0].Path
+	}
+	return m
 }
 
 // Open returns a model with the overlay activated and a command to load
@@ -287,6 +303,8 @@ func (m Model) View() string {
 	switch {
 	case !m.loaded:
 		summary = "Loading files..."
+	case m.query.Value() == "" && len(m.roots) > 1:
+		summary = fmt.Sprintf("%d files across %d roots", len(m.files), len(m.roots))
 	case m.query.Value() == "":
 		summary = fmt.Sprintf("%d files in project", len(m.files))
 	case len(m.results) == 0:
@@ -364,57 +382,76 @@ func (m Model) Render() string { return m.View() }
 // loadFiles returns a command that walks the project directory and collects
 // all file paths matching the ignored patterns.
 func (m Model) loadFiles() tea.Cmd {
-	rootDir := m.rootDir
+	roots := m.roots
 	ignored := m.ignored
+	multi := len(roots) > 1
 
 	return func() tea.Msg {
 		var files []FileItem
+		// Roots may nest (a workspace can list both a repo and a folder inside
+		// it); walk each once per distinct path.
+		seen := make(map[string]bool)
 
-		err := filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return filepath.SkipDir
-			}
-			if path == rootDir {
-				return nil
-			}
-
-			// Skip hidden directories and files matching ignored patterns.
-			if d.IsDir() {
-				if isIgnored(d.Name(), ignored) {
-					return filepath.SkipDir
-				}
-				if strings.HasPrefix(d.Name(), ".") {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			if isIgnored(d.Name(), ignored) {
-				return nil
-			}
-
-			if strings.HasPrefix(d.Name(), ".") {
-				return nil
-			}
-
-			rel, err := filepath.Rel(rootDir, path)
-			if err != nil {
-				rel = path
-			}
-
-			files = append(files, FileItem{
-				Path:         path,
-				RelativePath: rel,
-			})
-
+		for _, root := range roots {
 			if len(files) >= maxFiles {
-				return filepath.SkipAll
+				break
 			}
+			err := filepath.WalkDir(root.Path, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return filepath.SkipDir
+				}
+				if path == root.Path {
+					return nil
+				}
+				if seen[path] {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
 
-			return nil
-		})
-		if err != nil {
-			// Return whatever we have on error
+				// Skip hidden directories and files matching ignored patterns.
+				if d.IsDir() {
+					if isIgnored(d.Name(), ignored) {
+						return filepath.SkipDir
+					}
+					if strings.HasPrefix(d.Name(), ".") {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+
+				if isIgnored(d.Name(), ignored) {
+					return nil
+				}
+
+				if strings.HasPrefix(d.Name(), ".") {
+					return nil
+				}
+
+				rel, err := filepath.Rel(root.Path, path)
+				if err != nil {
+					rel = path
+				}
+				if multi {
+					rel = filepath.Join(root.Name, rel)
+				}
+
+				seen[path] = true
+				files = append(files, FileItem{
+					Path:         path,
+					RelativePath: rel,
+				})
+
+				if len(files) >= maxFiles {
+					return filepath.SkipAll
+				}
+
+				return nil
+			})
+			if err != nil {
+				// Return whatever we have on error
+			}
 		}
 
 		return LoadFilesMsg{Files: files}

@@ -39,17 +39,27 @@ func (m *Model) ConfigureSession(stateDir string, cfg config.SessionConfig, rest
 	m.sessionStore = session.NewStore(stateDir)
 	m.sessionPersist = cfg.Persist
 	m.sessionRestore = cfg.Restore && restore
-	m.setSessionRoot(m.rootDir)
+	m.setSessionRoot(m.sessionKey())
 }
 
-// setSessionRoot re-keys the session store on a new workspace root, discarding
-// the per-tab state that belonged to the previous one.
-func (m *Model) setSessionRoot(rootDir string) {
+// sessionKey is the identity a session is stored under. A `.code-workspace`
+// file is its own key, so editing its folder list keeps the saved tabs; a plain
+// directory launch keeps the directory key it has always used.
+func (m *Model) sessionKey() string {
+	if m.ws != nil {
+		return m.ws.SessionKey()
+	}
+	return m.rootDir
+}
+
+// setSessionRoot re-keys the session store on a new workspace identity,
+// discarding the per-tab state that belonged to the previous one.
+func (m *Model) setSessionRoot(key string) {
 	m.pendingTabState = nil
 	if m.sessionStore == nil {
 		return
 	}
-	root, err := session.ResolveRoot(rootDir)
+	root, err := session.ResolveRoot(key)
 	if err != nil {
 		m.sessionRoot = ""
 		return

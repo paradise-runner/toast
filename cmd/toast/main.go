@@ -10,6 +10,7 @@ import (
 	"github.com/paradise-runner/toast/internal/config"
 	"github.com/paradise-runner/toast/internal/migrate"
 	"github.com/paradise-runner/toast/internal/session"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 // findGitRoot walks up the directory tree from path looking for a .git entry
@@ -107,7 +108,8 @@ func main() {
 			fmt.Printf(`toast %s - a terminal editor
 
 Usage:
-  toast [path]           Open a file or directory (defaults to current directory)
+  toast [path]           Open a file, directory or .code-workspace file
+                         (defaults to current directory)
   toast migrate-theme <source> <path> [out-dir]
                          Convert a VSCode or Zed theme to toast format
 
@@ -124,6 +126,7 @@ Options:
 
 	dir := "."
 	var initialFile string
+	var wsSpec *workspace.Workspace
 
 	if len(args) >= 1 {
 		arg := args[0]
@@ -133,8 +136,15 @@ Options:
 			os.Exit(1)
 		}
 
-		info, err := os.Stat(absArg)
-		if err == nil && !info.IsDir() {
+		if workspace.IsWorkspaceFile(absArg) {
+			// A .code-workspace file defines several roots. Load it up front so a
+			// bad file fails before a program starts, with a real error message.
+			wsSpec, err = workspace.Load(absArg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+		} else if info, err := os.Stat(absArg); err == nil && !info.IsDir() {
 			// Argument is an existing file: find git root, fall back to parent dir
 			initialFile = absArg
 			if root, ok := findGitRoot(absArg); ok {
@@ -204,7 +214,12 @@ Options:
 	home, _ := os.UserHomeDir()
 	themeDir := filepath.Join(home, ".config", "toast", "themes")
 
-	model, err := app.New(cfg, themeDir, absDir, initialFile)
+	var model *app.Model
+	if wsSpec != nil {
+		model, err = app.NewWorkspace(cfg, themeDir, wsSpec, initialFile)
+	} else {
+		model, err = app.New(cfg, themeDir, absDir, initialFile)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
