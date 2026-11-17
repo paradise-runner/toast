@@ -131,7 +131,7 @@ looked odd:
 ## Verifying a release
 
 ```bash
-gh release view v0.13.0 --json tagName,assets          # three zips: darwin-arm64, linux-amd64, app
+gh release view v0.13.0 --json tagName,assets          # four zips: darwin-arm64, linux-amd64, linux-arm64, app
 git ls-remote --tags origin | grep v0.13.0             # tag exists
 gh api repos/:owner/toast/git/ref/tags/v0.13.0         # tag → the release PR merge commit
 gh api 'repos/paradise-runner/homebrew-tap/commits?per_page=1'   # "toast v0.13.0"
@@ -146,6 +146,8 @@ and Linux blocks were not dropped:
 ```bash
 gh api repos/paradise-runner/homebrew-tap/contents/toast.rb --jq .content \
   | base64 -d | grep -cE '^  (on_macos|on_linux) do'        # → 2
+gh api repos/paradise-runner/homebrew-tap/contents/toast.rb --jq .content \
+  | base64 -d | grep -c 'toast-linux-arm64.zip'             # → 1 (arm64 wired up)
 ```
 
 The binaries bake in the tag, so the quickest end-to-end check is:
@@ -231,7 +233,7 @@ add the notes section either way.
 | `.github/workflows/release-please.yml` | Runs Release Please on `main` (or via `gh workflow run`), then calls `release.yml` when a release is created |
 | `.github/workflows/release.yml`   | Builds the platform zips + `Toast.app`, attaches them to the release, updates the Homebrew tap; also publishes `RELEASE_NOTES.md` notes for a hand-dispatched tag |
 | `scripts/release-notes-section.sh` | Prints a tag's notes section; used by `release.yml` and by the pre-push hook |
-| `scripts/test-homebrew-formula.sh` | Renders the tap formula from `release.yml` and checks every platform block is loadable |
+| `scripts/test-homebrew-formula.sh` | Renders the tap formula from `release.yml` and checks every platform and CPU block is loadable |
 | `.githooks/check-release-notes`   | pre-push hook: no local tag without a notes section                     |
 
 Release PRs are titled `chore: release X.Y.Z` (`pull-request-title-pattern`).

@@ -59,9 +59,9 @@ brew install paradise-runner/tap/toast
 brew install paradise-runner/tap/toast
 ```
 
-Linux builds are x86_64 only and link against glibc, so they need glibc 2.34 or
-newer (Ubuntu 22.04+, Fedora 35+, Debian 12+). There is no Linux arm64 build
-yet; the formula stops with a message rather than installing the amd64 binary.
+Linux builds link against glibc, so they need glibc 2.34 or newer (Ubuntu
+22.04+, Fedora 35+, Debian 12+). x86_64 and arm64 builds are both published;
+the formula downloads the one that matches your CPU.
 
 **Download a release**
 
