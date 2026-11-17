@@ -150,10 +150,13 @@ func (m *Model) switchWorkspace(dir string) tea.Cmd {
 		return nil
 	}
 
-	// Re-root the workspace components.
+	// Re-root the workspace components. The outgoing root's session is written
+	// before the root changes, and the store is re-keyed on the new one.
+	m.flushSession()
 	m.rootDir = absDir
 	m.workspacePromptVisible = false
 	m.fileTree = filetree.New(m.theme, m.cfg, absDir)
+	m.setSessionRoot(absDir)
 	m.breadcrumb = breadcrumbs.New(m.theme, absDir)
 	m.quickOpen = quickopen.New(m.theme, absDir, m.cfg.IgnoredPatterns)
 	m.search = search.New(m.theme, absDir, m.cfg.Search)
@@ -165,6 +168,16 @@ func (m *Model) switchWorkspace(dir string) tea.Cmd {
 
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.runGitStatus())
+	// Restore the new root's session only when nothing is open. Open buffers
+	// survive a workspace switch by design, so adding another root's tabs on top
+	// would mix two sessions in one window; after the bundled app's fresh-open
+	// prompt, though, the window is empty and this is exactly the moment its
+	// saved tabs should come back.
+	if len(m.tabBar.Tabs()) == 0 {
+		if cmd := m.restoreSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	cmds = append(cmds, m.resizeComponents()...)
 	return tea.Batch(cmds...)
 }

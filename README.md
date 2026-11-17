@@ -48,6 +48,7 @@ brew install paradise-runner/tap/toast
 - **Markdown preview** for `.md`, `.markdown`, and `.mdx` files
 - **Theme system** — 30+ built-in themes (Catppuccin, Tokyo Night, GitHub, Dracula, Nord, Kanagawa, Nightfox, macOS Classic, plus Toast's own dark and light), a `system` theme derived from your terminal colours at runtime, and importers for VSCode and Zed themes
 - **Auto-save** — dirty files are written to disk after a configurable inactivity delay (default 300 ms), with an optional manual-save mode
+- **Sessions** — open tabs, cursors, folds, the expanded file tree and the sidebar width come back when you reopen the same folder
 - **Configurable** via `~/.config/toast/config.json`
 
 ## Installation
@@ -138,6 +139,7 @@ toast               # open current directory
 toast path/to/dir   # open a specific directory
 toast path/to/file  # open a file (auto-detects git root)
 toast new/file.go   # open a new file buffer if the parent directory exists
+toast --no-restore  # ignore the saved session for this launch
 toast --help
 toast --version
 ```
@@ -196,6 +198,10 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
       "color_mode": "accent"
     }
   },
+  "session": {
+    "restore": true,
+    "persist": true
+  },
   "ignored_patterns": [".git", "node_modules", "__pycache__", ".DS_Store"]
 }
 ```
@@ -203,6 +209,34 @@ Toast reads `~/.config/toast/config.json` on startup. Missing keys fall back to 
 `auto_save` selects the save mode: `"auto"` (default) writes dirty buffers to
 disk after `auto_save_delay_ms` milliseconds of inactivity, while `"manual"`
 requires an explicit save (`ctrl+s` / `super+s`).
+
+### Sessions
+
+Toast saves one session per folder to `~/.config/toast/sessions/<hash>.json`.
+Reopening the same folder restores the open tabs in order, each tab's cursor,
+scroll position, folded regions and Markdown preview state, plus the expanded
+directories in the file tree and the sidebar width and visibility.
+
+- Sessions are keyed on the resolved folder path, so a symlinked path and the
+  directory it points at share one session, and two checkouts that are both
+  called `api` never collide. Each git worktree is its own session.
+- Files or directories that disappeared are dropped silently, and cursors are
+  clamped to the file length as it is now.
+- Unsaved changes are not part of a session. Closing a tab with unsaved edits
+  still goes through the quit prompt; undo history, search state and language
+  server state are not restored.
+- Naming a file on the command line (`toast path/to/file.go`) opens that file
+  and skips the session, so `--no-restore` is only needed when launching a
+  folder. `--no-restore` skips loading only: the session is still updated as you
+  work.
+- The bundled desktop app starts without a folder, so it restores nothing until
+  you pick one. Picking a folder with a saved session brings its tabs back;
+  switching folders while tabs are open keeps those tabs and saves the session
+  for the folder you left.
+
+`session.restore` turns off loading ("keep writing, never load"), and
+`session.persist` turns off writing. `--no-restore` skips loading for a single
+launch.
 
 ### Keybindings
 

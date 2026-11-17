@@ -120,3 +120,27 @@ func TestCloseButtonLeftClick_EmitsCloseTabRequestMsg(t *testing.T) {
 		t.Errorf("expected BufferID 3, got %d", req.BufferID)
 	}
 }
+
+func TestTabsAndActiveIndex(t *testing.T) {
+	m := newTestTabBar()
+	if got := m.ActiveIndex(); got != -1 {
+		t.Fatalf("ActiveIndex on a fresh tab bar = %d, want -1", got)
+	}
+
+	m, _ = m.Update(messages.BufferOpenedMsg{BufferID: 1, Path: "/a.go"})
+	m, _ = m.Update(messages.BufferOpenedMsg{BufferID: 2, Path: "/b.go"})
+
+	tabs := m.Tabs()
+	if len(tabs) != 2 || tabs[0].Path != "/a.go" || tabs[1].Path != "/b.go" {
+		t.Fatalf("Tabs = %+v, want /a.go then /b.go", tabs)
+	}
+	if got := m.ActiveIndex(); got != 1 {
+		t.Fatalf("ActiveIndex = %d, want 1 after opening two tabs", got)
+	}
+
+	// Tabs must be a copy: mutating it cannot change the tab bar.
+	tabs[0].Path = "/mutated.go"
+	if got := m.Tabs()[0].Path; got != "/a.go" {
+		t.Fatalf("Tabs() exposed internal state: %q", got)
+	}
+}

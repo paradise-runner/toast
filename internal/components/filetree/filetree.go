@@ -382,7 +382,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.rebuildFlat()
 		m.refreshDragFromIdx()
-		return m, nil
+		return m, func() tea.Msg { return messages.SessionDirtyMsg{} }
 
 	case tea.MouseWheelMsg:
 		// Context menu takes precedence: when its viewport is scrolled, the wheel
@@ -699,7 +699,7 @@ func (m Model) activateNode(idx int) (Model, tea.Cmd) {
 			}
 		}
 		m.rebuildFlat()
-		return m, nil
+		return m, func() tea.Msg { return messages.SessionDirtyMsg{} }
 	}
 
 	path := node.Path
