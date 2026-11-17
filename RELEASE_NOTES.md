@@ -1,5 +1,18 @@
 # Release Notes
 
+## [0.15.0](https://github.com/paradise-runner/toast/compare/v0.14.2...v0.15.0) (2026-11-17)
+
+
+### Features
+
+* persist per-folder session state across launches ([#112](https://github.com/paradise-runner/toast/issues/112)) ([55abdfb](https://github.com/paradise-runner/toast/commit/55abdfb7eb5b68b0ed293e25b21c057ea2290925)), closes [#107](https://github.com/paradise-runner/toast/issues/107)
+
+
+### Fixes
+
+* **ci:** assert the tap formula survives the shell heredoc ([#110](https://github.com/paradise-runner/toast/issues/110)) ([6ef2e35](https://github.com/paradise-runner/toast/commit/6ef2e35f5ad87ba4faa9f19e48af364fbb953b4e))
+* **ci:** give the Homebrew formula an on_linux branch ([#108](https://github.com/paradise-runner/toast/issues/108)) ([9dd1ab9](https://github.com/paradise-runner/toast/commit/9dd1ab95edaced72579c2a827bd5b8a43e3fd2e1))
+
 ## [0.14.2](https://github.com/paradise-runner/toast/compare/v0.14.1...v0.14.2) (2026-11-09)
 
 
