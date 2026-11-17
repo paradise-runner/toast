@@ -17,6 +17,7 @@ import (
 	"github.com/paradise-runner/toast/internal/config"
 	"github.com/paradise-runner/toast/internal/messages"
 	"github.com/paradise-runner/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 const (
@@ -37,10 +38,12 @@ type dragScrollTickMsg struct{}
 
 // Model is the Bubbletea model for the file tree sidebar.
 type Model struct {
-	theme   *theme.Manager
-	cfg     config.Config
-	root    *TreeNode
-	rootDir string
+	theme *theme.Manager
+	cfg   config.Config
+	// roots holds one tree per workspace folder. A single-folder launch has one
+	// entry; a multi-root workspace shows one collapsible top-level row per root.
+	roots   []*TreeNode
+	rootDir string // primary root, kept for callers that need one path
 	flat    []*TreeNode
 	cursor  int
 	offset  int
@@ -104,25 +107,83 @@ func (m Model) DragSourcePath() string {
 	return m.drag.from.Path
 }
 
-// RootPath returns the root directory the tree is browsing.
+// RootPath returns the primary (first) root directory the tree is browsing.
 func (m Model) RootPath() string { return m.rootDir }
 
-// New creates a new file tree model, loads children for the root, expands the root,
-// and builds the initial flat list.
-func New(tm *theme.Manager, cfg config.Config, rootDir string) Model {
-	root := &TreeNode{
-		Name:  filepath.Base(rootDir),
-		Path:  rootDir,
-		IsDir: true,
+// isRootNode reports whether node is one of the top-level workspace roots.
+func (m Model) isRootNode(node *TreeNode) bool {
+	for _, root := range m.roots {
+		if node == root {
+			return true
+		}
 	}
-	_ = root.LoadChildren(cfg.IgnoredPatterns)
-	root.Expanded = true
+	return false
+}
 
-	m := Model{
-		theme:   tm,
-		cfg:     cfg,
-		root:    root,
-		rootDir: rootDir,
+// rootIndexFor returns the workspace root owning path and its index. When roots
+// nest, the deepest one wins, matching workspace.RootFor.
+func (m Model) rootIndexFor(path string) (*TreeNode, int, bool) {
+	var best *TreeNode
+	bestIndex := -1
+	for i, root := range m.roots {
+		if !pathInside(root.Path, path) {
+			continue
+		}
+		if best == nil || len(root.Path) > len(best.Path) {
+			best, bestIndex = root, i
+		}
+	}
+	return best, bestIndex, best != nil
+}
+
+// defaultTargetDir is where a context menu created on empty space operates: the
+// folder of the selected row when there is one, otherwise the primary root.
+func (m Model) defaultTargetDir() string {
+	if m.cursor >= 0 && m.cursor < len(m.flat) {
+		node := m.flat[m.cursor]
+		if node.IsDir {
+			return node.Path
+		}
+		return filepath.Dir(node.Path)
+	}
+	return m.rootDir
+}
+
+// pathInside reports whether path is dir itself or lies below it.
+func pathInside(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// New creates a single-root file tree, loads children for the root, expands the
+// root, and builds the initial flat list.
+func New(tm *theme.Manager, cfg config.Config, rootDir string) Model {
+	return NewRoots(tm, cfg, []workspace.Root{{
+		Name: filepath.Base(rootDir),
+		Path: rootDir,
+	}})
+}
+
+// NewRoots creates a file tree with one top-level row per workspace root. Each
+// root is expanded on creation so a fresh workspace shows its contents; the root
+// row itself collapses the whole subtree.
+func NewRoots(tm *theme.Manager, cfg config.Config, roots []workspace.Root) Model {
+	m := Model{theme: tm, cfg: cfg}
+	for _, spec := range roots {
+		root := &TreeNode{
+			Name:  spec.Name,
+			Path:  spec.Path,
+			IsDir: true,
+		}
+		_ = root.LoadChildren(cfg.IgnoredPatterns)
+		root.Expanded = true
+		m.roots = append(m.roots, root)
+	}
+	if len(roots) > 0 {
+		m.rootDir = roots[0].Path
 	}
 	m.rebuildFlat()
 	return m
@@ -215,7 +276,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			m.clearDrag()
 			idx := m.offset + msg.Y
-			targetDir := m.rootDir
+			targetDir := m.defaultTargetDir()
 			var targetNode *TreeNode
 			if idx >= 0 && idx < len(m.flat) {
 				node := m.flat[idx]
@@ -267,8 +328,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if idx >= 0 && idx < len(m.flat) {
 				node := m.flat[idx]
 				m.cursor = idx
-				// The root row cannot be moved, but still activates on release.
-				if node != m.root {
+				// A root row cannot be moved, but still activates on release.
+				if !m.isRootNode(node) {
 					m.drag = dragState{fromIdx: idx, from: node, dropIdx: -1}
 				}
 			}
@@ -483,8 +544,8 @@ func (m Model) View() tea.View {
 
 		icon := m.gitIcon(node.GitStatus)
 		hasIcon := icon != " "
-		// Don't show git icon on the root folder itself
-		if node == m.root {
+		// Don't show a git icon on a workspace root row.
+		if m.isRootNode(node) {
 			icon = " "
 			hasIcon = false
 		}
@@ -843,9 +904,16 @@ func (m Model) dropLabel() string {
 	if !ok {
 		return ""
 	}
-	rel, err := filepath.Rel(m.rootDir, dest)
+	root, _, ok := m.rootIndexFor(dest)
+	if !ok {
+		return ""
+	}
+	rel, err := filepath.Rel(root.Path, dest)
 	if err != nil || rel == "." {
 		return "./"
+	}
+	if len(m.roots) > 1 {
+		return filepath.Join(root.Name, rel) + "/"
 	}
 	return rel + "/"
 }
@@ -1080,7 +1148,11 @@ func (m *Model) expandPath(path string) {
 		}
 		return false
 	}
-	expand(m.root)
+	for _, root := range m.roots {
+		if expand(root) {
+			break
+		}
+	}
 	if m.gitStatuses != nil {
 		m.applyGitStatus(m.gitStatuses)
 	}
@@ -1265,17 +1337,23 @@ func (m *Model) reloadDir(dirPath string) {
 		}
 		return false
 	}
-	reload(m.root)
+	for _, root := range m.roots {
+		if reload(root) {
+			break
+		}
+	}
 	if m.gitStatuses != nil {
 		m.applyGitStatus(m.gitStatuses)
 	}
 	m.rebuildFlat()
 }
 
-// rebuildFlat walks the expanded tree into a flat slice.
+// rebuildFlat walks the expanded trees into a flat slice.
 func (m *Model) rebuildFlat() {
 	m.flat = m.flat[:0]
-	m.walkNode(m.root)
+	for _, root := range m.roots {
+		m.walkNode(root)
+	}
 }
 
 func (m *Model) walkNode(node *TreeNode) {
@@ -1289,7 +1367,9 @@ func (m *Model) walkNode(node *TreeNode) {
 
 // applyGitStatus applies git status to tree nodes and propagates dirty status to parent dirs.
 func (m *Model) applyGitStatus(statuses map[string]messages.GitStatus) {
-	applyToNode(m.root, statuses)
+	for _, root := range m.roots {
+		applyToNode(root, statuses)
+	}
 }
 
 func applyToNode(node *TreeNode, statuses map[string]messages.GitStatus) messages.GitStatus {
@@ -1337,20 +1417,27 @@ func isDirtyGitStatus(status messages.GitStatus) bool {
 	return status != messages.GitStatusClean && status != messages.GitStatusIgnored
 }
 
-// nodeDepth calculates the depth of a node relative to the root directory.
+// nodeDepth calculates the indentation of a node. A root row is always at depth
+// 0. In a single-root tree its children share that depth (the root row is a
+// header, not an indented container); with several roots each root's subtree is
+// indented one level so it reads as belonging to that root.
 func (m *Model) nodeDepth(node *TreeNode) int {
-	rel, err := filepath.Rel(m.rootDir, node.Path)
-	if err != nil {
+	root, _, ok := m.rootIndexFor(node.Path)
+	if !ok {
 		return 0
 	}
-	if rel == "." {
+	rel, err := filepath.Rel(root.Path, node.Path)
+	if err != nil || rel == "." {
 		return 0
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
-	// Subtract 1 so the root's immediate children are at depth 0.
+	// Subtract 1 so a root's immediate children are normally at depth 0.
 	depth := len(parts) - 1
 	if depth < 0 {
-		return 0
+		depth = 0
+	}
+	if len(m.roots) > 1 {
+		depth++
 	}
 	return depth
 }

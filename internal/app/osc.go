@@ -8,11 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/paradise-runner/toast/internal/components/breadcrumbs"
-	"github.com/paradise-runner/toast/internal/components/filetree"
-	"github.com/paradise-runner/toast/internal/components/quickopen"
-	"github.com/paradise-runner/toast/internal/components/search"
 	"github.com/paradise-runner/toast/internal/messages"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 // toastOSCNumber is the OSC number used for toast-specific commands pushed by
@@ -137,29 +134,23 @@ func (m *Model) menuAction(action string) tea.Cmd {
 	return m.handleKey(msg)
 }
 
-// switchWorkspace points the whole workspace at a new root directory: the
-// file tree, breadcrumbs, quick-open, search, git status, and LSP all follow.
-// Open buffers are kept (their files are absolute paths and remain editable).
-func (m *Model) switchWorkspace(dir string) tea.Cmd {
-	absDir, err := filepath.Abs(dir)
+// switchWorkspace points the whole workspace at a new target: either a
+// directory or a `.code-workspace` file. The file tree, breadcrumbs, quick-open,
+// search, git status, and LSP all follow. Open buffers are kept (their files are
+// absolute paths and remain editable).
+func (m *Model) switchWorkspace(target string) tea.Cmd {
+	ws, err := resolveWorkspaceTarget(target)
 	if err != nil {
-		return nil
-	}
-	info, err := os.Stat(absDir)
-	if err != nil || !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "toast: open workspace %q: %v\n", target, err)
 		return nil
 	}
 
-	// Re-root the workspace components. The outgoing root's session is written
-	// before the root changes, and the store is re-keyed on the new one.
+	// Re-root the workspace components. The outgoing workspace's session is
+	// written before the roots change, and the store is re-keyed on the new one.
 	m.flushSession()
-	m.rootDir = absDir
 	m.workspacePromptVisible = false
-	m.fileTree = filetree.New(m.theme, m.cfg, absDir)
-	m.setSessionRoot(absDir)
-	m.breadcrumb = breadcrumbs.New(m.theme, absDir)
-	m.quickOpen = quickopen.New(m.theme, absDir, m.cfg.IgnoredPatterns)
-	m.search = search.New(m.theme, absDir, m.cfg.Search)
+	m.applyWorkspace(ws)
+	m.setSessionRoot(m.sessionKey())
 	m.sidebarVisible = true
 	m.focus = FocusEditor
 
@@ -180,4 +171,25 @@ func (m *Model) switchWorkspace(dir string) tea.Cmd {
 	}
 	cmds = append(cmds, m.resizeComponents()...)
 	return tea.Batch(cmds...)
+}
+
+// resolveWorkspaceTarget loads a folder or `.code-workspace` file as a
+// workspace. Any other file is rejected so the bundled app's folder picker keeps
+// its meaning.
+func resolveWorkspaceTarget(path string) (*workspace.Workspace, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		if !workspace.IsWorkspaceFile(abs) {
+			return nil, fmt.Errorf("not a folder or .code-workspace file")
+		}
+		return workspace.Load(abs)
+	}
+	return workspace.Single(abs), nil
 }

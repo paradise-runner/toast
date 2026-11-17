@@ -72,6 +72,7 @@ internal/
   syntax/         # tree-sitter syntax highlighting
   theme/          # theme manager
   watcher/        # fsnotify file watcher
+  workspace/      # one directory or a VS Code .code-workspace multi-root set
 ```
 
 ## bubbletea v2

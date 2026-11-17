@@ -39,7 +39,7 @@ func TestExpandedPathsExcludesRoot(t *testing.T) {
 	if got := m.ExpandedPaths(); len(got) != 0 {
 		t.Fatalf("fresh tree expanded = %v, want none below the root", got)
 	}
-	if !m.root.Expanded {
+	if !m.roots[0].Expanded {
 		t.Fatal("the root row must stay expanded")
 	}
 }

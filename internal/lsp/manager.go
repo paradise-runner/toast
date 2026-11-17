@@ -37,7 +37,8 @@ type openDocument struct {
 // managed installation, and bridges results to the Bubble Tea program.
 type Manager struct {
 	cfg         config.Config
-	rootDir     string
+	roots       []string
+	rootDir     string // primary root, used for config template expansion
 	installRoot string
 	send        func(tea.Msg)
 	mu          sync.Mutex
@@ -48,11 +49,20 @@ type Manager struct {
 	prompted    map[string]bool
 }
 
-// NewManager creates a Manager. send is the Bubble Tea program's Send function.
+// NewManager creates a Manager for a single root. send is the Bubble Tea
+// program's Send function.
 func NewManager(cfg config.Config, rootDir string, send func(tea.Msg)) *Manager {
-	return &Manager{
+	return NewManagerRoots(cfg, []string{rootDir}, send)
+}
+
+// NewManagerRoots creates a Manager spanning every workspace root. One server
+// per language is started, initialized with the full workspace-folder list, so
+// a frontend and a backend in different repositories share a server per
+// language rather than starting a second copy for each root.
+func NewManagerRoots(cfg config.Config, roots []string, send func(tea.Msg)) *Manager {
+	m := &Manager{
 		cfg:         cfg,
-		rootDir:     rootDir,
+		roots:       roots,
 		installRoot: defaultInstallRoot(),
 		send:        send,
 		clients:     make(map[string]*Client),
@@ -61,6 +71,10 @@ func NewManager(cfg config.Config, rootDir string, send func(tea.Msg)) *Manager 
 		installing:  make(map[string]bool),
 		prompted:    make(map[string]bool),
 	}
+	if len(roots) > 0 {
+		m.rootDir = roots[0]
+	}
+	return m
 }
 
 // EnsureServer starts the language server if available. When a configured
@@ -104,7 +118,17 @@ func (m *Manager) startClient(language, command string, lspCmd config.LSPCmd) {
 	m.send(messages.LSPServerStatusMsg{Language: language, Status: messages.LSPServerStarting})
 	client, err := NewClient(language, command, lspCmd.Args, m.send)
 	if err == nil {
-		err = client.Initialize(URIFromPath(m.rootDir))
+		var folders []WorkspaceFolder
+		if len(m.roots) > 1 {
+			folders = make([]WorkspaceFolder, 0, len(m.roots))
+			for _, root := range m.roots {
+				folders = append(folders, WorkspaceFolder{
+					URI:  URIFromPath(root),
+					Name: filepath.Base(root),
+				})
+			}
+		}
+		err = client.InitializeWithFolders(URIFromPath(m.rootDir), folders)
 	}
 	if err != nil {
 		m.mu.Lock()

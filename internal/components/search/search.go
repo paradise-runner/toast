@@ -20,6 +20,7 @@ import (
 	"github.com/paradise-runner/toast/internal/config"
 	"github.com/paradise-runner/toast/internal/messages"
 	"github.com/paradise-runner/toast/internal/theme"
+	"github.com/paradise-runner/toast/internal/workspace"
 )
 
 // ── JSON types ────────────────────────────────────────────────────────────────
@@ -62,7 +63,8 @@ type Result struct {
 
 type runSearchMsg struct {
 	query   string
-	rootDir string
+	rootDir string // primary root; kept for callers that only know one
+	roots   []workspace.Root
 }
 
 // batchMsg carries all ripgrep results plus completion statistics in a single
@@ -179,7 +181,10 @@ func (t textInput) view(placeholder string) string {
 
 // Model is the Bubbletea model for the project-wide search panel.
 type Model struct {
-	theme   *theme.Manager
+	theme *theme.Manager
+	// roots holds the workspace folders searched together. rootDir is the first
+	// one, used when a caller needs a single path.
+	roots   []workspace.Root
 	rootDir string
 	cfg     config.SearchConfig
 
@@ -198,13 +203,26 @@ type Model struct {
 	errMsg       string
 }
 
-// New creates a new search panel.
+// New creates a single-root search panel.
 func New(tm *theme.Manager, rootDir string, cfg config.SearchConfig) Model {
-	return Model{
-		theme:   tm,
-		rootDir: rootDir,
-		cfg:     cfg,
+	return NewRoots(tm, []workspace.Root{{
+		Name: filepath.Base(rootDir),
+		Path: rootDir,
+	}}, cfg)
+}
+
+// NewRoots creates a search panel that runs one search per workspace root and
+// merges the results.
+func NewRoots(tm *theme.Manager, roots []workspace.Root, cfg config.SearchConfig) Model {
+	m := Model{
+		theme: tm,
+		roots: roots,
+		cfg:   cfg,
 	}
+	if len(roots) > 0 {
+		m.rootDir = roots[0].Path
+	}
+	return m
 }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
@@ -295,7 +313,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.errMsg = ""
 		m.totalFiles = 0
 		m.totalMatches = 0
-		cmds = append(cmds, runSearch(msg.query, msg.rootDir, m.cfg.Command, m.cfg.Args))
+		roots := msg.roots
+		if len(roots) == 0 {
+			roots = m.searchRoots(msg.rootDir)
+		}
+		cmds = append(cmds, runSearchRoots(msg.query, roots, m.cfg.Command, m.cfg.Args))
 
 	// ── Paste ──────────────────────────────────────────────────────────
 
@@ -476,11 +498,7 @@ func (m Model) View() tea.View {
 
 	for i := m.offset; i < end; i++ {
 		r := m.results[i]
-		rel, err := filepath.Rel(m.rootDir, r.Path)
-		if err != nil {
-			rel = r.Path
-		}
-		prefixText := fmt.Sprintf("%s:%d", rel, r.Line)
+		prefixText := fmt.Sprintf("%s:%d", m.displayPath(r.Path), r.Line)
 		content := strings.TrimRight(r.Content, "\n\r")
 
 		// Pick per-row styles. The selected row uses the sidebar selection
@@ -634,10 +652,10 @@ func firstColor(values ...string) string {
 
 // debounceSearch waits 200 ms then fires a search if the query is still current.
 func (m Model) debounceSearch(query string) tea.Cmd {
-	rootDir := m.rootDir
+	roots := m.roots
 	return func() tea.Msg {
 		time.Sleep(200 * time.Millisecond)
-		return runSearchMsg{query: query, rootDir: rootDir}
+		return runSearchMsg{query: query, roots: roots}
 	}
 }
 
@@ -672,26 +690,45 @@ func resolveCommand(command string) (string, error) {
 	return "", fmt.Errorf("search command %q not found", command)
 }
 
-// runSearch executes the configured search command (default: rg --json) and
-// returns a batchMsg containing all results, or a searchErrorMsg when the
-// command cannot be started.
+// searchRoots returns the roots to search for a debounce message that only
+// carries a directory, falling back to the model's workspace roots.
+func (m Model) searchRoots(rootDir string) []workspace.Root {
+	if len(m.roots) > 0 {
+		return m.roots
+	}
+	if rootDir == "" {
+		return nil
+	}
+	return workspace.Single(rootDir).Roots
+}
+
+// displayPath renders a result path relative to its workspace root, with the
+// root name prepended when there is more than one.
+func (m Model) displayPath(path string) string {
+	if len(m.roots) == 1 {
+		rel, err := filepath.Rel(m.roots[0].Path, path)
+		if err != nil {
+			return path
+		}
+		return rel
+	}
+	return (&workspace.Workspace{Roots: m.roots}).Relative(path)
+}
+
+// runSearch executes the configured search command for one root. It is kept as
+// the single-root entry point used by tests and callers that know one directory.
 func runSearch(query, rootDir, command string, args []string) tea.Cmd {
+	return runSearchRoots(query, []workspace.Root{{Path: rootDir}}, command, args)
+}
+
+// runSearchRoots executes the configured search command (default: rg --json)
+// once per root and merges the results into one batchMsg, returning a
+// searchErrorMsg when the command cannot be started. Results keep their absolute
+// paths, so a hit in any root still opens correctly.
+func runSearchRoots(query string, roots []workspace.Root, command string, args []string) tea.Cmd {
 	return func() tea.Msg {
 		resolved, err := resolveCommand(command)
 		if err != nil {
-			return searchErrorMsg{err: err}
-		}
-
-		fullArgs := make([]string, 0, len(args)+3)
-		fullArgs = append(fullArgs, args...)
-		fullArgs = append(fullArgs, "--", query, rootDir)
-
-		cmd := exec.Command(resolved, fullArgs...)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return searchErrorMsg{err: err}
-		}
-		if err := cmd.Start(); err != nil {
 			return searchErrorMsg{err: err}
 		}
 
@@ -701,44 +738,66 @@ func runSearch(query, rootDir, command string, args []string) tea.Cmd {
 			totalMatches int
 			seen         = make(map[string]bool)
 		)
+		ws := &workspace.Workspace{Roots: roots}
 
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10 MB max line
+		for _, root := range roots {
+			fullArgs := make([]string, 0, len(args)+3)
+			fullArgs = append(fullArgs, args...)
+			fullArgs = append(fullArgs, "--", query, root.Path)
 
-		for scanner.Scan() {
-			var m rgMatch
-			if err := json.Unmarshal(scanner.Bytes(), &m); err != nil {
-				continue
+			cmd := exec.Command(resolved, fullArgs...)
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				return searchErrorMsg{err: err}
 			}
-			if m.Type != "match" {
-				continue
-			}
-
-			path := m.Data.Path.Text
-			if !seen[path] {
-				seen[path] = true
-				totalFiles++
+			if err := cmd.Start(); err != nil {
+				return searchErrorMsg{err: err}
 			}
 
-			content := m.Data.Lines.Text
-			lineNum := m.Data.LineNumber
-			for _, sub := range m.Data.Submatches {
-				totalMatches++
-				results = append(results, messages.SearchResultMsg{
-					Path:       path,
-					Line:       lineNum,
-					Col:        sub.Start,
-					Content:    content,
-					MatchStart: sub.Start,
-					MatchEnd:   sub.End,
-				})
+			scanner := bufio.NewScanner(stdout)
+			scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10 MB max line
+
+			for scanner.Scan() {
+				var m rgMatch
+				if err := json.Unmarshal(scanner.Bytes(), &m); err != nil {
+					continue
+				}
+				if m.Type != "match" {
+					continue
+				}
+
+				path := m.Data.Path.Text
+				// A nested root's files are reported by both searches. Attribute
+				// each hit to the deepest root that owns it, so the outer run
+				// skips files the inner run will report (and vice versa).
+				if owner, ok := ws.RootFor(path); ok && filepath.Clean(owner.Path) != filepath.Clean(root.Path) {
+					continue
+				}
+				if !seen[path] {
+					seen[path] = true
+					totalFiles++
+				}
+
+				content := m.Data.Lines.Text
+				lineNum := m.Data.LineNumber
+				for _, sub := range m.Data.Submatches {
+					totalMatches++
+					results = append(results, messages.SearchResultMsg{
+						Path:       path,
+						Line:       lineNum,
+						Col:        sub.Start,
+						Content:    content,
+						MatchStart: sub.Start,
+						MatchEnd:   sub.End,
+					})
+				}
 			}
-		}
-		if err := scanner.Err(); err != nil {
+			if err := scanner.Err(); err != nil {
+				_ = cmd.Wait()
+				return searchErrorMsg{err: fmt.Errorf("reading search output: %w", err)}
+			}
 			_ = cmd.Wait()
-			return searchErrorMsg{err: fmt.Errorf("reading search output: %w", err)}
 		}
-		_ = cmd.Wait()
 
 		return batchMsg{
 			results:      results,

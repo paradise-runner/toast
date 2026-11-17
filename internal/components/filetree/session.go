@@ -4,16 +4,16 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-// ExpandedPaths lists the expanded directories below the root as paths relative
-// to the root, sorted. The root itself is implicit: it is always expanded and is
-// represented by the absence of an entry.
+// ExpandedPaths lists the expanded directories below the roots, sorted. A root
+// row itself is implicit: every root is expanded on restore, so only directories
+// below it are stored. In a multi-root workspace each entry is prefixed with the
+// root's index ("1/pkg") so two roots with the same layout cannot collide; a
+// single-root tree keeps the plain relative path.
 func (m Model) ExpandedPaths() []string {
-	if m.root == nil {
-		return nil
-	}
 	var paths []string
 	var walk func(n *TreeNode)
 	walk = func(n *TreeNode) {
@@ -27,13 +27,15 @@ func (m Model) ExpandedPaths() []string {
 			walk(child)
 		}
 	}
-	walk(m.root)
+	for _, root := range m.roots {
+		walk(root)
+	}
 	sort.Strings(paths)
 	return paths
 }
 
-// SelectedPath returns the selected row as a path relative to the root, or ""
-// when the selection is the root row itself or the tree is empty.
+// SelectedPath returns the selected row as a path relative to its root, or ""
+// when the selection is a root row itself or the tree is empty.
 func (m Model) SelectedPath() string {
 	if m.cursor < 0 || m.cursor >= len(m.flat) {
 		return ""
@@ -52,12 +54,18 @@ func (m Model) Offset() int { return m.offset }
 // (loading each one on the way down), selects the saved row, and restores the
 // scroll offset. Directories that no longer exist are dropped silently.
 func (m *Model) RestoreState(expanded []string, selected string, offset int) {
-	if m.root == nil {
+	if len(m.roots) == 0 {
 		return
 	}
-	m.root.Expanded = true
-	for _, rel := range expanded {
-		m.expandDirChain(filepath.Join(m.rootDir, rel))
+	for _, root := range m.roots {
+		root.Expanded = true
+	}
+	for _, key := range expanded {
+		target, ok := m.pathForKey(key)
+		if !ok {
+			continue
+		}
+		m.expandDirChain(target)
 	}
 	if m.gitStatuses != nil {
 		m.applyGitStatus(m.gitStatuses)
@@ -66,11 +74,12 @@ func (m *Model) RestoreState(expanded []string, selected string, offset int) {
 
 	m.cursor = 0
 	if selected != "" {
-		target := filepath.Join(m.rootDir, selected)
-		for i, node := range m.flat {
-			if node.Path == target {
-				m.cursor = i
-				break
+		if target, ok := m.pathForKey(selected); ok {
+			for i, node := range m.flat {
+				if node.Path == target {
+					m.cursor = i
+					break
+				}
 			}
 		}
 	}
@@ -79,10 +88,10 @@ func (m *Model) RestoreState(expanded []string, selected string, offset int) {
 }
 
 // expandDirChain loads and expands target and every directory between it and
-// the root, so a nested saved expansion can be rebuilt from a fresh tree. It
+// its root, so a nested saved expansion can be rebuilt from a fresh tree. It
 // reports false when a path component is missing or is no longer a directory.
 func (m *Model) expandDirChain(target string) bool {
-	rel, ok := m.relPath(target)
+	root, _, ok := m.rootIndexFor(target)
 	if !ok {
 		return false
 	}
@@ -91,13 +100,20 @@ func (m *Model) expandDirChain(target string) bool {
 	if info, err := os.Stat(target); err != nil || !info.IsDir() {
 		return false
 	}
-	node := m.root
+	rel, err := filepath.Rel(root.Path, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	node := root
 	if !node.Loaded() {
 		if err := node.LoadChildren(m.cfg.IgnoredPatterns); err != nil {
 			return false
 		}
 	}
 	node.Expanded = true
+	if rel == "." {
+		return true
+	}
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
 		if part == "" || part == "." {
 			continue
@@ -123,17 +139,53 @@ func (m *Model) expandDirChain(target string) bool {
 	return true
 }
 
-// relPath renders path relative to the tree root, reporting false for the root
-// itself and for paths outside it.
+// relPath renders path relative to its owning root, reporting false for a root
+// itself and for paths outside every root. Multi-root workspaces prefix the
+// entry with the root index so the key is unambiguous (see ExpandedPaths).
 func (m Model) relPath(path string) (string, bool) {
-	if m.rootDir == "" {
+	root, index, ok := m.rootIndexFor(path)
+	if !ok {
 		return "", false
 	}
-	rel, err := filepath.Rel(m.rootDir, path)
+	rel, err := filepath.Rel(root.Path, path)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", false
 	}
+	if len(m.roots) > 1 {
+		return filepath.Join(strconv.Itoa(index), rel), true
+	}
 	return rel, true
+}
+
+// pathForKey is the inverse of relPath. It rejects keys that would escape the
+// root, so a corrupt session cannot make Toast expand or select outside the
+// workspace.
+func (m Model) pathForKey(key string) (string, bool) {
+	if key == "" || len(m.roots) == 0 {
+		return "", false
+	}
+	root := m.roots[0]
+	rel := key
+	if len(m.roots) > 1 {
+		indexPart, rest, ok := strings.Cut(key, string(filepath.Separator))
+		if !ok {
+			return "", false
+		}
+		index, err := strconv.Atoi(indexPart)
+		if err != nil || index < 0 || index >= len(m.roots) {
+			return "", false
+		}
+		root = m.roots[index]
+		rel = rest
+	}
+	if rel == "" || rel == "." || filepath.IsAbs(rel) {
+		return "", false
+	}
+	path := filepath.Join(root.Path, rel)
+	if !pathInside(root.Path, path) || path == root.Path {
+		return "", false
+	}
+	return path, true
 }
 
 // clampOffset keeps the scroll offset inside the flat list and, once the tree
