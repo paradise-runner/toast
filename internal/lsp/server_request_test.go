@@ -252,3 +252,15 @@ func writeVerdict(path, line string) {
 	defer f.Close()
 	fmt.Fprintln(f, line)
 }
+
+func TestConfigurationResponseMatchesRequestedSections(t *testing.T) {
+	if got := configurationResponse(json.RawMessage(`{"items":[{"section":"java"},{"section":"spring"}]}`)); len(got) != 2 {
+		t.Fatalf("configurationResponse length = %d, want 2", len(got))
+	}
+	if got := configurationResponse(json.RawMessage(`{"items":[]}`)); len(got) != 0 {
+		t.Fatalf("configurationResponse empty length = %d, want 0", len(got))
+	}
+	if got := configurationResponse(json.RawMessage(`not json`)); len(got) != 0 {
+		t.Fatalf("configurationResponse invalid length = %d, want 0", len(got))
+	}
+}
