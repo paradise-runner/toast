@@ -207,6 +207,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case messages.SettingsChangedMsg:
 		m.cfg = msg.Config
+		m.wrapMode = m.cfg.Editor.WordWrap || isTextPath(m.path)
+		m.wrapCacheGen = 0 // wrap changed shape, cached rows are stale
 		m.clampViewport()
 		return m, nil
 
@@ -333,7 +335,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewportLeft = 0
 		m.completion.hide()
 		m.clearFindState()
-		m.wrapMode = isMarkdownPath(msg.path)
+		m.wrapMode = m.cfg.Editor.WordWrap || isTextPath(msg.path)
 		m.invalidateFolds()
 		if !preserve {
 			// Fold state belongs to the document; a fresh open starts unfolded.
@@ -3180,4 +3182,15 @@ func trimTrailingWhitespace(content string) string {
 func isMarkdownPath(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".md" || ext == ".markdown"
+}
+
+// isTextPath reports whether path is prose that wraps by default. Source code
+// is excluded so indentation and alignment stay intact; set editor.word_wrap to
+// wrap those anyway.
+func isTextPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".mdown", ".txt", ".text", ".rst", ".adoc", ".org", ".log":
+		return true
+	}
+	return false
 }

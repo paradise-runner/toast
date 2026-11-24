@@ -654,3 +654,36 @@ func TestBottomPadding_WrapMode_ZeroPreservesOldBehavior(t *testing.T) {
 		t.Fatalf("cursor screen row = %d, want %d", got, 10-1)
 	}
 }
+
+func TestWordWrapDefaultsByExtension(t *testing.T) {
+	tests := []struct {
+		path string
+		wrap bool
+	}{
+		{"notes.txt", true},
+		{"README.md", true},
+		{"page.markdown", true},
+		{"guide.rst", true},
+		{"main.go", false},
+		{"app.py", false},
+		{"index.ts", false},
+		{"noext", false},
+	}
+	for _, tc := range tests {
+		m := New(nil, config.Config{})
+		m.pendingBufferID = 1
+		updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: tc.path, content: "hello"})
+		if got := updated.(Model).wrapMode; got != tc.wrap {
+			t.Errorf("%s: wrapMode = %v, want %v", tc.path, got, tc.wrap)
+		}
+	}
+}
+
+func TestWordWrapConfigEnablesCode(t *testing.T) {
+	m := New(nil, config.Config{Editor: config.EditorConfig{WordWrap: true}})
+	m.pendingBufferID = 1
+	updated, _ := m.Update(fileLoadedMsg{bufferID: 1, path: "main.go", content: "hello"})
+	if !updated.(Model).wrapMode {
+		t.Fatal("word_wrap: true should wrap a .go file")
+	}
+}
