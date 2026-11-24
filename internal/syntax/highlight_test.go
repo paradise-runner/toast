@@ -8,6 +8,9 @@ import (
 )
 
 func TestHighlightGoCode(t *testing.T) {
+	if !syntax.TreeSitterAvailable() {
+		t.Skip("tree-sitter requires cgo")
+	}
 	tm, _ := theme.NewManager("toast-dark", "")
 	h, err := syntax.NewHighlighter("test.go", tm)
 	if err != nil {
@@ -33,6 +36,9 @@ func TestHighlightUnknownLang(t *testing.T) {
 }
 
 func TestHighlightTerraformHCL(t *testing.T) {
+	if !syntax.TreeSitterAvailable() {
+		t.Skip("tree-sitter requires cgo")
+	}
 	tm, _ := theme.NewManager("toast-dark", "")
 	h, err := syntax.NewHighlighter("main.tf", tm)
 	if err != nil {
@@ -222,6 +228,9 @@ func TestHighlightJSONArray(t *testing.T) {
 }
 
 func TestHighlightTerraformExtensions(t *testing.T) {
+	if !syntax.TreeSitterAvailable() {
+		t.Skip("tree-sitter requires cgo")
+	}
 	tests := []struct {
 		path string
 	}{
