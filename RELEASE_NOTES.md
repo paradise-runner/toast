@@ -1,5 +1,12 @@
 # Release Notes
 
+## [0.15.2](https://github.com/paradise-runner/toast/compare/v0.15.1...v0.15.2) (2026-11-24)
+
+
+### Fixes
+
+* wrap text files by default ([#117](https://github.com/paradise-runner/toast/issues/117)) ([2d7c082](https://github.com/paradise-runner/toast/commit/2d7c08217d4f5f65dcdd5a8fe87f0a5e2232d06c)), closes [#116](https://github.com/paradise-runner/toast/issues/116)
+
 ## [0.15.1](https://github.com/paradise-runner/toast/compare/v0.15.0...v0.15.1) (2026-11-17)
 
 
